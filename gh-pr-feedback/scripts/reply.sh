@@ -36,7 +36,25 @@ repo="${path%%/*}"
 number="${pr_url##*/}"
 
 if [ "$mode" = "--inline" ]; then
-  gh api --method POST "repos/$owner/$repo/pulls/$number/comments/$comment_id/replies" --raw-field body="$body"
+  root_comment_id="$comment_id"
+  declare -A seen_comment_ids=()
+
+  while :; do
+    if [ "${seen_comment_ids[$root_comment_id]+present}" = "present" ]; then
+      echo "Could not resolve a top-level review comment: circular reply chain." >&2
+      exit 1
+    fi
+    seen_comment_ids[$root_comment_id]=1
+
+    parent_comment_id="$(
+      gh api "repos/$owner/$repo/pulls/comments/$root_comment_id" \
+        --jq '.in_reply_to_id // empty'
+    )"
+    [ -n "$parent_comment_id" ] || break
+    root_comment_id="$parent_comment_id"
+  done
+
+  gh api --method POST "repos/$owner/$repo/pulls/$number/comments/$root_comment_id/replies" --raw-field body="$body"
 else
   gh api --method POST "repos/$owner/$repo/issues/$number/comments" --raw-field body="$body"
 fi
