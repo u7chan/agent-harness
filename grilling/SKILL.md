@@ -1,6 +1,6 @@
 ---
 name: grilling
-description: Thoroughly challenge a plan, decision, or idea through one question at a time, to clarify assumptions and judgments. Use when asked to "grill me", "challenge my thinking", "ask me hard questions", "壁打ちして", "徹底的に壁打ちして", or "問い詰めて". Do not use for implementation work or systematic comparison against existing documents.
+description: Challenge a plan or idea one question at a time to clarify assumptions and decisions. Use for requests such as "grill", "壁打ち", "計画を立てたい", or "プランを立てたい".
 ---
 
 # Grilling
