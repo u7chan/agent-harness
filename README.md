@@ -1,8 +1,6 @@
 # global-agent-skills
 必要最低限なものだけ管理する
 
-GitHub 関連スキルを追加・改名するときは、[命名規約](NAMING.md)に従う。
-
 ## Install
 
 ```bash
