@@ -1,5 +1,5 @@
 ---
-name: gh-create-pr
+name: gh-pr-create
 description: Create a GitHub pull request from an already-pushed branch with the GitHub CLI. Use when asked to open a PR with an explicit base, head, title, and Markdown body.
 ---
 

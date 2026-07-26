@@ -1,5 +1,5 @@
 ---
-name: gh-inspect-ci
+name: gh-ci-inspect
 description: Inspect GitHub pull request checks and failed GitHub Actions logs with the GitHub CLI. Use when asked whether PR CI passed or why a GitHub Actions check failed.
 ---
 
