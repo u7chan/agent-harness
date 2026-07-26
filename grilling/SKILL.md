@@ -1,6 +1,6 @@
 ---
 name: grilling
-description: Challenge a plan or idea one question at a time to clarify assumptions and decisions. Use for requests such as "grill", "壁打ち", "計画を立てたい", or "プランを立てたい".
+description: Challenge a plan or idea one question at a time to clarify assumptions and decisions. Use when asked to grill an idea, brainstorm, or make a plan.
 ---
 
 # Grilling
