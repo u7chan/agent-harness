@@ -8,6 +8,11 @@ usage() {
 
 [ "$#" -le 1 ] || usage
 
+command -v jq >/dev/null || {
+  echo "jq is required to verify that the feedback result is complete." >&2
+  exit 1
+}
+
 reference="${1:-}"
 gh auth status >/dev/null
 if [ -n "$reference" ]; then
@@ -61,15 +66,27 @@ result="$(gh api graphql \
   -f repo="$repo" \
   -F number="$number")"
 
-if jq -e '
+has_next_page="$(jq -r '
   .data.repository.pullRequest as $pr
-  | $pr.comments.pageInfo.hasNextPage
-    or $pr.reviews.pageInfo.hasNextPage
-    or $pr.reviewThreads.pageInfo.hasNextPage
-    or any($pr.reviewThreads.nodes[]?; .comments.pageInfo.hasNextPage)
-' >/dev/null <<<"$result"; then
-  echo "Incomplete feedback result: GitHub returned more than 100 items; pagination is required." >&2
-  exit 1
-fi
+  | [
+      $pr.comments.pageInfo.hasNextPage,
+      $pr.reviews.pageInfo.hasNextPage,
+      $pr.reviewThreads.pageInfo.hasNextPage,
+      any($pr.reviewThreads.nodes[]?; .comments.pageInfo.hasNextPage)
+    ]
+  | any
+' <<<"$result")"
+
+case "$has_next_page" in
+  true)
+    echo "Incomplete feedback result: GitHub returned more than 100 items; pagination is required." >&2
+    exit 1
+    ;;
+  false) ;;
+  *)
+    echo "Could not determine whether the feedback result is complete." >&2
+    exit 1
+    ;;
+esac
 
 printf '%s\n' "$result"
