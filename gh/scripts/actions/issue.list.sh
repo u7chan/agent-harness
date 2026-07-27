@@ -31,7 +31,7 @@ main() {
   [ -n "$milestone" ] && filter_args+=(-f "milestone=$milestone")
 
   local raw_data
-  raw_data="$(call_gh_api_paginated "repos/$owner_repo/issues" '[.[]]' "${filter_args[@]}")" || {
+  raw_data="$(call_gh_api_paginated "repos/$owner_repo/issues" '[.[]]' 100 "${filter_args[@]}")" || {
     envelope_fail "issue.list" "API_ERROR" "Failed to list issues" false
     exit 1
   }

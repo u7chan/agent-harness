@@ -24,7 +24,7 @@ main() {
   pr_number="$(echo "$pr_target" | jq -r '.number')"
 
   local raw_data
-  raw_data="$(call_gh_api_paginated "repos/$owner_repo/pulls/$pr_number/files" '[.[]]')" || {
+  raw_data="$(call_gh_api_paginated "repos/$owner_repo/pulls/$pr_number/files" '[.[]]' 100)" || {
     envelope_fail "pr.files.read" "API_ERROR" "Failed to get PR files #$pr_number" false
     exit 1
   }
