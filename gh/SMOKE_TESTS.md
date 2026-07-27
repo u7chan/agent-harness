@@ -75,7 +75,7 @@ echo '{}' | bash gh/scripts/gh.sh actions.describe 2>&1 | jq .
 | Check | Pass Condition |
 |-------|---------------|
 | Status is `failed` | `.status == "failed"` |
-| Error code is `MISSING_REQUIRED_FIELD` | `.error.code == "MISSING_REQUIRED_FIELD"` |
+| Error code is `MISSING_INPUT` | `.error.code == "MISSING_INPUT"` |
 
 ### Type mismatch
 
