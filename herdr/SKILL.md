@@ -87,6 +87,16 @@ herdr agent read <name-or-pane-id> --source recent-unwrapped --lines 200
 | codex / レビュー / review | `codex` |
 | opencode / 実装 / impl | `opencode` |
 
+## Agent naming
+
+Name agents by `<kind>-<role>`:
+
+| Role | Example name |
+|------|-------------|
+| Review PR | `codex-review` |
+| Implement feature | `opencode-impl` |
+| Verify fix | `codex-check` |
+
 ## Rules
 
 - Use `--no-focus` for background work. Do not switch focus unless asked.
