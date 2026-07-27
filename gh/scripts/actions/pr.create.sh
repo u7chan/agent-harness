@@ -94,13 +94,16 @@ main() {
     --argjson has_body "$_has_body" \
     --argjson has_draft "$_has_draft" \
     --argjson has_maintainer_can_modify "$_has_maintainer_can_modify" \
+    --arg head_repo "$head_repository" \
+    --argjson has_head_repository "$_has_head_repository" \
     '{
       title: $title,
       head: $head,
       base: $base
     } + (if $has_body and $body != "" then {body: $body} else {} end)
       + (if $has_draft and $draft != null then {draft: $draft} else {} end)
-      + (if $has_maintainer_can_modify and $maintainer_can_modify != null then {maintainer_can_modify: $maintainer_can_modify} else {} end)' > "$body_file"
+      + (if $has_maintainer_can_modify and $maintainer_can_modify != null then {maintainer_can_modify: $maintainer_can_modify} else {} end)
+      + (if $has_head_repository and $head_repo != "" then {head_repo: $head_repo} else {} end)' > "$body_file"
 
   local _saved_retry="${GH_RETRY_MAX:-3}"
   GH_RETRY_MAX=1

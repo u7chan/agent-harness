@@ -46,7 +46,7 @@ main() {
   current_title="$(echo "$before_state" | jq -r '.title // ""')"
   current_body="$(echo "$before_state" | jq -r '.body // ""')"
   current_base="$(echo "$before_state" | jq -r '.base.ref // ""')"
-  current_maintainer_can_modify="$(echo "$before_state" | jq -r '.maintainer_can_modify // null')"
+  current_maintainer_can_modify="$(echo "$before_state" | jq -c '.maintainer_can_modify // null')"
 
   local needs_change=false
   if [ "$_has_title" = "true" ] && [ "$title" != "$current_title" ]; then
@@ -91,7 +91,7 @@ main() {
     --argjson has_maintainer_can_modify "$_has_maintainer_can_modify" \
     '{} + (if $has_title then {title: $title} else {} end)
         + (if $has_body and $body != "" then {body: $body} else (if $has_body then {body: ""} else {} end) end)
-        + (if $has_base and $base != "" then {base: $base} else {} end)
+        + (if $has_base and $base != "" then {base: $base} else (if $has_base then {base: ""} else {} end) end)
         + (if $has_maintainer_can_modify and $maintainer_can_modify != null then {maintainer_can_modify: $maintainer_can_modify} else (if $has_maintainer_can_modify then {maintainer_can_modify: null} else {} end) end)' > "$body_file"
 
   local _res
@@ -108,20 +108,35 @@ main() {
     exit 1
   }
 
-  local eff_title eff_body eff_base
-  eff_title="${title:-$current_title}"
-  eff_body="$(echo "$input" | jq -r 'if has("body") then .body // "" else empty end')"
-  if [ -z "$eff_body" ] && [ "$_has_body" != "true" ]; then
+  local eff_title eff_body eff_base eff_maintainer_can_modify
+  if [ "$_has_title" = "true" ]; then
+    eff_title="$title"
+  else
+    eff_title="$current_title"
+  fi
+  if [ "$_has_body" = "true" ]; then
+    eff_body="$body"
+  else
     eff_body="$current_body"
   fi
-  eff_base="${base:-$current_base}"
+  if [ "$_has_base" = "true" ]; then
+    eff_base="$base"
+  else
+    eff_base="$current_base"
+  fi
+  if [ "$_has_maintainer_can_modify" = "true" ]; then
+    eff_maintainer_can_modify="$maintainer_can_modify"
+  else
+    eff_maintainer_can_modify="$current_maintainer_can_modify"
+  fi
 
-  local after_title after_body after_base
+  local after_title after_body after_base after_maintainer_can_modify
   after_title="$(echo "$after_state" | jq -r '.title // ""')"
   after_body="$(echo "$after_state" | jq -r '.body // ""')"
   after_base="$(echo "$after_state" | jq -r '.base.ref // ""')"
+  after_maintainer_can_modify="$(echo "$after_state" | jq -c '.maintainer_can_modify // null')"
 
-  if [ "$after_title" != "$eff_title" ] || [ "$after_body" != "$eff_body" ] || [ "$after_base" != "$eff_base" ]; then
+  if [ "$after_title" != "$eff_title" ] || [ "$after_body" != "$eff_body" ] || [ "$after_base" != "$eff_base" ] || [ "$after_maintainer_can_modify" != "$eff_maintainer_can_modify" ]; then
     envelope_unknown_outcome "pr.update" "$pr_target" "$after_state"
     exit 1
   fi

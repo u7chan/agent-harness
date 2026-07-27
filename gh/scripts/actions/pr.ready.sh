@@ -56,17 +56,13 @@ main() {
     exit 0
   fi
 
-  local body_file
-  body_file="$(gh_make_temp "write-body")"
-  echo '{"draft":false}' > "$body_file"
+  local node_id
+  node_id="$(echo "$before_state" | jq -r '.node_id')"
 
-  local _res
-  _res="$(call_gh_api "repos/$owner_repo/pulls/$pr_number" "PATCH" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
-    gh_cleanup "$body_file"
+  gh api graphql -f query="mutation { markPullRequestReadyForReview(input: {pullRequestId: \"$node_id\"}) { pullRequest { isDraft } } }" >/dev/null 2>"$GH_TEMP_DIR/gh-stderr" || {
     envelope_fail "pr.ready" "API_ERROR" "Failed to mark PR as ready" false
     exit 1
   }
-  gh_cleanup "$body_file"
 
   local after_state
   after_state="$(call_gh_api "repos/$owner_repo/pulls/$pr_number")" || {

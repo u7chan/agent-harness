@@ -514,7 +514,7 @@ echo '{"number":999999}' | bash gh/scripts/gh.sh pr.read 2>&1 | jq .
 
 ```bash
 # Test: create PR from current branch to main
-echo '{"title": "smoke-test-pr-create", "base": "main", "head": "$(git branch --show-current)", "grant": "write"}' | bash gh/scripts/gh.sh pr.create | jq .
+jq -n --arg head "$(git branch --show-current)" '{"title": "smoke-test-pr-create", "base": "main", "head": $head, "grant": "write"}' | bash gh/scripts/gh.sh pr.create | jq .
 ```
 
 | Check | Filter |
