@@ -66,7 +66,7 @@ herdr agent read <target> --source recent-unwrapped --lines 200
 
 ### Error recovery
 
-- **name conflict** on `agent start` → check existing agents with `herdr agent list`. An agent may already be registered on the pane via auto-detection; use `agent rename` instead.
+- **name conflict** on `agent start` → check existing agents with `herdr agent list`. If an agent is already registered on the same pane via auto-detection, use `agent rename` instead. If the desired name is already taken by an agent on a different pane, choose a different name.
 - **pane not found** on `pane get` → the pane may not have finished initializing. Wait a moment and retry.
 
 ## Send to an existing agent
