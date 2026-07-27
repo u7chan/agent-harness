@@ -23,7 +23,20 @@ herdr pane split --current --direction right --cwd "$PWD" --no-focus
 
 Use `down` when the caller pane is already narrow.
 
-### 2. Start agent
+### 2. Agent detection
+
+```bash
+herdr pane get <pane-id>
+# read .result.pane.agent_status
+```
+
+- `agent_status != unknown` → agent is already auto-detected. Assign a name and go to step 3:
+
+```bash
+herdr agent rename <pane-id> <name>
+```
+
+- `agent_status == unknown` → start manually:
 
 ```bash
 herdr agent start <name> --kind <kind> --pane <pane-id>
@@ -51,6 +64,11 @@ herdr agent wait <target> --timeout 1800000
 herdr agent read <target> --source recent-unwrapped --lines 200
 ```
 
+### Error recovery
+
+- **name conflict** on `agent start` → check existing agents with `herdr agent list`. If an agent is already registered on the same pane via auto-detection, use `agent rename` instead. If the desired name is already taken by an agent on a different pane, choose a different name.
+- **pane not found** on `pane get` → the pane may not have finished initializing. Wait a moment and retry.
+
 ## Send to an existing agent
 
 Find the agent, then prompt, wait, and read:
@@ -69,8 +87,19 @@ herdr agent read <name-or-pane-id> --source recent-unwrapped --lines 200
 | codex / レビュー / review | `codex` |
 | opencode / 実装 / impl | `opencode` |
 
+## Agent naming
+
+Name agents by `<kind>-<role>`:
+
+| Role | Example name |
+|------|-------------|
+| Review PR | `codex-review` |
+| Implement feature | `opencode-impl` |
+| Verify fix | `codex-check` |
+
 ## Rules
 
 - Use `--no-focus` for background work. Do not switch focus unless asked.
 - Parse IDs from JSON responses. Do not guess pane or agent IDs.
 - Do not close panes or kill agents unless explicitly requested.
+- All delegation happens within the current workspace via `pane split`. Do not create a separate workspace for delegation — this causes workspace-scoped context confusion for the receiving agent.
