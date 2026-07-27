@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "actions": [
+    {
+      "name": "actions.list",
+      "description": "List all available actions with name, description, category, and permission",
+      "category": "catalog",
+      "permission": "read",
+      "requires_auth": false,
+      "input_schema": {},
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "name": "string",
+            "description": "string",
+            "category": "string",
+            "permission": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "actions.describe",
+      "description": "Describe a specific action's full schema, input, output, and permission",
+      "category": "catalog",
+      "permission": "read",
+      "requires_auth": false,
+      "input_schema": {
+        "action": {
+          "type": "string",
+          "required": true,
+          "description": "The action name to describe"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "description": "Full action definition"
+        }
+      }
+    }
+  ]
+}
