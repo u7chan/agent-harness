@@ -29,7 +29,7 @@ Use `down` when the caller pane is already narrow.
 herdr agent start <name> --kind <kind> --pane <pane-id>
 ```
 
-Kind: `codex`, `opencode`, `claude`, etc. See `herdr agent` for installed kinds.
+Kind: `codex`, `opencode`, `claude`, etc. See `herdr agent start --help` for supported kinds.
 
 ### 3. Send prompt
 
@@ -53,11 +53,13 @@ herdr agent read <target> --source recent-unwrapped --lines 200
 
 ## Send to an existing agent
 
-Find the agent, then `agent prompt`:
+Find the agent, then prompt, wait, and read:
 
 ```bash
 herdr agent list
 herdr agent prompt <name-or-pane-id> "<text>" --wait --until working --timeout 30000
+herdr agent wait <name-or-pane-id> --timeout 1800000
+herdr agent read <name-or-pane-id> --source recent-unwrapped --lines 200
 ```
 
 ## Map user intent to agent kind
