@@ -81,12 +81,21 @@ main() {
     exit 0
   fi
 
+  local payload_head payload_head_repo
+  if [ -n "$head_repository" ] && [ "$head_repository" != "null" ]; then
+    payload_head="$head_owner:$head_branch"
+    payload_head_repo="$check_repo"
+  else
+    payload_head="$head"
+    payload_head_repo=""
+  fi
+
   local body_file
   body_file="$(gh_make_temp "write-body")"
 
   jq -nc \
     --arg title "$title" \
-    --arg head "$head" \
+    --arg head "$payload_head" \
     --arg base "$base" \
     --arg body "$body" \
     --argjson draft "$draft" \
@@ -94,7 +103,7 @@ main() {
     --argjson has_body "$_has_body" \
     --argjson has_draft "$_has_draft" \
     --argjson has_maintainer_can_modify "$_has_maintainer_can_modify" \
-    --arg head_repo "$head_repository" \
+    --arg head_repo "$payload_head_repo" \
     --argjson has_head_repository "$_has_head_repository" \
     '{
       title: $title,

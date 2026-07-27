@@ -59,10 +59,15 @@ main() {
   local node_id
   node_id="$(echo "$before_state" | jq -r '.node_id')"
 
-  gh api graphql -f query="mutation { markPullRequestReadyForReview(input: {pullRequestId: \"$node_id\"}) { pullRequest { isDraft } } }" >/dev/null 2>"$GH_TEMP_DIR/gh-stderr" || {
-    envelope_fail "pr.ready" "API_ERROR" "Failed to mark PR as ready" false
-    exit 1
-  }
+  local graphql_out graphql_exit=0
+  graphql_out="$(gh api graphql -f query="mutation { markPullRequestReadyForReview(input: {pullRequestId: \"$node_id\"}) { pullRequest { isDraft } } }" 2>"$GH_TEMP_DIR/gh-stderr")" || graphql_exit=$?
+
+  if [ "$graphql_exit" -ne 0 ]; then
+    if [ -n "$graphql_out" ] && echo "$graphql_out" | jq -e '.errors' >/dev/null 2>&1; then
+      envelope_fail "pr.ready" "API_ERROR" "Failed to mark PR as ready" false
+      exit 1
+    fi
+  fi
 
   local after_state
   after_state="$(call_gh_api "repos/$owner_repo/pulls/$pr_number")" || {
