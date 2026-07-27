@@ -1037,6 +1037,403 @@
           }
         }
       }
+    },
+    {
+      "name": "pr.create",
+      "description": "Create a new pull request",
+      "category": "pr",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "PR title"
+        },
+        "body": {
+          "type": "string",
+          "required": false,
+          "description": "PR body in Markdown"
+        },
+        "base": {
+          "type": "string",
+          "required": true,
+          "description": "Base branch name"
+        },
+        "head": {
+          "type": "string",
+          "required": true,
+          "description": "Head branch name (or owner:branch for forks)"
+        },
+        "draft": {
+          "type": "boolean",
+          "required": false,
+          "description": "Create as draft PR"
+        },
+        "maintainer_can_modify": {
+          "type": "boolean",
+          "required": false,
+          "description": "Allow maintainer to modify the PR"
+        },
+        "head_repository": {
+          "type": "string",
+          "required": false,
+          "description": "Head repository (owner/repo) for fork PRs"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "body": "string",
+            "draft": "boolean",
+            "user": { "login": "string" },
+            "labels": [{ "name": "string" }],
+            "assignees": [{ "login": "string" }],
+            "milestone": { "title": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.update",
+      "description": "Update pull request metadata",
+      "category": "pr",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "title": {
+          "type": "string",
+          "required": false,
+          "description": "New title"
+        },
+        "body": {
+          "type": "string",
+          "required": false,
+          "description": "New body in Markdown"
+        },
+        "base": {
+          "type": "string",
+          "required": false,
+          "description": "New base branch"
+        },
+        "maintainer_can_modify": {
+          "type": "boolean",
+          "required": false,
+          "description": "Allow maintainer to modify the PR"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "body": "string",
+            "draft": "boolean",
+            "user": { "login": "string" },
+            "labels": [{ "name": "string" }],
+            "assignees": [{ "login": "string" }],
+            "milestone": { "title": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.close",
+      "description": "Close a pull request",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "draft": "boolean",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.reopen",
+      "description": "Reopen a closed pull request",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "draft": "boolean",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.draft",
+      "description": "Convert a pull request to draft",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "draft": "boolean",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.ready",
+      "description": "Mark a draft pull request as ready for review",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "draft": "boolean",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "reviewers.read",
+      "description": "List requested reviewers on a pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
+            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+          }
+        }
+      }
+    },
+    {
+      "name": "reviewers.request",
+      "description": "Request reviewers on a pull request",
+      "category": "pr",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "reviewers": {
+          "type": "array",
+          "required": true,
+          "description": "Reviewer logins to request"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
+            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+          }
+        }
+      }
+    },
+    {
+      "name": "reviewers.remove",
+      "description": "Remove requested reviewers from a pull request",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "reviewers": {
+          "type": "array",
+          "required": true,
+          "description": "Reviewer logins to remove"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
+            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+          }
+        }
+      }
     }
   ]
 }
