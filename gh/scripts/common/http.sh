@@ -21,7 +21,7 @@ call_gh_api() {
       -H "Accept: application/vnd.github+json" \
       --method "$method" \
       "$endpoint" \
-      "$@" 2>&1)" && exit_code=$? || exit_code=$?
+      "$@")" && exit_code=$? || exit_code=$?
 
     if [ "$exit_code" -eq 0 ]; then
       printf '%s\n' "$result"

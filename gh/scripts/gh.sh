@@ -73,9 +73,10 @@ validate_input() {
     while IFS='|' read -r field type required; do
       [ -z "$field" ] && continue
 
-      value="$(echo "$input_json" | jq -r --arg f "$field" '.[$f] // empty' 2>/dev/null || true)"
+      value="$(echo "$input_json" | jq -r --arg f "$field" 'if has($f) then .[$f] else empty end' 2>/dev/null || true)"
 
       if [ "$required" = "true" ] && [ -z "$value" ]; then
+
         envelope_fail "$action_name" "MISSING_REQUIRED_FIELD" "Required field '$field' is missing" false
         return 1
       fi
@@ -149,8 +150,6 @@ main() {
 
   "$action_file" "$input_json" || {
     local rc=$?
-    gitexit="$(echo "$input_json" | jq -r '.git_exit_code // empty' 2>/dev/null || true)"
-    env_exit="$(echo "$input_json" | jq -r '.env_exit_code // empty' 2>/dev/null || true)"
     exit "${rc:-1}"
   }
 }

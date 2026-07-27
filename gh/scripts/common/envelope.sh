@@ -86,6 +86,7 @@ envelope_fail() {
       action: $action,
       actor: "user",
       target: null,
+      data: null,
       error: {
         code: $code,
         message: $message,
