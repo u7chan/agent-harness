@@ -23,7 +23,20 @@ herdr pane split --current --direction right --cwd "$PWD" --no-focus
 
 Use `down` when the caller pane is already narrow.
 
-### 2. Start agent
+### 2. Agent detection
+
+```bash
+herdr pane get <pane-id>
+# read .result.pane.agent_status
+```
+
+- `agent_status != unknown` → agent is already auto-detected. Assign a name and go to step 3:
+
+```bash
+herdr agent rename <pane-id> <name>
+```
+
+- `agent_status == unknown` → start manually:
 
 ```bash
 herdr agent start <name> --kind <kind> --pane <pane-id>
@@ -50,6 +63,11 @@ herdr agent wait <target> --timeout 1800000
 ```bash
 herdr agent read <target> --source recent-unwrapped --lines 200
 ```
+
+### Error recovery
+
+- **name conflict** on `agent start` → check existing agents with `herdr agent list`. An agent may already be registered on the pane via auto-detection; use `agent rename` instead.
+- **pane not found** on `pane get` → the pane may not have finished initializing. Wait a moment and retry.
 
 ## Send to an existing agent
 
