@@ -8,7 +8,7 @@ GH_RETRY_BASE_DELAY=1
 call_gh_api() {
   local endpoint="$1"
   local method="${2:-GET}"
-  shift 2 || true
+  [ $# -ge 2 ] && shift 2 || shift $#
 
   local attempt=0
   local result exit_code
@@ -44,7 +44,7 @@ call_gh_api() {
 call_gh_api_paginated() {
   local endpoint="$1"
   local jq_filter="$2"
-  shift 2 || true
+  [ $# -ge 2 ] && shift 2 || shift $#
 
   local page=1
   local per_page=100

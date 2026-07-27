@@ -131,6 +131,65 @@ rm -rf "$TEMP_DIR"
 |-------|---------------|
 | Temp directory is manageable | Temp dir exists or is cleaned up |
 
+## Repository Actions
+
+### repo.get
+
+```bash
+# Test: get current repository metadata
+bash gh/scripts/gh.sh repo.get | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns repository data | `.data.full_name != null` |
+| Has expected fields | `.data.id and .data.name and .data.html_url and .data.default_branch` |
+
+## Issue Actions
+
+### issue.get
+
+```bash
+# Test: get a single issue
+echo '{"number":10}' | bash gh/scripts/gh.sh issue.get | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns issue data | `.data.number == 10` |
+| Has expected fields | `.data.title and .data.state and .data.html_url` |
+| Target has issue type | `.target.type == "issue"` |
+
+### issue.list
+
+```bash
+# Test: list open issues
+echo '{"state":"open"}' | bash gh/scripts/gh.sh issue.list | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns issue array | `.data \| type == "array"` |
+| Issues have no body | `.data[0].body == null` |
+| Issues have number | `.data[0].number != null` |
+
+## Validation
+
+### Missing required input (issue.get without number)
+
+```bash
+# Test: missing required field should fail
+echo '{}' | bash gh/scripts/gh.sh issue.get 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `failed` | `.status == "failed"` |
+| Error code is `MISSING_INPUT` | `.error.code == "MISSING_INPUT"` |
+
 ## Repository Cleanliness
 
 ```bash

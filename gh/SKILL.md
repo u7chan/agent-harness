@@ -17,6 +17,9 @@ gh/scripts/gh.sh <action-name> [json-input-file]
 |--------|--------|------------|
 | List all available actions | `actions.list` | read |
 | Describe an action's schema | `actions.describe` | read |
+| Get repository metadata | `repo.get` | read |
+| Get a single issue | `issue.get` | read |
+| List repository issues | `issue.list` | read |
 
 ## Permission
 

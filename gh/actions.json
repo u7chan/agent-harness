@@ -39,6 +39,128 @@
           "description": "Full action definition"
         }
       }
+    },
+    {
+      "name": "repo.get",
+      "description": "Get repository metadata",
+      "category": "repository",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {},
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "name": "string",
+            "full_name": "string",
+            "description": "string",
+            "private": "boolean",
+            "html_url": "string",
+            "default_branch": "string",
+            "language": "string",
+            "stargazers_count": "integer",
+            "forks_count": "integer",
+            "open_issues_count": "integer",
+            "topics": "array",
+            "created_at": "string",
+            "updated_at": "string",
+            "pushed_at": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.get",
+      "description": "Get a single issue",
+      "category": "issue",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "body": "string",
+            "user": { "login": "string" },
+            "labels": [{ "name": "string" }],
+            "assignees": [{ "login": "string" }],
+            "milestone": { "title": "string" },
+            "comments": "integer",
+            "created_at": "string",
+            "updated_at": "string",
+            "closed_at": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.list",
+      "description": "List repository issues",
+      "category": "issue",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "state": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by state (open, closed, all, default: open)"
+        },
+        "labels": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by labels (comma-separated)"
+        },
+        "assignee": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by assignee login"
+        },
+        "milestone": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by milestone"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page (default: 30)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": "integer",
+              "number": "integer",
+              "title": "string",
+              "state": "string",
+              "html_url": "string",
+              "user": { "login": "string" },
+              "labels": ["string"],
+              "assignees": ["string"],
+              "milestone": { "title": "string" },
+              "comments": "integer",
+              "created_at": "string",
+              "updated_at": "string",
+              "closed_at": "string"
+            }
+          }
+        }
+      }
     }
   ]
 }
