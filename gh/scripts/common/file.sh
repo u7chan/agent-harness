@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+__GH_TEMP_DIR=""
+
 gh_temp_dir() {
-  local dir="${GH_TEMP_DIR:-$(pwd)/.gh-tmp}"
-  mkdir -p "$dir"
-  printf '%s\n' "$dir"
+  if [ -n "$__GH_TEMP_DIR" ]; then
+    printf '%s\n' "$__GH_TEMP_DIR"
+    return
+  fi
+  if [ -n "${GH_TEMP_DIR:-}" ]; then
+    __GH_TEMP_DIR="$GH_TEMP_DIR"
+  else
+    __GH_TEMP_DIR="$(mktemp -d /tmp/gh-XXXXXX)"
+  fi
+  mkdir -p "$__GH_TEMP_DIR"
+  printf '%s\n' "$__GH_TEMP_DIR"
 }
 
 gh_make_temp() {
@@ -21,8 +31,8 @@ gh_cleanup() {
 gh_cleanup_temp_dir() {
   local dir
   dir="$(gh_temp_dir)"
-  if [ -d "$dir" ] && [ "$(ls -A "$dir" 2>/dev/null)" ]; then
-    rm -rf "$dir"/*
+  if [ -d "$dir" ]; then
+    rm -rf "$dir"
   fi
 }
 

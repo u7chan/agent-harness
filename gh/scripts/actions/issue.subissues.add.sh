@@ -26,7 +26,10 @@ main() {
   issue_target="$(echo "$target" | jq --argjson number "$number" '{type: "issue", repository: .repository, number: $number}')"
 
   local current_sub_issues
-  current_sub_issues="$(call_gh_api "repos/$owner_repo/issues/$number/sub_issues" 2>/dev/null)" || true
+  current_sub_issues="$(call_gh_api "repos/$owner_repo/issues/$number/sub_issues" 2>/dev/null)" || {
+    envelope_fail "issue.subissues.add" "API_ERROR" "Failed to fetch sub-issues" false
+    exit 1
+  }
 
   local already_present
   already_present="$(echo "$current_sub_issues" | jq -r --argjson sid "$sub_issue_id" '
@@ -44,7 +47,8 @@ main() {
   body_file="$(gh_make_temp "write-body")"
   jq -nc --argjson sub_issue_id "$sub_issue_id" '{sub_issue_id: $sub_issue_id}' > "$body_file"
 
-  local _res; _res="$(call_gh_api "repos/$owner_repo/issues/$number/sub_issues" "POST" --input "$body_file")" || {
+  local _res
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number/sub_issues" "POST" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     gh_cleanup "$body_file"
     envelope_fail "issue.subissues.add" "API_ERROR" "Failed to add sub-issue" false
     exit 1

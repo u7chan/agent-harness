@@ -48,7 +48,8 @@ main() {
   body_file="$(gh_make_temp "write-body")"
   jq -nc --argjson labels "$labels_json" '{labels: $labels}' > "$body_file"
 
-  local _res; _res="$(call_gh_api "repos/$owner_repo/issues/$number/labels" "POST" --input "$body_file")" || {
+  local _res
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number/labels" "POST" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     gh_cleanup "$body_file"
     envelope_fail "labels.add" "API_ERROR" "Failed to add labels" false
     exit 1
@@ -60,6 +61,16 @@ main() {
     envelope_unknown_outcome "labels.add" "$issue_target" "{}"
     exit 1
   }
+
+  local _all_labels_present
+  _all_labels_present="$(echo "$after_state" | jq -c --argjson expected "$labels_json" '
+    [.labels[]?.name] as $after_labels | [$expected[] | select(. as $l | $after_labels | index($l) == null)] | length == 0
+  ')"
+
+  if [ "$_all_labels_present" != "true" ]; then
+    envelope_unknown_outcome "labels.add" "$issue_target" "$after_state"
+    exit 1
+  fi
 
   local formatted
   formatted="$(echo "$after_state" | jq '{

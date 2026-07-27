@@ -41,7 +41,8 @@ main() {
     exit 0
   fi
 
-  local _res; _res="$(call_gh_api "repos/$owner_repo/issues/$number/labels/$name" "DELETE")" || {
+  local _res
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number/labels/$name" "DELETE" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     envelope_fail "labels.remove" "API_ERROR" "Failed to remove label" false
     exit 1
   }
@@ -51,6 +52,16 @@ main() {
     envelope_unknown_outcome "labels.remove" "$issue_target" "{}"
     exit 1
   }
+
+  local _label_removed
+  _label_removed="$(echo "$after_state" | jq -r --arg name "$name" '
+    [.labels[]?.name] | index($name) == null
+  ')"
+
+  if [ "$_label_removed" != "true" ]; then
+    envelope_unknown_outcome "labels.remove" "$issue_target" "$after_state"
+    exit 1
+  fi
 
   local formatted
   formatted="$(echo "$after_state" | jq '{

@@ -43,7 +43,8 @@ main() {
   body_file="$(gh_make_temp "write-body")"
   jq -nc --argjson milestone "$milestone" '{milestone: $milestone}' > "$body_file"
 
-  local _res; _res="$(call_gh_api "repos/$owner_repo/issues/$number" "PATCH" --input "$body_file")" || {
+  local _res
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number" "PATCH" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     gh_cleanup "$body_file"
     envelope_fail "milestone.set" "API_ERROR" "Failed to set milestone" false
     exit 1

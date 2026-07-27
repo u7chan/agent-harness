@@ -48,7 +48,8 @@ main() {
   body_file="$(gh_make_temp "write-body")"
   jq -nc --argjson assignees "$assignees_json" '{assignees: $assignees}' > "$body_file"
 
-  local _res; _res="$(call_gh_api "repos/$owner_repo/issues/$number/assignees" "DELETE" --input "$body_file")" || {
+  local _res
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number/assignees" "DELETE" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     gh_cleanup "$body_file"
     envelope_fail "assignees.remove" "API_ERROR" "Failed to remove assignees" false
     exit 1
@@ -60,6 +61,16 @@ main() {
     envelope_unknown_outcome "assignees.remove" "$issue_target" "{}"
     exit 1
   }
+
+  local _all_removed
+  _all_removed="$(echo "$after_state" | jq -c --argjson expected "$assignees_json" '
+    [.assignees[]?.login] as $after | [$expected[] | select(. as $a | $after | index($a) != null)] | length == 0
+  ')"
+
+  if [ "$_all_removed" != "true" ]; then
+    envelope_unknown_outcome "assignees.remove" "$issue_target" "$after_state"
+    exit 1
+  fi
 
   local formatted
   formatted="$(echo "$after_state" | jq '{

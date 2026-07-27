@@ -47,7 +47,8 @@ main() {
       state: "closed"
     } + (if $state_reason != "" then {state_reason: $state_reason} else {} end)' > "$body_file"
 
-  local _res; _res="$(call_gh_api "repos/$owner_repo/issues/$number" "PATCH" --input "$body_file")" || {
+  local _res
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number" "PATCH" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     gh_cleanup "$body_file"
     envelope_fail "issue.close" "API_ERROR" "Failed to close issue" false
     exit 1

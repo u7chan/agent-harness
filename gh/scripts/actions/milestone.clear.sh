@@ -31,9 +31,9 @@ main() {
   }
 
   local current_milestone
-  current_milestone="$(echo "$before_state" | jq -r '.milestone // empty')"
+  current_milestone="$(echo "$before_state" | jq -r '.milestone.number // empty')"
 
-  if [ "$current_milestone" = "null" ] || [ -z "$current_milestone" ]; then
+  if [ -z "$current_milestone" ]; then
     envelope_already_applied "milestone.clear" "$issue_target" "$before_state"
     exit 0
   fi
@@ -42,7 +42,8 @@ main() {
   body_file="$(gh_make_temp "write-body")"
   echo '{"milestone":null}' > "$body_file"
 
-  local _res; _res="$(call_gh_api "repos/$owner_repo/issues/$number" "PATCH" --input "$body_file")" || {
+  local _res
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number" "PATCH" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     gh_cleanup "$body_file"
     envelope_fail "milestone.clear" "API_ERROR" "Failed to clear milestone" false
     exit 1
@@ -56,9 +57,9 @@ main() {
   }
 
   local after_milestone
-  after_milestone="$(echo "$after_state" | jq -r '.milestone // empty')"
+  after_milestone="$(echo "$after_state" | jq -r '.milestone.number // empty')"
 
-  if [ "$after_milestone" != "null" ] && [ -n "$after_milestone" ]; then
+  if [ -n "$after_milestone" ]; then
     envelope_unknown_outcome "milestone.clear" "$issue_target" "$after_state"
     exit 1
   fi

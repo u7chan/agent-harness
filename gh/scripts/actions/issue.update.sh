@@ -13,6 +13,10 @@ main() {
   local number
   number="$(echo "$input" | jq -r '.number')"
 
+  local _has_title _has_body
+  _has_title="$(echo "$input" | jq -r 'has("title")')"
+  _has_body="$(echo "$input" | jq -r 'has("body")')"
+
   local target
   target="$(resolve_target)" || {
     envelope_fail "issue.update" "TARGET_ERROR" "Failed to resolve repository target" false
@@ -22,7 +26,10 @@ main() {
   owner_repo="$(echo "$target" | jq -r '.repository')"
 
   local before_state
-  before_state="$(call_gh_api "repos/$owner_repo/issues/$number" 2>/dev/null)" || true
+  before_state="$(call_gh_api "repos/$owner_repo/issues/$number" 2>/dev/null)" || {
+    envelope_fail "issue.update" "API_ERROR" "Failed to fetch issue" false
+    exit 1
+  }
 
   local current_title current_body
   current_title="$(echo "$before_state" | jq -r '.title // ""')"
@@ -32,9 +39,18 @@ main() {
   new_title="$(echo "$input" | jq -r '.title // empty')"
   new_body="$(echo "$input" | jq -r '.body // empty')"
 
-  if { [ -z "$new_title" ] || [ "$new_title" = "$current_title" ]; } && { [ -z "$new_body" ] || [ "$new_body" = "$current_body" ]; }; then
-    local issue_target
-    issue_target="$(echo "$target" | jq --argjson number "$number" '{type: "issue", repository: .repository, number: $number}')"
+  local needs_change=false
+  if [ "$_has_title" = "true" ] && [ "$new_title" != "$current_title" ]; then
+    needs_change=true
+  fi
+  if [ "$_has_body" = "true" ] && [ "$new_body" != "$current_body" ]; then
+    needs_change=true
+  fi
+
+  local issue_target
+  issue_target="$(echo "$target" | jq --argjson number "$number" '{type: "issue", repository: .repository, number: $number}')"
+
+  if [ "$needs_change" != "true" ]; then
     envelope_already_applied "issue.update" "$issue_target" "$before_state"
     exit 0
   fi
@@ -44,10 +60,13 @@ main() {
   jq -nc \
     --arg title "$new_title" \
     --arg body "$new_body" \
-    '{} + (if $title != "" then {title: $title} else {} end)
-        + (if $body  != "" then {body: $body}   else {} end)' > "$body_file"
+    --argjson has_title "$_has_title" \
+    --argjson has_body "$_has_body" \
+    '{} + (if $has_title then {title: $title} else {} end)
+        + (if $has_body  then {body:  $body}  else {} end)' > "$body_file"
 
-  local _res; _res="$(call_gh_api "repos/$owner_repo/issues/$number" "PATCH" --input "$body_file")" || {
+  local _res
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number" "PATCH" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     gh_cleanup "$body_file"
     envelope_fail "issue.update" "API_ERROR" "Failed to update issue" false
     exit 1
@@ -56,7 +75,7 @@ main() {
 
   local after_state
   after_state="$(call_gh_api "repos/$owner_repo/issues/$number")" || {
-    envelope_unknown_outcome "issue.update" "$target" "{}"
+    envelope_unknown_outcome "issue.update" "$issue_target" "{}"
     exit 1
   }
 
@@ -68,7 +87,7 @@ main() {
   after_body="$(echo "$after_state" | jq -r '.body // ""')"
 
   if [ "$after_title" != "$eff_title" ] || [ "$after_body" != "$eff_body" ]; then
-    envelope_unknown_outcome "issue.update" "$target" "$after_state"
+    envelope_unknown_outcome "issue.update" "$issue_target" "$after_state"
     exit 1
   fi
 
@@ -79,9 +98,6 @@ main() {
     assignees: [.assignees[]?.login],
     milestone: {title: .milestone.title}
   }')"
-
-  local issue_target
-  issue_target="$(echo "$target" | jq --argjson number "$number" '{type: "issue", repository: .repository, number: $number}')"
 
   envelope_ok "issue.update" "$issue_target" "$formatted"
 }
