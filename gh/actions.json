@@ -723,6 +723,313 @@
           }
         }
       }
+    },
+    {
+      "name": "prs.list",
+      "description": "List pull requests in a repository",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "state": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by state (open, closed, all; default: open)"
+        },
+        "head": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by head branch or owner:branch"
+        },
+        "base": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by base branch"
+        },
+        "sort": {
+          "type": "string",
+          "required": false,
+          "description": "Sort by (created, updated, popularity, long-running; default: created)"
+        },
+        "direction": {
+          "type": "string",
+          "required": false,
+          "description": "Sort direction (asc, desc; default: desc)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page (default: 30)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": "integer",
+              "number": "integer",
+              "title": "string",
+              "state": "string",
+              "html_url": "string",
+              "user": { "login": "string" },
+              "labels": ["string"],
+              "draft": "boolean",
+              "created_at": "string",
+              "updated_at": "string",
+              "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+              "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "prs.search",
+      "description": "Search pull requests in a repository",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "q": {
+          "type": "string",
+          "required": true,
+          "description": "Search query (auto-scoped to repo PRs; e.g. 'is:merged label:bug')"
+        },
+        "sort": {
+          "type": "string",
+          "required": false,
+          "description": "Sort by (comments, reactions, created, updated; default: best match)"
+        },
+        "order": {
+          "type": "string",
+          "required": false,
+          "description": "Sort order (asc, desc; default: desc)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page (default: 30)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": "integer",
+              "number": "integer",
+              "title": "string",
+              "state": "string",
+              "html_url": "string",
+              "user": { "login": "string" },
+              "labels": ["string"],
+              "draft": "boolean",
+              "created_at": "string",
+              "updated_at": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.read",
+      "description": "Get a single pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "body": "string",
+            "user": { "login": "string" },
+            "labels": [{ "name": "string" }],
+            "assignees": [{ "login": "string" }],
+            "milestone": { "title": "string" },
+            "draft": "boolean",
+            "merged": "boolean",
+            "mergeable": "string",
+            "comments": "integer",
+            "commits": "integer",
+            "additions": "integer",
+            "deletions": "integer",
+            "changed_files": "integer",
+            "created_at": "string",
+            "updated_at": "string",
+            "closed_at": "string",
+            "merged_at": "string",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.diff.read",
+      "description": "Get the diff of a pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "output_file": "string",
+            "size_bytes": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.files.read",
+      "description": "List files changed in a pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sha": "string",
+              "filename": "string",
+              "status": "string",
+              "additions": "integer",
+              "deletions": "integer",
+              "changes": "integer",
+              "blob_url": "string",
+              "raw_url": "string",
+              "contents_url": "string",
+              "patch": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.commits.read",
+      "description": "List commits on a pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sha": "string",
+              "html_url": "string",
+              "commit": {
+                "message": "string",
+                "author": {
+                  "name": "string",
+                  "email": "string",
+                  "date": "string"
+                },
+                "committer": {
+                  "name": "string",
+                  "email": "string",
+                  "date": "string"
+                }
+              },
+              "author": { "login": "string", "avatar_url": "string" },
+              "committer": { "login": "string", "avatar_url": "string" },
+              "parents": [{ "sha": "string", "html_url": "string" }]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.checks.read",
+      "description": "List check runs on a pull request (summary only; no CI log/artifact inspection)",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": "string",
+              "status": "string",
+              "conclusion": "string",
+              "html_url": "string"
+            }
+          }
+        }
+      }
     }
   ]
 }

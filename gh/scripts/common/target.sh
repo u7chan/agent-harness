@@ -86,6 +86,35 @@ resolve_target() {
     }'
 }
 
+resolve_pr_target() {
+  local reference="${1:-}"
+  local number="${2:-}"
+
+  if [ -n "$reference" ] || [ -n "$number" ]; then
+    if [ -n "$reference" ]; then
+      resolve_target "$reference" "$number" "pull_request" || return 1
+    else
+      local repo_target
+      repo_target="$(resolve_target)" || return 1
+      local owner_repo
+      owner_repo="$(echo "$repo_target" | jq -r '.repository')"
+      local url="https://github.com/$owner_repo/pull/$number"
+      jq -n \
+        --arg repo "$owner_repo" \
+        --arg number "$number" \
+        --arg url "$url" \
+        '{
+          type: "pull_request",
+          repository: $repo,
+          number: ($number | tonumber),
+          url: $url
+        }'
+    fi
+  else
+    resolve_pr_from_branch "" || return 1
+  fi
+}
+
 resolve_pr_from_branch() {
   local branch="${1:-}"
 
