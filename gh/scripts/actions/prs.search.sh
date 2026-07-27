@@ -34,6 +34,7 @@ main() {
 
   local max_results=1000
   local total_count=0
+  local fetched_total=0
 
   while :; do
     local page_result
@@ -68,7 +69,6 @@ main() {
 
     all_results="$(echo "$page_items" | jq -c --slurpfile old <(echo "$all_results") '$old[0] + .')"
 
-    local fetched_total
     fetched_total="$(echo "$all_results" | jq 'length')"
 
     if [ "$fetched_total" -ge "$max_results" ]; then
@@ -83,7 +83,7 @@ main() {
   done
 
   local truncated=false
-  if [ "$total_count" -gt "$max_results" ]; then
+  if [ "$total_count" -gt "$fetched_total" ]; then
     truncated=true
   fi
 
