@@ -17,8 +17,8 @@ main() {
   before_id="$(echo "$input" | jq -c '.before_id // null')"
 
   local _has_after _has_before
-  _has_after="$(echo "$input" | jq -r 'has("after_id")')"
-  _has_before="$(echo "$input" | jq -r 'has("before_id")')"
+  _has_after="$(echo "$input" | jq -r 'has("after_id") and (.after_id | type != "null")')"
+  _has_before="$(echo "$input" | jq -r 'has("before_id") and (.before_id | type != "null")')"
 
   if [ "$_has_after" = "true" ] && [ "$_has_before" = "true" ]; then
     envelope_fail "issue.subissues.reorder" "INVALID_INPUT" "Specify either after_id or before_id, not both" false
