@@ -815,21 +815,28 @@
       },
       "output_schema": {
         "data": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": "integer",
-              "number": "integer",
-              "title": "string",
-              "state": "string",
-              "html_url": "string",
-              "user": { "login": "string" },
-              "labels": ["string"],
-              "draft": "boolean",
-              "created_at": "string",
-              "updated_at": "string"
-            }
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": "integer",
+                  "number": "integer",
+                  "title": "string",
+                  "state": "string",
+                  "html_url": "string",
+                  "user": { "login": "string" },
+                  "labels": ["string"],
+                  "draft": "boolean",
+                  "created_at": "string",
+                  "updated_at": "string"
+                }
+              }
+            },
+            "truncated": "boolean",
+            "total_count": "integer"
           }
         }
       }

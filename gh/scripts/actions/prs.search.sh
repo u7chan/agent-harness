@@ -72,9 +72,6 @@ main() {
     fetched_total="$(echo "$all_results" | jq 'length')"
 
     if [ "$fetched_total" -ge "$max_results" ]; then
-      all_results="$(echo "$all_results" | jq -c \
-        --argjson total "$total_count" \
-        '{items: ., truncated: true, total_count: $total, note: "GitHub Search API only returns up to 1000 results"}')"
       break
     fi
 
@@ -84,6 +81,16 @@ main() {
 
     page=$((page + 1))
   done
+
+  local truncated=false
+  if [ "$total_count" -gt "$max_results" ]; then
+    truncated=true
+  fi
+
+  all_results="$(echo "$all_results" | jq -c \
+    --argjson total "$total_count" \
+    --argjson truncated "$truncated" \
+    '{items: ., truncated: $truncated, total_count: $total}')"
 
   envelope_ok "prs.search" "$target" "$all_results"
 }

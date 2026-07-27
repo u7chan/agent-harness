@@ -407,7 +407,9 @@ echo '{"q":"is:open"}' | bash gh/scripts/gh.sh prs.search | jq .
 | Check | Pass Condition |
 |-------|---------------|
 | Status is `ok` | `.status == "ok"` |
-| Returns PR array | `.data \| type == "array"` |
+| Returns items array | `.data.items \| type == "array"` |
+| Has truncated flag | `.data.truncated == false` or `.data.truncated == true` |
+| Has total_count | `.data.total_count >= 0` |
 
 ### pr.read
 
