@@ -23,7 +23,20 @@ herdr pane split --current --direction right --cwd "$PWD" --no-focus
 
 Use `down` when the caller pane is already narrow.
 
-### 2. Start agent
+### 2. Agent detection
+
+```bash
+herdr agent get <pane-id>
+# read .result.agent.status
+```
+
+- `status != unknown` → agent is already auto-detected. Assign a name and go to step 3:
+
+```bash
+herdr agent rename <pane-id> <name>
+```
+
+- `status == unknown` → start manually:
 
 ```bash
 herdr agent start <name> --kind <kind> --pane <pane-id>
@@ -34,7 +47,7 @@ Kind: `codex`, `opencode`, `claude`, etc. See `herdr agent start --help` for sup
 ### 3. Send prompt
 
 ```bash
-herdr agent prompt <target> "<text>" --wait --until working --timeout 30000
+herdr agent prompt <target> "<text>" --wait --timeout 30000
 ```
 
 Target = agent name or pane ID. Prefer agent name when known.
@@ -51,13 +64,18 @@ herdr agent wait <target> --timeout 1800000
 herdr agent read <target> --source recent-unwrapped --lines 200
 ```
 
+### Error recovery
+
+- **name conflict** on `agent start` → check existing agents with `herdr agent list`. An agent may already be registered on the pane via auto-detection; use `agent rename` instead.
+- **agent not found** on `agent get` → the pane may not have finished initializing. Wait a moment and retry.
+
 ## Send to an existing agent
 
 Find the agent, then prompt, wait, and read:
 
 ```bash
 herdr agent list
-herdr agent prompt <name-or-pane-id> "<text>" --wait --until working --timeout 30000
+herdr agent prompt <name-or-pane-id> "<text>" --wait --timeout 30000
 herdr agent wait <name-or-pane-id> --timeout 1800000
 herdr agent read <name-or-pane-id> --source recent-unwrapped --lines 200
 ```

@@ -13,6 +13,12 @@ source "$COMMON_DIR/envelope.sh"
 source "$COMMON_DIR/http.sh"
 source "$COMMON_DIR/file.sh"
 
+if [ -z "${GH_TEMP_DIR:-}" ]; then
+  export GH_TEMP_DIR="$(mktemp -d /tmp/gh-XXXXXX)"
+  touch "$GH_TEMP_DIR/.gh-tmp-marker"
+fi
+trap 'gh_cleanup_temp_dir' EXIT
+
 command -v jq >/dev/null || {
   envelope_fail "unknown" "MISSING_DEPENDENCY" "jq is required" false
   exit 1
@@ -136,6 +142,25 @@ main() {
       envelope_fail "$action_name" "AUTH_ERROR" "gh is not authenticated or host is not github.com" false
       exit 1
     fi
+  fi
+
+  local permission
+  permission="$(echo "$action_def" | jq -r '.permission // "read"')"
+  local grant
+  grant="$(echo "$input_json" | jq -r '.grant // "read"')"
+
+  permission_level() {
+    case "$1" in
+      read) echo 0 ;;
+      write) echo 1 ;;
+      sensitive-write) echo 2 ;;
+      *) echo 0 ;;
+    esac
+  }
+
+  if [ "$(permission_level "$grant")" -lt "$(permission_level "$permission")" ]; then
+    envelope_fail "$action_name" "GRANT_INSUFFICIENT" "Action requires '$permission' but grant is '$grant'" false
+    exit 1
   fi
 
   local action_file="$ACTIONS_DIR/${action_name}.sh"
