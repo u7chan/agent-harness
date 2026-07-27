@@ -9,12 +9,13 @@ source "$SCRIPT_DIR/../common/http.sh"
 main() {
   local input="$1"
 
-  local state head base sort_dir direction
+  local state head base sort_dir direction per_page
   state="$(echo "$input" | jq -r '.state // "open"')"
   head="$(echo "$input" | jq -r '.head // empty')"
   base="$(echo "$input" | jq -r '.base // empty')"
   sort_dir="$(echo "$input" | jq -r '.sort // "created"')"
   direction="$(echo "$input" | jq -r '.direction // "desc"')"
+  per_page="$(echo "$input" | jq -r '.per_page // 30')"
 
   local target
   target="$(resolve_target)" || {
@@ -33,7 +34,7 @@ main() {
   [ -n "$base" ] && filter_args+=(-f "base=$base")
 
   local raw_data
-  raw_data="$(call_gh_api_paginated "repos/$owner_repo/pulls" '[.[]]' "${filter_args[@]}")" || {
+  raw_data="$(call_gh_api_paginated "repos/$owner_repo/pulls" '[.[]]' "$per_page" "${filter_args[@]}")" || {
     envelope_fail "prs.list" "API_ERROR" "Failed to list PRs" false
     exit 1
   }

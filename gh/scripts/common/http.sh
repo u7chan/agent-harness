@@ -44,10 +44,10 @@ call_gh_api() {
 call_gh_api_paginated() {
   local endpoint="$1"
   local jq_filter="$2"
-  [ $# -ge 2 ] && shift 2 || shift $#
+  local per_page="${3:-100}"
+  [ $# -ge 3 ] && shift 3 || [ $# -ge 2 ] && shift 2 || shift $#
 
   local page=1
-  local per_page=100
   local tmpfile
   tmpfile="$(mktemp)"
   echo '[]' > "$tmpfile"

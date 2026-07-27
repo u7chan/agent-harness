@@ -9,10 +9,11 @@ source "$SCRIPT_DIR/../common/http.sh"
 main() {
   local input="$1"
 
-  local q sort_by order
+  local q sort_by order per_page_val
   q="$(echo "$input" | jq -r '.q')"
   sort_by="$(echo "$input" | jq -r '.sort // empty')"
   order="$(echo "$input" | jq -r '.order // "desc"')"
+  per_page_val="$(echo "$input" | jq -r '.per_page // 30')"
 
   local target
   target="$(resolve_target)" || {
@@ -29,7 +30,7 @@ main() {
   [ -n "$sort_by" ] && filter_args+=(-f "sort=$sort_by")
 
   local page=1
-  local per_page=100
+  local per_page="$per_page_val"
   local all_results="[]"
 
   local max_results=1000
