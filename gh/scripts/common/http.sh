@@ -45,7 +45,13 @@ call_gh_api_paginated() {
   local endpoint="$1"
   local jq_filter="$2"
   local per_page="${3:-100}"
-  [ $# -ge 3 ] && shift 3 || [ $# -ge 2 ] && shift 2 || shift $#
+  if [ $# -ge 3 ]; then
+    shift 3
+  elif [ $# -ge 2 ]; then
+    shift 2
+  else
+    shift $#
+  fi
 
   local page=1
   local tmpfile
