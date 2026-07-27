@@ -30,14 +30,14 @@ main() {
   [ -n "$assignee" ] && filter_args+=(-f "assignee=$assignee")
   [ -n "$milestone" ] && filter_args+=(-f "milestone=$milestone")
 
-  local filter
-  filter='[.[] | select(.pull_request == null) | {id, number, title, state, html_url, user: {login: .user.login}, labels: [.labels[].name], assignees: [.assignees[].login], milestone: {title: .milestone.title}, comments, created_at, updated_at, closed_at}]'
-
-  local data
-  data="$(call_gh_api_paginated "repos/$owner_repo/issues" "$filter" "${filter_args[@]}")" || {
+  local raw_data
+  raw_data="$(call_gh_api_paginated "repos/$owner_repo/issues" '[.[]]' "${filter_args[@]}")" || {
     envelope_fail "issue.list" "API_ERROR" "Failed to list issues" false
     exit 1
   }
+
+  local data
+  data="$(echo "$raw_data" | jq -c '[.[] | select(.pull_request == null) | {id, number, title, state, html_url, user: {login: .user.login}, labels: [.labels[].name], assignees: [.assignees[].login], milestone: {title: .milestone.title}, comments, created_at, updated_at, closed_at}]')"
 
   envelope_ok "issue.list" "$target" "$data"
 }
