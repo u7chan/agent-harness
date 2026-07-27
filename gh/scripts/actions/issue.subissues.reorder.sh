@@ -13,8 +13,21 @@ main() {
   local number sub_issue_id after_id before_id
   number="$(echo "$input" | jq -r '.number')"
   sub_issue_id="$(echo "$input" | jq -r '.sub_issue_id')"
-  after_id="$(echo "$input" | jq -r '.after_id // empty')"
-  before_id="$(echo "$input" | jq -r '.before_id // empty')"
+  after_id="$(echo "$input" | jq -c '.after_id // null')"
+  before_id="$(echo "$input" | jq -c '.before_id // null')"
+
+  local _has_after _has_before
+  _has_after="$(echo "$input" | jq -r 'has("after_id")')"
+  _has_before="$(echo "$input" | jq -r 'has("before_id")')"
+
+  if [ "$_has_after" = "true" ] && [ "$_has_before" = "true" ]; then
+    envelope_fail "issue.subissues.reorder" "INVALID_INPUT" "Specify either after_id or before_id, not both" false
+    exit 1
+  fi
+  if [ "$_has_after" != "true" ] && [ "$_has_before" != "true" ]; then
+    envelope_fail "issue.subissues.reorder" "INVALID_INPUT" "Either after_id or before_id is required" false
+    exit 1
+  fi
 
   local target
   target="$(resolve_target)" || {

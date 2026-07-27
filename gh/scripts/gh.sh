@@ -13,7 +13,10 @@ source "$COMMON_DIR/envelope.sh"
 source "$COMMON_DIR/http.sh"
 source "$COMMON_DIR/file.sh"
 
-export GH_TEMP_DIR="${GH_TEMP_DIR:-$(mktemp -d /tmp/gh-XXXXXX)}"
+if [ -z "${GH_TEMP_DIR:-}" ]; then
+  export GH_TEMP_DIR="$(mktemp -d /tmp/gh-XXXXXX)"
+  touch "$GH_TEMP_DIR/.gh-tmp-marker"
+fi
 trap 'gh_cleanup_temp_dir' EXIT
 
 command -v jq >/dev/null || {

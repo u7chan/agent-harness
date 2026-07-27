@@ -31,7 +31,7 @@ gh_cleanup() {
 gh_cleanup_temp_dir() {
   local dir
   dir="$(gh_temp_dir)"
-  if [ -d "$dir" ]; then
+  if [ -d "$dir" ] && [ -f "$dir/.gh-tmp-marker" ]; then
     rm -rf "$dir"
   fi
 }
