@@ -8,7 +8,7 @@ GH_RETRY_BASE_DELAY=1
 call_gh_api() {
   local endpoint="$1"
   local method="${2:-GET}"
-  shift 2 || true
+  [ $# -ge 2 ] && shift 2 || shift $#
 
   local attempt=0
   local result exit_code
@@ -44,7 +44,7 @@ call_gh_api() {
 call_gh_api_paginated() {
   local endpoint="$1"
   local jq_filter="$2"
-  shift 2 || true
+  [ $# -ge 2 ] && shift 2 || shift $#
 
   local page=1
   local per_page=100
@@ -60,15 +60,15 @@ call_gh_api_paginated() {
       return 1
     }
 
+    local raw_count
+    raw_count="$(echo "$page_result" | jq 'length')"
+
     local page_items
     page_items="$(echo "$page_result" | jq -c "$jq_filter")"
 
-    local item_count
-    item_count="$(echo "$page_items" | jq 'length')"
-
     all_results="$(echo "$all_results" | jq -c --argjson items "$page_items" '. + $items')"
 
-    if [ "$item_count" -lt "$per_page" ]; then
+    if [ "$raw_count" -lt "$per_page" ]; then
       break
     fi
 
