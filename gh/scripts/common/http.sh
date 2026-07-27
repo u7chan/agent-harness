@@ -60,15 +60,15 @@ call_gh_api_paginated() {
       return 1
     }
 
+    local raw_count
+    raw_count="$(echo "$page_result" | jq 'length')"
+
     local page_items
     page_items="$(echo "$page_result" | jq -c "$jq_filter")"
 
-    local item_count
-    item_count="$(echo "$page_items" | jq 'length')"
-
     all_results="$(echo "$all_results" | jq -c --argjson items "$page_items" '. + $items')"
 
-    if [ "$item_count" -lt "$per_page" ]; then
+    if [ "$raw_count" -lt "$per_page" ]; then
       break
     fi
 
