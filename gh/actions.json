@@ -161,6 +161,568 @@
           }
         }
       }
+    },
+    {
+      "name": "issue.create",
+      "description": "Create a new issue",
+      "category": "issue",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "Issue title"
+        },
+        "body": {
+          "type": "string",
+          "required": false,
+          "description": "Issue body in Markdown"
+        },
+        "labels": {
+          "type": "array",
+          "required": false,
+          "description": "Labels to apply"
+        },
+        "assignees": {
+          "type": "array",
+          "required": false,
+          "description": "Assignees to add"
+        },
+        "milestone": {
+          "type": "number",
+          "required": false,
+          "description": "Milestone number"
+        },
+        "parent": {
+          "type": "number",
+          "required": false,
+          "description": "Parent issue number to add this as a sub-issue"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.update",
+      "description": "Update issue title and/or body",
+      "category": "issue",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "title": {
+          "type": "string",
+          "required": false,
+          "description": "New title"
+        },
+        "body": {
+          "type": "string",
+          "required": false,
+          "description": "New body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.close",
+      "description": "Close an issue",
+      "category": "issue",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "state_reason": {
+          "type": "string",
+          "required": false,
+          "description": "Reason for closing (completed, not_planned)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.reopen",
+      "description": "Reopen a closed issue",
+      "category": "issue",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "labels.add",
+      "description": "Add labels to an issue",
+      "category": "metadata",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "labels": {
+          "type": "array",
+          "required": true,
+          "description": "Label names to add"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "labels.remove",
+      "description": "Remove a label from an issue",
+      "category": "metadata",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Label name to remove"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "labels.set",
+      "description": "Replace all labels on an issue",
+      "category": "metadata",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "labels": {
+          "type": "array",
+          "required": true,
+          "description": "New set of label names"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "assignees.add",
+      "description": "Add assignees to an issue",
+      "category": "metadata",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "assignees": {
+          "type": "array",
+          "required": true,
+          "description": "Assignee logins to add"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "assignees.remove",
+      "description": "Remove assignees from an issue",
+      "category": "metadata",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "assignees": {
+          "type": "array",
+          "required": true,
+          "description": "Assignee logins to remove"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "milestone.set",
+      "description": "Set milestone on an issue",
+      "category": "metadata",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "milestone": {
+          "type": "number",
+          "required": true,
+          "description": "Milestone number"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "milestone.clear",
+      "description": "Clear milestone from an issue",
+      "category": "metadata",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.subissues.add",
+      "description": "Add a sub-issue",
+      "category": "subissue",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Parent issue number"
+        },
+        "sub_issue_id": {
+          "type": "number",
+          "required": true,
+          "description": "Sub-issue integer ID (not issue number)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.subissues.remove",
+      "description": "Remove a sub-issue",
+      "category": "subissue",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Parent issue number"
+        },
+        "sub_issue_id": {
+          "type": "number",
+          "required": true,
+          "description": "Sub-issue integer ID to remove"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.subissues.reorder",
+      "description": "Reprioritize a sub-issue",
+      "category": "subissue",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Parent issue number"
+        },
+        "sub_issue_id": {
+          "type": "number",
+          "required": true,
+          "description": "Sub-issue integer ID to move"
+        },
+        "after_id": {
+          "type": "number",
+          "required": false,
+          "description": "Position after this sub-issue integer ID"
+        },
+        "before_id": {
+          "type": "number",
+          "required": false,
+          "description": "Position before this sub-issue integer ID"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string"
+          }
+        }
+      }
     }
   ]
 }

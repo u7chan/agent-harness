@@ -138,6 +138,25 @@ main() {
     fi
   fi
 
+  local permission
+  permission="$(echo "$action_def" | jq -r '.permission // "read"')"
+  local grant
+  grant="$(echo "$input_json" | jq -r '.grant // "read"')"
+
+  permission_level() {
+    case "$1" in
+      read) echo 0 ;;
+      write) echo 1 ;;
+      sensitive-write) echo 2 ;;
+      *) echo 0 ;;
+    esac
+  }
+
+  if [ "$(permission_level "$grant")" -lt "$(permission_level "$permission")" ]; then
+    envelope_fail "$action_name" "GRANT_INSUFFICIENT" "Action requires '$permission' but grant is '$grant'" false
+    exit 1
+  fi
+
   local action_file="$ACTIONS_DIR/${action_name}.sh"
   if [ ! -f "$action_file" ]; then
     envelope_fail "$action_name" "NOT_IMPLEMENTED" "Action not yet implemented: $action_name" false

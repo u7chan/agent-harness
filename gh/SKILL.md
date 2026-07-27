@@ -20,6 +20,20 @@ gh/scripts/gh.sh <action-name> [json-input-file]
 | Get repository metadata | `repo.get` | read |
 | Get a single issue | `issue.get` | read |
 | List repository issues | `issue.list` | read |
+| Create a new issue | `issue.create` | write |
+| Update issue title/body | `issue.update` | write |
+| Close an issue | `issue.close` | sensitive-write |
+| Reopen an issue | `issue.reopen` | sensitive-write |
+| Add labels to an issue | `labels.add` | write |
+| Remove a label from an issue | `labels.remove` | sensitive-write |
+| Replace all labels on an issue | `labels.set` | sensitive-write |
+| Add assignees to an issue | `assignees.add` | write |
+| Remove assignees from an issue | `assignees.remove` | sensitive-write |
+| Set milestone on an issue | `milestone.set` | write |
+| Clear milestone from an issue | `milestone.clear` | sensitive-write |
+| Add a sub-issue | `issue.subissues.add` | write |
+| Remove a sub-issue | `issue.subissues.remove` | sensitive-write |
+| Reprioritize a sub-issue | `issue.subissues.reorder` | write |
 
 ## Permission
 

@@ -190,6 +190,196 @@ echo '{}' | bash gh/scripts/gh.sh issue.get 2>&1 | jq .
 | Status is `failed` | `.status == "failed"` |
 | Error code is `MISSING_INPUT` | `.error.code == "MISSING_INPUT"` |
 
+## Write Actions
+
+### issue.create
+
+```bash
+# Test: create issue
+echo '{"title": "smoke-test-create", "grant": "write"}' | bash gh/scripts/gh.sh issue.create | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| issue created | `.data.number != null` |
+
+### issue.update
+
+```bash
+# Test: update issue title
+echo '{"number":1, "title": "smoke-test-update", "grant": "write"}' | bash gh/scripts/gh.sh issue.update | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| title updated | `.data.title == "smoke-test-update"` |
+
+### issue.close
+
+```bash
+# Test: close issue
+echo '{"number":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh issue.close | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| state closed | `.data.state == "closed"` |
+
+### issue.reopen
+
+```bash
+# Test: reopen issue
+echo '{"number":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh issue.reopen | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| state open | `.data.state == "open"` |
+
+### labels.add
+
+```bash
+# Test: add labels
+echo '{"number":1, "labels":["bug","enhancement"], "grant": "write"}' | bash gh/scripts/gh.sh labels.add | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| has labels | `.data.labels | length > 0` |
+
+### labels.remove
+
+```bash
+# Test: remove label
+echo '{"number":1, "name":"bug", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh labels.remove | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| label removed | `.data.labels | any(. == "bug") | not` |
+
+### labels.set
+
+```bash
+# Test: set labels
+echo '{"number":1, "labels":["documentation"], "grant": "sensitive-write"}' | bash gh/scripts/gh.sh labels.set | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| labels replaced | `.data.labels == ["documentation"]` |
+
+### assignees.add
+
+```bash
+# Test: add assignees
+echo '{"number":1, "assignees":["octocat"], "grant": "write"}' | bash gh/scripts/gh.sh assignees.add | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| has assignees | `.data.assignees | length > 0` |
+
+### assignees.remove
+
+```bash
+# Test: remove assignees
+echo '{"number":1, "assignees":["octocat"], "grant": "sensitive-write"}' | bash gh/scripts/gh.sh assignees.remove | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| assignee removed | `.data.assignees | any(. == "octocat") | not` |
+
+### milestone.set
+
+```bash
+# Test: set milestone
+echo '{"number":1, "milestone":1, "grant": "write"}' | bash gh/scripts/gh.sh milestone.set | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| milestone set | `.data.milestone != null` |
+
+### milestone.clear
+
+```bash
+# Test: clear milestone
+echo '{"number":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh milestone.clear | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| milestone cleared | `.data.milestone.title == null` |
+
+### issue.subissues.add
+
+```bash
+# Test: add sub-issue
+echo '{"number":1, "sub_issue_id":123, "grant": "write"}' | bash gh/scripts/gh.sh issue.subissues.add | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+
+### issue.subissues.remove
+
+```bash
+# Test: remove sub-issue
+echo '{"number":1, "sub_issue_id":123, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh issue.subissues.remove | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+
+### issue.subissues.reorder
+
+```bash
+# Test: reorder sub-issue
+echo '{"number":1, "sub_issue_id":123, "after_id":456, "grant": "write"}' | bash gh/scripts/gh.sh issue.subissues.reorder | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+
+### Already Applied (Idempotency)
+
+```bash
+# Test: close already closed issue returns already_applied
+echo '{"number":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh issue.close | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status already_applied | `.status == "already_applied"` |
+
+### Grant Rejection
+
+```bash
+# Test: insufficient grant should fail
+echo '{"title": "fail", "grant": "read"}' | bash gh/scripts/gh.sh issue.create 2>&1 | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status failed | `.status == "failed"` |
+| error code GRANT_INSUFFICIENT | `.error.code == "GRANT_INSUFFICIENT"` |
+
 ## Repository Cleanliness
 
 ```bash
