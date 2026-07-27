@@ -92,3 +92,4 @@ herdr agent read <name-or-pane-id> --source recent-unwrapped --lines 200
 - Use `--no-focus` for background work. Do not switch focus unless asked.
 - Parse IDs from JSON responses. Do not guess pane or agent IDs.
 - Do not close panes or kill agents unless explicitly requested.
+- All delegation happens within the current workspace via `pane split`. Do not create a separate workspace for delegation — this causes workspace-scoped context confusion for the receiving agent.
