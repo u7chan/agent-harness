@@ -32,19 +32,38 @@ main() {
   local head_sha
   head_sha="$(echo "$pr_data" | jq -r '.head.sha')"
 
-  local raw_data
-  raw_data="$(call_gh_api "repos/$owner_repo/commits/$head_sha/check-runs" "GET" \
-    -f "per_page=100")" || {
-    envelope_fail "pr.checks.read" "API_ERROR" "Failed to get check runs for PR #$pr_number" false
-    exit 1
-  }
+  local page=1
+  local per_page=100
+  local all_results="[]"
 
-  local data
-  data="$(echo "$raw_data" | jq -c '[.check_runs[]? | {
-    name, status, conclusion, html_url
-  }]')"
+  while :; do
+    local raw_data
+    raw_data="$(call_gh_api "repos/$owner_repo/commits/$head_sha/check-runs" "GET" \
+      -f "per_page=$per_page" -f "page=$page")" || {
+      envelope_fail "pr.checks.read" "API_ERROR" "Failed to get check runs for PR #$pr_number" false
+      exit 1
+    }
 
-  envelope_ok "pr.checks.read" "$pr_target" "$data"
+    local page_items items_count
+    page_items="$(echo "$raw_data" | jq -c '[.check_runs[]? | {
+      name, status, conclusion, html_url
+    }]')"
+    items_count="$(echo "$page_items" | jq 'length')"
+
+    if [ "$items_count" -eq 0 ]; then
+      break
+    fi
+
+    all_results="$(echo "$page_items" | jq -c --slurpfile old <(echo "$all_results") '$old[0] + .')"
+
+    if [ "$items_count" -lt "$per_page" ]; then
+      break
+    fi
+
+    page=$((page + 1))
+  done
+
+  envelope_ok "pr.checks.read" "$pr_target" "$all_results"
 }
 
 main "$@"

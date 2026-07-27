@@ -32,6 +32,9 @@ main() {
   local per_page=100
   local all_results="[]"
 
+  local max_results=1000
+  local total_count=0
+
   while :; do
     local page_result
     local page_args=(-f "per_page=$per_page" -f "page=$page" "${filter_args[@]}")
@@ -42,19 +45,38 @@ main() {
       exit 1
     }
 
-    local total_count items_count
     total_count="$(echo "$page_result" | jq -r '.total_count')"
+    local items_count
     items_count="$(echo "$page_result" | jq -r '.items | length')"
 
+    local retained
+    retained="$(echo "$all_results" | jq 'length')"
+
+    local to_take="$items_count"
+    local possible="$((retained + items_count))"
+    if [ "$possible" -gt "$max_results" ]; then
+      to_take="$((max_results - retained))"
+    fi
+
     local page_items
-    page_items="$(echo "$page_result" | jq -c '[.items[] | {
+    page_items="$(echo "$page_result" | jq -c "[.items[:$to_take] | .[] | {
       id, number, title, state, html_url, draft,
       user: {login: .user.login},
       labels: [.labels[].name],
       created_at, updated_at
-    }]')"
+    }]")"
 
     all_results="$(echo "$page_items" | jq -c --slurpfile old <(echo "$all_results") '$old[0] + .')"
+
+    local fetched_total
+    fetched_total="$(echo "$all_results" | jq 'length')"
+
+    if [ "$fetched_total" -ge "$max_results" ]; then
+      all_results="$(echo "$all_results" | jq -c \
+        --argjson total "$total_count" \
+        '{items: ., truncated: true, total_count: $total, note: "GitHub Search API only returns up to 1000 results"}')"
+      break
+    fi
 
     if [ "$items_count" -lt "$per_page" ]; then
       break
