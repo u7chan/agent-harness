@@ -8,7 +8,7 @@
 - Commit messages must include a prefix and be written in English (e.g. `feat(auth): add login page`).
 - PR descriptions must be written in Japanese and include the following sections:
   - `## Issues`
-    - Format: `- #{No}`
+    - Format: `- #{No}` (use `- Closes #{No}` to auto-close on merge)
   - `## Why`
   - `## Summary`
   - `## Changes`
