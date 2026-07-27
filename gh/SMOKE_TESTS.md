@@ -508,6 +508,132 @@ echo '{"number":999999}' | bash gh/scripts/gh.sh pr.read 2>&1 | jq .
 | Status is `failed` | `.status == "failed"` |
 | Error code is `API_ERROR` | `.error.code == "API_ERROR"` |
 
+## PR Lifecycle Actions
+
+### pr.create
+
+```bash
+# Test: create PR from current branch to main
+echo '{"title": "smoke-test-pr-create", "base": "main", "head": "$(git branch --show-current)", "grant": "write"}' | bash gh/scripts/gh.sh pr.create | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| PR created | `.data.number != null` |
+| title matches | `.data.title == "smoke-test-pr-create"` |
+
+### pr.update
+
+```bash
+# Test: update PR title
+echo '{"number":12, "title": "smoke-test-pr-update", "grant": "write"}' | bash gh/scripts/gh.sh pr.update | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| title updated | `.data.title == "smoke-test-pr-update"` |
+
+### pr.draft
+
+```bash
+# Test: convert PR to draft
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.draft | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| draft true | `.data.draft == true` |
+
+### pr.ready
+
+```bash
+# Test: mark PR as ready
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.ready | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| draft false | `.data.draft == false` |
+
+### pr.close
+
+```bash
+# Test: close PR
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.close | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| state closed | `.data.state == "closed"` |
+
+### pr.reopen
+
+```bash
+# Test: reopen PR
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.reopen | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| state open | `.data.state == "open"` |
+
+### reviewers.read
+
+```bash
+# Test: read requested reviewers
+echo '{"number":12}' | bash gh/scripts/gh.sh reviewers.read | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| has users array | `.data.users \| type == "array"` |
+| has teams array | `.data.teams \| type == "array"` |
+
+### reviewers.request
+
+```bash
+# Test: request reviewers
+echo '{"number":12, "reviewers":["octocat"], "grant": "write"}' | bash gh/scripts/gh.sh reviewers.request | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| has users | `.data.users \| length > 0` |
+
+### reviewers.remove
+
+```bash
+# Test: remove requested reviewers
+echo '{"number":12, "reviewers":["octocat"], "grant": "sensitive-write"}' | bash gh/scripts/gh.sh reviewers.remove | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| reviewer removed | `.data.users \| any(.login == "octocat") \| not` |
+
+### PR Idempotency
+
+```bash
+# Test: close already closed PR returns already_applied
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.close | jq .
+
+# Test: draft already draft PR returns already_applied
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.draft | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status already_applied | `.status == "already_applied"` |
+
 ## Repository Cleanliness
 
 ```bash
