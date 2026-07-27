@@ -34,6 +34,13 @@ gh/scripts/gh.sh <action-name> [json-input-file]
 | Add a sub-issue | `issue.subissues.add` | write |
 | Remove a sub-issue | `issue.subissues.remove` | sensitive-write |
 | Reprioritize a sub-issue | `issue.subissues.reorder` | write |
+| List pull requests | `prs.list` | read |
+| Search pull requests | `prs.search` | read |
+| Get a pull request | `pr.read` | read |
+| Get pull request diff | `pr.diff.read` | read |
+| List pull request files | `pr.files.read` | read |
+| List pull request commits | `pr.commits.read` | read |
+| List pull request check runs | `pr.checks.read` | read |
 
 ## Permission
 

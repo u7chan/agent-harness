@@ -44,11 +44,19 @@ call_gh_api() {
 call_gh_api_paginated() {
   local endpoint="$1"
   local jq_filter="$2"
-  [ $# -ge 2 ] && shift 2 || shift $#
+  local per_page="${3:-100}"
+  if [ $# -ge 3 ]; then
+    shift 3
+  elif [ $# -ge 2 ]; then
+    shift 2
+  else
+    shift $#
+  fi
 
   local page=1
-  local per_page=100
-  local all_results="[]"
+  local tmpfile
+  tmpfile="$(mktemp)"
+  echo '[]' > "$tmpfile"
 
   while :; do
     local page_result
@@ -56,6 +64,7 @@ call_gh_api_paginated() {
       -f "per_page=$per_page" \
       -f "page=$page" \
       "$@" 2>&1)" || {
+      rm -f "$tmpfile"
       echo "$page_result" >&2
       return 1
     }
@@ -66,7 +75,13 @@ call_gh_api_paginated() {
     local page_items
     page_items="$(echo "$page_result" | jq -c "$jq_filter")"
 
-    all_results="$(echo "$all_results" | jq -c --argjson items "$page_items" '. + $items')"
+    if [ "$raw_count" -eq 0 ]; then
+      break
+    fi
+
+    local combined
+    combined="$(echo "$page_items" | jq -c --slurpfile old "$tmpfile" '$old[0] + .')"
+    echo "$combined" > "$tmpfile"
 
     if [ "$raw_count" -lt "$per_page" ]; then
       break
@@ -75,7 +90,8 @@ call_gh_api_paginated() {
     page=$((page + 1))
   done
 
-  printf '%s\n' "$all_results"
+  cat "$tmpfile"
+  rm -f "$tmpfile"
 }
 
 is_retryable() {

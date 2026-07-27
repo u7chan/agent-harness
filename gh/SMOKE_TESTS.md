@@ -380,6 +380,134 @@ echo '{"title": "fail", "grant": "read"}' | bash gh/scripts/gh.sh issue.create 2
 | status failed | `.status == "failed"` |
 | error code GRANT_INSUFFICIENT | `.error.code == "GRANT_INSUFFICIENT"` |
 
+## PR Actions
+
+### prs.list
+
+```bash
+# Test: list open PRs
+bash gh/scripts/gh.sh prs.list | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns PR array | `.data \| type == "array"` |
+| PRs have number | `.data[0].number != null` |
+| PRs have no body | `.data[0].body == null` |
+| PRs have head branch | `.data[0].head.ref != null` |
+
+### prs.search
+
+```bash
+# Test: search PRs in repository
+echo '{"q":"is:open"}' | bash gh/scripts/gh.sh prs.search | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns items array | `.data.items \| type == "array"` |
+| Has truncated flag | `.data.truncated == false` or `.data.truncated == true` |
+| Has total_count | `.data.total_count >= 0` |
+
+### pr.read
+
+```bash
+# Test: get a single PR by number
+echo '{"number":12}' | bash gh/scripts/gh.sh pr.read | jq .
+
+# Test: get PR from URL
+echo '{"reference":"https://github.com/anomalyco/global-agent-skills/pull/12"}' | bash gh/scripts/gh.sh pr.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns PR data | `.data.number == 12` |
+| Has expected fields | `.data.title and .data.state and .data.html_url and .data.body` |
+| Target has pull_request type | `.target.type == "pull_request"` |
+
+### pr.diff.read
+
+```bash
+# Test: get PR diff
+echo '{"number":12}' | bash gh/scripts/gh.sh pr.diff.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns output file | `.data.output_file != null` |
+| File size is positive | `.data.size_bytes > 0` |
+
+### pr.files.read
+
+```bash
+# Test: list PR files
+echo '{"number":12}' | bash gh/scripts/gh.sh pr.files.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns file array | `.data \| type == "array"` |
+| Files have filename | `.data[0].filename != null` |
+| Files have status | `.data[0].status != null` |
+
+### pr.commits.read
+
+```bash
+# Test: list PR commits
+echo '{"number":12}' | bash gh/scripts/gh.sh pr.commits.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns commit array | `.data \| type == "array"` |
+| Commits have sha | `.data[0].sha != null` |
+| Commits have message | `.data[0].commit.message != null` |
+
+### pr.checks.read
+
+```bash
+# Test: list PR check runs
+echo '{"number":12}' | bash gh/scripts/gh.sh pr.checks.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns check array | `.data \| type == "array"` |
+| Checks have name | `(.data[0].name != null) or (.data \| length == 0)` |
+
+### PR Target Resolution
+
+```bash
+# Test: resolve PR from current branch (if on a PR branch)
+bash gh/scripts/gh.sh pr.read | jq .
+
+# Test: ambiguous target should fail
+echo '{"reference":"anomalyco/global-agent-skills"}' | bash gh/scripts/gh.sh pr.read 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Missing number with repo-only reference fails | `.status == "failed"` |
+
+### PR Nonexistent
+
+```bash
+# Test: nonexistent PR should fail
+echo '{"number":999999}' | bash gh/scripts/gh.sh pr.read 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `failed` | `.status == "failed"` |
+| Error code is `API_ERROR` | `.error.code == "API_ERROR"` |
+
 ## Repository Cleanliness
 
 ```bash

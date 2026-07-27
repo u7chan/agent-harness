@@ -24,6 +24,9 @@ main() {
   local owner_repo
   owner_repo="$(echo "$target" | jq -r '.repository')"
 
+  local per_page
+  per_page="$(echo "$input" | jq -r '.per_page // 30')"
+
   local filter_args=()
   filter_args+=(-f "state=$state")
   [ -n "$labels" ] && filter_args+=(-f "labels=$labels")
@@ -31,7 +34,7 @@ main() {
   [ -n "$milestone" ] && filter_args+=(-f "milestone=$milestone")
 
   local raw_data
-  raw_data="$(call_gh_api_paginated "repos/$owner_repo/issues" '[.[]]' "${filter_args[@]}")" || {
+  raw_data="$(call_gh_api_paginated "repos/$owner_repo/issues" '[.[]]' "$per_page" "${filter_args[@]}")" || {
     envelope_fail "issue.list" "API_ERROR" "Failed to list issues" false
     exit 1
   }
