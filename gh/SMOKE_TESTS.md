@@ -508,6 +508,149 @@ echo '{"number":999999}' | bash gh/scripts/gh.sh pr.read 2>&1 | jq .
 | Status is `failed` | `.status == "failed"` |
 | Error code is `API_ERROR` | `.error.code == "API_ERROR"` |
 
+## Conversation Comment Actions
+
+### comments.read
+
+```bash
+# Test: list comments on an issue/PR (collection, full pagination)
+echo '{"number":12}' | bash gh/scripts/gh.sh comments.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Data is an object with items array | `.data \| type == "object"` |
+| Returns items array | `.data.items \| type == "array"` |
+| Items have id | `.data.items[0].id != null` (if comments exist) |
+| Items have body | `.data.items[0].body != null` (if comments exist) |
+| Items have html_url | `.data.items[0].html_url != null` (if comments exist) |
+| Target has correct type | `.target.type` in `("issue", "pull_request")` |
+
+### comments.read (single)
+
+```bash
+# Test: get single comment by ID
+echo '{"number":12, "comment_id":1}' | bash gh/scripts/gh.sh comments.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` or `failed` (comment may not exist) | `.status` in `("ok", "failed")` |
+| Data is an object with item field | (if ok) `.data.item \| type == "object"` |
+| Single item has id | (if ok) `.data.item.id != null` |
+
+### comments.read (parent mismatch)
+
+```bash
+# Test: comment_id does not belong to the given number
+echo '{"number":999999, "comment_id":1}' | bash gh/scripts/gh.sh comments.read 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status failed (parent mismatch or not found) | `.status == "failed"` |
+| error is PARENT_MISMATCH or API_ERROR | `.error.code` in `("PARENT_MISMATCH", "API_ERROR")` |
+
+### comments.read (per_page constraint)
+
+```bash
+# Test: invalid per_page should fail
+echo '{"number":1, "per_page":200}' | bash gh/scripts/gh.sh comments.read 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status failed | `.status == "failed"` |
+| error code INVALID_PARAMETER | `.error.code == "INVALID_PARAMETER"` |
+
+### comments.create
+
+```bash
+# Test: create comment (requires a test issue/PR)
+echo '{"number":1, "body": "smoke-test-comment", "grant": "write"}' | bash gh/scripts/gh.sh comments.create | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok (or already_applied for dedup) | `.status` in `("ok", "already_applied")` |
+| comment has id | `.data.id != null` |
+| comment body matches | `.data.body == "smoke-test-comment"` |
+
+### comments.create (trailing newline preservation)
+
+```bash
+# Test: create comment with trailing newlines should preserve them
+echo '{"number":1, "body": "line1\nline2\n\n", "grant": "write"}' | bash gh/scripts/gh.sh comments.create | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok (or already_applied) | `.status` in `("ok", "already_applied")` |
+| body ends with newlines | `.data.body \| endswith("\n\n")` |
+
+### comments.reply
+
+```bash
+# Test: reply to a comment
+echo '{"number":1, "reply_to":1, "body": "smoke-test-reply", "grant": "write"}' | bash gh/scripts/gh.sh comments.reply | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok (or already_applied for dedup) | `.status` in `("ok", "already_applied")` |
+| reply has native_thread: false | `.data.native_thread == false` |
+| reply has reply_to_url | `.data.reply_to_url != null` |
+| body contains "> Re:" prefix | `.data.body \| test("> Re: ")` |
+
+### comments.reply (reply mismatch)
+
+```bash
+# Test: reply_to comment does not belong to given number
+echo '{"number":999999, "reply_to":1, "body": "reply fail", "grant": "write"}' | bash gh/scripts/gh.sh comments.reply 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status failed | `.status == "failed"` |
+| error is REPLY_MISMATCH or API_ERROR | `.error.code` in `("REPLY_MISMATCH", "API_ERROR")` |
+
+### comments.update
+
+```bash
+# Test: update comment body
+echo '{"comment_id":1, "body": "smoke-test-updated", "grant": "write"}' | bash gh/scripts/gh.sh comments.update | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok (or already_applied if body unchanged) | `.status` in `("ok", "already_applied")` |
+| updated body matches | `.data.body == "smoke-test-updated"` |
+
+### comments.delete
+
+```bash
+# Test: delete comment
+echo '{"comment_id":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh comments.delete | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok (or failed if already deleted) | `.status` in `("ok", "failed")` |
+| deleted flag is true (if ok) | (if ok) `.data.deleted == true` |
+
+### Grant Rejection (comments.delete with read grant)
+
+```bash
+# Test: insufficient grant should fail
+echo '{"comment_id":1, "grant": "read"}' | bash gh/scripts/gh.sh comments.delete 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status failed | `.status == "failed"` |
+| error code GRANT_INSUFFICIENT | `.error.code == "GRANT_INSUFFICIENT"` |
+
 ## PR Lifecycle Actions
 
 ### pr.create
@@ -633,6 +776,35 @@ echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.draf
 | Check | Filter |
 |-------|--------|
 | status already_applied | `.status == "already_applied"` |
+
+## Verification Points
+
+Additional verification points for review without destructive side effects:
+
+### Comment body safety
+- Create/reply/update must never pass body through shell variable or command substitution.
+- Trailing newline sequences in body must survive round-trip (create → read).
+- Dedup comparison must use file-based body equality (`jq -j` + `cmp`).
+
+### Comment target & parent
+- Single read must verify `comment.issue_url` == parent `url`; return `PARENT_MISMATCH` on mismatch.
+- Reply must verify `reply_to.issue_url` == parent issue/PR `url`; return `REPLY_MISMATCH` on mismatch.
+- Both Issue and PR conversation comments use the same `/issues/{n}/comments` endpoint.
+
+### Delete verification
+- Only explicit `HTTP 404` in re-fetch stderr after DELETE confirms successful deletion.
+- Auth errors, network errors, 5xx responses must result in `unknown_outcome`.
+
+### Write verification
+- create/reply must verify POST response id/url against refetched id/url.
+- create/reply must verify POST response body == refetched body == expected body (file-based cmp).
+- update must verify PATCH response id/url against refetched id/url.
+- update must verify that the body has actually changed (before/after differ) AND refetched body == expected body.
+
+### Pagination
+- `comments.read` collection uses `call_gh_api_paginated` for full pagination.
+- `per_page` must be an integer in [1, 100]; non-integer (e.g. 1.5) or out-of-range → `INVALID_PARAMETER`.
+- Verify 101+ comments are all fetched (observation: smoke tests use disposable per_page=100).
 
 ## Repository Cleanliness
 
