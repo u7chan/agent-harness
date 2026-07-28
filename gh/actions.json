@@ -1037,6 +1037,213 @@
           }
         }
       }
+    },
+    {
+      "name": "comments.read",
+      "description": "Read conversation comments on an issue or pull request (full pagination)",
+      "category": "comment",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue or pull request number"
+        },
+        "comment_id": {
+          "type": "number",
+          "required": false,
+          "description": "Specific comment ID (returns single comment)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page for collection reads (1-100, default: 100)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": "integer",
+                  "body": "string",
+                  "html_url": "string",
+                  "user": { "login": "string" },
+                  "created_at": "string",
+                  "updated_at": "string",
+                  "author_association": "string"
+                }
+              }
+            },
+            "item": {
+              "type": "object",
+              "properties": {
+                "id": "integer",
+                "body": "string",
+                "html_url": "string",
+                "user": { "login": "string" },
+                "created_at": "string",
+                "updated_at": "string",
+                "author_association": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.create",
+      "description": "Create a conversation comment on an issue or pull request",
+      "category": "comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue or pull request number"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Comment body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.reply",
+      "description": "Reply to a conversation comment (non-native thread via body prefix convention)",
+      "category": "comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue or pull request number"
+        },
+        "reply_to": {
+          "type": "number",
+          "required": true,
+          "description": "Comment ID to reply to"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Reply body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string",
+            "native_thread": "boolean",
+            "reply_to_url": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.update",
+      "description": "Update a conversation comment body",
+      "category": "comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "comment_id": {
+          "type": "number",
+          "required": true,
+          "description": "Comment ID to update"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "New comment body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.delete",
+      "description": "Delete a conversation comment",
+      "category": "comment",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "comment_id": {
+          "type": "number",
+          "required": true,
+          "description": "Comment ID to delete"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "deleted": "boolean"
+          }
+        }
+      }
     }
   ]
 }

@@ -41,6 +41,11 @@ gh/scripts/gh.sh <action-name> [json-input-file]
 | List pull request files | `pr.files.read` | read |
 | List pull request commits | `pr.commits.read` | read |
 | List pull request check runs | `pr.checks.read` | read |
+| List conversation comments | `comments.read` | read |
+| Create a conversation comment | `comments.create` | write |
+| Reply to a conversation comment | `comments.reply` | write |
+| Update a conversation comment | `comments.update` | write |
+| Delete a conversation comment | `comments.delete` | sensitive-write |
 
 ## Permission
 
