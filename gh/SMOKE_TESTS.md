@@ -651,6 +651,161 @@ echo '{"comment_id":1, "grant": "read"}' | bash gh/scripts/gh.sh comments.delete
 | status failed | `.status == "failed"` |
 | error code GRANT_INSUFFICIENT | `.error.code == "GRANT_INSUFFICIENT"` |
 
+## PR Lifecycle Actions
+
+### pr.create
+
+```bash
+# Test: create PR from current branch to main
+jq -n --arg head "$(git branch --show-current)" '{"title": "smoke-test-pr-create", "base": "main", "head": $head, "grant": "write"}' | bash gh/scripts/gh.sh pr.create | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| PR created | `.data.number != null` |
+| title matches | `.data.title == "smoke-test-pr-create"` |
+
+### pr.update
+
+```bash
+# Test: update PR title
+echo '{"number":12, "title": "smoke-test-pr-update", "grant": "write"}' | bash gh/scripts/gh.sh pr.update | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| title updated | `.data.title == "smoke-test-pr-update"` |
+
+### pr.draft
+
+```bash
+# Test: convert PR to draft
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.draft | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| draft true | `.data.draft == true` |
+
+### pr.ready
+
+```bash
+# Test: mark PR as ready
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.ready | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| draft false | `.data.draft == false` |
+
+### pr.close
+
+```bash
+# Test: close PR
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.close | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| state closed | `.data.state == "closed"` |
+
+### pr.reopen
+
+```bash
+# Test: reopen PR
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.reopen | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| state open | `.data.state == "open"` |
+
+### reviewers.read
+
+```bash
+# Test: read requested reviewers
+echo '{"number":12}' | bash gh/scripts/gh.sh reviewers.read | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok | `.status == "ok"` |
+| has users array | `.data.users \| type == "array"` |
+| has teams array | `.data.teams \| type == "array"` |
+
+### reviewers.request
+
+```bash
+# Test: request reviewers
+echo '{"number":12, "reviewers":["octocat"], "grant": "write"}' | bash gh/scripts/gh.sh reviewers.request | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| has users | `.data.users \| length > 0` |
+
+### reviewers.remove
+
+```bash
+# Test: remove requested reviewers
+echo '{"number":12, "reviewers":["octocat"], "grant": "sensitive-write"}' | bash gh/scripts/gh.sh reviewers.remove | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| reviewer removed | `.data.users \| any(.login == "octocat") \| not` |
+
+### PR Idempotency
+
+```bash
+# Test: close already closed PR returns already_applied
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.close | jq .
+
+# Test: draft already draft PR returns already_applied
+echo '{"number":12, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh pr.draft | jq .
+```
+
+| Check | Filter |
+|-------|--------|
+| status already_applied | `.status == "already_applied"` |
+
+## Verification Points
+
+Additional verification points for review without destructive side effects:
+
+### Comment body safety
+- Create/reply/update must never pass body through shell variable or command substitution.
+- Trailing newline sequences in body must survive round-trip (create → read).
+- Dedup comparison must use file-based body equality (`jq -j` + `cmp`).
+
+### Comment target & parent
+- Single read must verify `comment.issue_url` == parent `url`; return `PARENT_MISMATCH` on mismatch.
+- Reply must verify `reply_to.issue_url` == parent issue/PR `url`; return `REPLY_MISMATCH` on mismatch.
+- Both Issue and PR conversation comments use the same `/issues/{n}/comments` endpoint.
+
+### Delete verification
+- Only explicit `HTTP 404` in re-fetch stderr after DELETE confirms successful deletion.
+- Auth errors, network errors, 5xx responses must result in `unknown_outcome`.
+
+### Write verification
+- create/reply must verify POST response id/url against refetched id/url.
+- create/reply must verify POST response body == refetched body == expected body (file-based cmp).
+- update must verify PATCH response id/url against refetched id/url.
+- update must verify that the body has actually changed (before/after differ) AND refetched body == expected body.
+
+### Pagination
+- `comments.read` collection uses `call_gh_api_paginated` for full pagination.
+- `per_page` must be an integer in [1, 100]; non-integer (e.g. 1.5) or out-of-range → `INVALID_PARAMETER`.
+- Verify 101+ comments are all fetched (observation: smoke tests use disposable per_page=100).
+
 ## Repository Cleanliness
 
 ```bash
