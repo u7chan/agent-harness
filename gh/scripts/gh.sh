@@ -189,7 +189,7 @@ main() {
   local action_name="$1"
   shift
 
-  if [[ "$action_name" == comments.* ]]; then
+  if [[ "$action_name" == comments.* ]] || [[ "$action_name" == review-comments.* ]] || [[ "$action_name" == reviews.* ]] || [[ "$action_name" == review-threads.* ]]; then
     local request_file
     request_file="$(gh_make_temp "request-json")"
     if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
