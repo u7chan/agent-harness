@@ -52,7 +52,7 @@ gh/scripts/gh.sh <action-name> [json-input-file]
 | Update a review comment | `review-comments.update` | write |
 | Delete a review comment | `review-comments.delete` | sensitive-write |
 | List PR reviews | `reviews.read` | read |
-| Create a COMMENT review | `reviews.create` | write |
+| Create a COMMENT or PENDING review | `reviews.create` | write |
 | Submit comment to pending review | `reviews.submit-comment` | write |
 | List review threads | `review-threads.read` | read |
 | Resolve a review thread | `review-threads.resolve` | sensitive-write |

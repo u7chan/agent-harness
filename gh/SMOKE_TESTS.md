@@ -947,8 +947,8 @@ echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"changes needed\", \"event\": \"RE
 ### reviews.submit-comment
 
 ```bash
-# Test: submit comment to pending review (needs a pending review from reviews.create)
-TEST_PENDING_REVIEW_ID=$(echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"pending review body\", \"grant\": \"write\"}" \
+# Test: submit comment to pending review (create PENDING review first)
+TEST_PENDING_REVIEW_ID=$(echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"pending review body\", \"event\": \"PENDING\", \"grant\": \"write\"}" \
   | bash gh/scripts/gh.sh reviews.create \
   | jq -r '.data.id // empty')
 if [ -n "$TEST_PENDING_REVIEW_ID" ]; then
@@ -958,8 +958,9 @@ fi
 
 | Check | Pass Condition |
 |-------|---------------|
-| status ok | `.status` in `("ok")` |
+| status ok | `.status` == `"ok"` |
 | review has id | `.data.id != null` |
+| state is COMMENTED | `.data.state == "COMMENTED"` |
 
 ### reviews.submit-comment (reject non-COMMENT event)
 

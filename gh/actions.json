@@ -1955,7 +1955,7 @@
     },
     {
       "name": "reviews.create",
-      "description": "Create a PR review (COMMENT event only)",
+      "description": "Create a PR review (COMMENT or PENDING event only)",
       "category": "review",
       "permission": "write",
       "requires_auth": true,
@@ -1978,7 +1978,7 @@
         "event": {
           "type": "string",
           "required": false,
-          "description": "Fixed to COMMENT"
+          "description": "COMMENT (default, immediate submit) or PENDING (create pending review for later submission)"
         },
         "grant": {
           "type": "string",

@@ -15,10 +15,13 @@ main() {
 
   local event
   event="$(jq -r '.event // "COMMENT"' "$request_file")"
-  if [ "$event" != "COMMENT" ]; then
-    envelope_fail "reviews.create" "INVALID_PARAMETER" "Only event=COMMENT is allowed. APPROVE and REQUEST_CHANGES are rejected." false
-    exit 1
-  fi
+  case "$event" in
+    COMMENT|PENDING) ;;
+    *)
+      envelope_fail "reviews.create" "INVALID_PARAMETER" "Only event=COMMENT or PENDING is allowed. APPROVE and REQUEST_CHANGES are rejected." false
+      exit 1
+      ;;
+  esac
 
   local target
   target="$(resolve_pr_target)" || {
@@ -45,9 +48,9 @@ main() {
   has_comments="$(jq -r 'if has("comments") and (.comments | type == "array") then "true" else "false" end' "$request_file")"
 
   if [ "$has_comments" = "true" ]; then
-    jq '{body: .body, event: "COMMENT", comments: .comments}' "$request_file" > "$body_file"
+    jq --arg ev "$event" '{body: .body, event: $ev, comments: .comments}' "$request_file" > "$body_file"
   else
-    jq '{body: .body, event: "COMMENT"}' "$request_file" > "$body_file"
+    jq --arg ev "$event" '{body: .body, event: $ev}' "$request_file" > "$body_file"
   fi
 
   local _saved_retry="${GH_RETRY_MAX:-3}"
