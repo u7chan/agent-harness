@@ -192,11 +192,8 @@ main() {
 
   jq -n \
     --rawfile b "$reply_body_tmp" \
-    --arg commit_id "$inherit_commit_id" \
-    --arg path "$inherit_path" \
-    --argjson position "$root_position" \
     --argjson in_reply_to "$effective_in_reply_to" \
-    '{body: $b, commit_id: $commit_id, path: $path, position: $position, in_reply_to: $in_reply_to}' > "$body_file"
+    '{body: $b, in_reply_to: $in_reply_to}' > "$body_file"
   gh_cleanup "$reply_body_tmp"
 
   local _saved_retry="${GH_RETRY_MAX:-3}"
