@@ -43,12 +43,11 @@ main() {
   check_body_file="$(gh_make_temp "check-body")"
   jq -j '.body' "$request_file" > "$check_body_file"
 
-  local line side start_line start_side subject_type
-  line="$(jq -r '.line' "$request_file")"
+  local position side start_line start_side
+  position="$(jq -r '.position // empty' "$request_file")"
   side="$(jq -r '.side // empty' "$request_file")"
   start_line="$(jq -r '.start_line // empty' "$request_file")"
   start_side="$(jq -r '.start_side // empty' "$request_file")"
-  subject_type="$(jq -r '.subject_type // empty' "$request_file")"
 
   local existing
   existing="$(call_gh_api_paginated "repos/$owner_repo/pulls/$pr_number/comments" '[.[]]' "100" 2>/dev/null)" || {
@@ -63,22 +62,20 @@ main() {
     --arg actor "$actor" \
     --arg commit_id "$commit_id" \
     --arg path "$path" \
-    --argjson line "$line" \
+    --argjson position "$position" \
     --arg side "$side" \
     --arg start_line "$start_line" \
     --arg start_side "$start_side" \
-    --arg subject_type "$subject_type" \
     '
       first(.[] | select(
         .user.login == $actor and
         .body == $b and
         .path == $path and
         .commit_id == $commit_id and
-        (.line // 0) == ($line // 0) and
+        (.position // 0) == ($position // 0) and
         ((.side // "") == $side) and
         ((.start_line // "") | tostring) == $start_line and
-        ((.start_side // "") == $start_side) and
-        ((.subject_type // "") == $subject_type)
+        ((.start_side // "") == $start_side)
       ))
     ' 2>/dev/null)" || dedup=""
   gh_cleanup "$check_body_file"
@@ -102,14 +99,14 @@ main() {
       }')"
 
     local dedup_formatted
-    dedup_formatted="$(echo "$dedup" | jq '{id, body, html_url, path, line, commit_id, in_reply_to_id, user: {login: .user.login}, created_at, updated_at, author_association}')"
+    dedup_formatted="$(echo "$dedup" | jq '{id, body, html_url, path, position, line, commit_id, in_reply_to_id, user: {login: .user.login}, created_at, updated_at, author_association}')"
     envelope_already_applied "review-comments.create" "$dedup_target" "$dedup_formatted"
     exit 0
   fi
 
   local body_file
   body_file="$(gh_make_temp "write-body")"
-  jq '{body: .body, commit_id: .commit_id, path: .path, line: .line}' "$request_file" > "$body_file"
+  jq '{body: .body, commit_id: .commit_id, path: .path, position: .position}' "$request_file" > "$body_file"
   local side
   side="$(jq -r '.side // empty' "$request_file")"
   if [ -n "$side" ]; then
@@ -125,11 +122,7 @@ main() {
   if [ -n "$start_side" ]; then
     jq --arg ss "$start_side" '. + {start_side: $ss}' "$body_file" > "${body_file}.tmp" && mv "${body_file}.tmp" "$body_file"
   fi
-  local subject_type
-  subject_type="$(jq -r '.subject_type // empty' "$request_file")"
-  if [ -n "$subject_type" ]; then
-    jq --arg st "$subject_type" '. + {subject_type: $st}' "$body_file" > "${body_file}.tmp" && mv "${body_file}.tmp" "$body_file"
-  fi
+  local start_line
 
   local _saved_retry="${GH_RETRY_MAX:-3}"
   GH_RETRY_MAX=1
@@ -204,7 +197,7 @@ main() {
     }')"
 
   local formatted
-  formatted="$(echo "$verified" | jq '{id, body, html_url, path, line, commit_id, in_reply_to_id, user: {login: .user.login}, created_at, updated_at, author_association}')"
+  formatted="$(echo "$verified" | jq '{id, body, html_url, path, position, line, commit_id, in_reply_to_id, user: {login: .user.login}, created_at, updated_at, author_association}')"
 
   envelope_ok "review-comments.create" "$comment_target" "$formatted"
 }

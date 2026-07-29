@@ -101,10 +101,10 @@ main() {
     exit 1
   fi
 
-  local root_path root_commit_id root_line root_in_reply_to_id
+  local root_path root_commit_id root_position root_in_reply_to_id
   root_path="$(echo "$root" | jq -r '.path // empty')"
   root_commit_id="$(echo "$root" | jq -r '.commit_id // empty')"
-  root_line="$(echo "$root" | jq -r '.line // empty')"
+  root_position="$(echo "$root" | jq -r '.position // empty')"
   root_in_reply_to_id="$(echo "$root" | jq -r '.in_reply_to_id // empty')"
 
   local inherit_path="$root_path"
@@ -178,7 +178,7 @@ main() {
       }')"
 
     local dedup_formatted
-    dedup_formatted="$(echo "$dedup" | jq '{id, body, html_url, path, line, commit_id, in_reply_to_id, user: {login: .user.login}, created_at, updated_at, author_association}')"
+    dedup_formatted="$(echo "$dedup" | jq '{id, body, html_url, path, position, line, commit_id, in_reply_to_id, user: {login: .user.login}, created_at, updated_at, author_association}')"
     envelope_already_applied "review-comments.reply" "$dedup_target" "$dedup_formatted"
     exit 0
   fi
@@ -194,8 +194,9 @@ main() {
     --rawfile b "$reply_body_tmp" \
     --arg commit_id "$inherit_commit_id" \
     --arg path "$inherit_path" \
+    --argjson position "$root_position" \
     --argjson in_reply_to "$effective_in_reply_to" \
-    '{body: $b, commit_id: $commit_id, path: $path, line: 1, in_reply_to: $in_reply_to}' > "$body_file"
+    '{body: $b, commit_id: $commit_id, path: $path, position: $position, in_reply_to: $in_reply_to}' > "$body_file"
   gh_cleanup "$reply_body_tmp"
 
   local _saved_retry="${GH_RETRY_MAX:-3}"
@@ -270,7 +271,7 @@ main() {
     }')"
 
   local formatted
-  formatted="$(echo "$verified" | jq '{id, body, html_url, path, line, commit_id, in_reply_to_id, user: {login: .user.login}, created_at, updated_at, author_association}')"
+  formatted="$(echo "$verified" | jq '{id, body, html_url, path, position, line, commit_id, in_reply_to_id, user: {login: .user.login}, created_at, updated_at, author_association}')"
 
   envelope_ok "review-comments.reply" "$comment_target" "$formatted"
 }

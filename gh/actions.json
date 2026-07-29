@@ -1735,11 +1735,11 @@
           "required": true,
           "description": "Relative file path in the repository"
         },
-        "line": {
-          "type": "number",
-          "required": true,
-          "description": "Line number in the diff"
-        },
+  "position": {
+    "type": "number",
+    "required": true,
+    "description": "Position in the diff to comment on"
+  },
         "side": {
           "type": "string",
           "required": false,
@@ -1750,17 +1750,12 @@
           "required": false,
           "description": "First line of a multi-line comment range"
         },
-        "start_side": {
-          "type": "string",
-          "required": false,
-          "description": "LEFT or RIGHT side for start_line"
-        },
-        "subject_type": {
-          "type": "string",
-          "required": false,
-          "description": "line or file"
-        },
-        "grant": {
+  "start_side": {
+    "type": "string",
+    "required": false,
+    "description": "LEFT or RIGHT side for start_line"
+  },
+  "grant": {
           "type": "string",
           "required": true,
           "description": "Operation permission level (read, write, sensitive-write)"
@@ -1978,7 +1973,7 @@
         "comments": {
           "type": "array",
           "required": false,
-          "description": "Inline review comments (array of {path, line, body})"
+          "description": "Inline review comments (array of {path, position, body})"
         },
         "event": {
           "type": "string",
