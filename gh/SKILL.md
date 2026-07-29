@@ -46,6 +46,17 @@ gh/scripts/gh.sh <action-name> [json-input-file]
 | Reply to a conversation comment | `comments.reply` | write |
 | Update a conversation comment | `comments.update` | write |
 | Delete a conversation comment | `comments.delete` | sensitive-write |
+| List review comments | `review-comments.read` | read |
+| Create a review comment | `review-comments.create` | write |
+| Reply to a review comment | `review-comments.reply` | write |
+| Update a review comment | `review-comments.update` | write |
+| Delete a review comment | `review-comments.delete` | sensitive-write |
+| List PR reviews | `reviews.read` | read |
+| Create a COMMENT review | `reviews.create` | write |
+| Submit comment to pending review | `reviews.submit-comment` | write |
+| List review threads | `review-threads.read` | read |
+| Resolve a review thread | `review-threads.resolve` | sensitive-write |
+| Unresolve a review thread | `review-threads.unresolve` | sensitive-write |
 | Create a pull request | `pr.create` | write |
 | Update pull request metadata | `pr.update` | write |
 | Close a pull request | `pr.close` | sensitive-write |

@@ -651,6 +651,239 @@ echo '{"comment_id":1, "grant": "read"}' | bash gh/scripts/gh.sh comments.delete
 | status failed | `.status == "failed"` |
 | error code GRANT_INSUFFICIENT | `.error.code == "GRANT_INSUFFICIENT"` |
 
+## Review Comment Actions
+
+### review-comments.read
+
+```bash
+# Test: list review comments on a PR (collection, full pagination)
+echo '{"number":12}' | bash gh/scripts/gh.sh review-comments.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Data is an object with items array | `.data \| type == "object"` |
+| Returns items array | `.data.items \| type == "array"` |
+| Items have id | `.data.items[0].id != null` (if comments exist) |
+| Items have path | `.data.items[0].path != null` (if comments exist) |
+| Target has correct type | `.target.type == "pull_request"` |
+
+### review-comments.read (single)
+
+```bash
+# Test: get single review comment by ID
+echo '{"number":12, "comment_id":1}' | bash gh/scripts/gh.sh review-comments.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` or `failed` | `.status` in `("ok", "failed")` |
+| Data has item field (if ok) | (if ok) `.data.item \| type == "object"` |
+| Single item has id | (if ok) `.data.item.id != null` |
+
+### review-comments.read (parent mismatch)
+
+```bash
+# Test: comment_id does not belong to the given PR
+echo '{"number":999999, "comment_id":1}' | bash gh/scripts/gh.sh review-comments.read 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status failed | `.status == "failed"` |
+| error is PARENT_MISMATCH or API_ERROR | `.error.code` in `("PARENT_MISMATCH", "API_ERROR")` |
+
+### review-comments.read (per_page constraint)
+
+```bash
+# Test: invalid per_page should fail
+echo '{"number":1, "per_page":200}' | bash gh/scripts/gh.sh review-comments.read 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status failed | `.status == "failed"` |
+| error code INVALID_PARAMETER | `.error.code == "INVALID_PARAMETER"` |
+
+### review-comments.create
+
+```bash
+# Test: create review comment (requires a test PR with known commit)
+echo '{"number":1, "body": "smoke-test-review-comment", "commit_id": "COMMIT_SHA", "path": "README.md", "line": 1, "grant": "write"}' | bash gh/scripts/gh.sh review-comments.create | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| comment has id | `.data.id != null` |
+| comment body matches | `.data.body == "smoke-test-review-comment"` |
+
+### review-comments.reply
+
+```bash
+# Test: reply to a review comment
+echo '{"number":1, "reply_to":1, "body": "smoke-test-review-reply", "grant": "write"}' | bash gh/scripts/gh.sh review-comments.reply | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| reply has in_reply_to_id | `.data.in_reply_to_id != null` |
+
+### review-comments.reply (reply mismatch)
+
+```bash
+# Test: reply_to comment does not belong to given PR
+echo '{"number":999999, "reply_to":1, "body": "reply fail", "grant": "write"}' | bash gh/scripts/gh.sh review-comments.reply 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status failed | `.status == "failed"` |
+| error is REPLY_MISMATCH or API_ERROR | `.error.code` in `("REPLY_MISMATCH", "API_ERROR")` |
+
+### review-comments.update
+
+```bash
+# Test: update review comment body
+echo '{"comment_id":1, "body": "smoke-test-review-updated", "grant": "write"}' | bash gh/scripts/gh.sh review-comments.update | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| updated body matches (if ok) | (if ok) `.data.body == "smoke-test-review-updated"` |
+
+### review-comments.delete
+
+```bash
+# Test: delete review comment
+echo '{"comment_id":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-comments.delete | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok or failed | `.status` in `("ok", "failed")` |
+| deleted flag is true (if ok) | (if ok) `.data.deleted == true` |
+
+## Review Actions
+
+### reviews.read
+
+```bash
+# Test: list reviews on a PR
+echo '{"number":12}' | bash gh/scripts/gh.sh reviews.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Data is an object with items array | `.data \| type == "object"` |
+| Returns items array | `.data.items \| type == "array"` |
+
+### reviews.read (single)
+
+```bash
+# Test: get single review by ID
+echo '{"number":12, "review_id":1}' | bash gh/scripts/gh.sh reviews.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` or `failed` | `.status` in `("ok", "failed")` |
+| Data has item field (if ok) | (if ok) `.data.item \| type == "object"` |
+
+### reviews.create (COMMENT event)
+
+```bash
+# Test: create COMMENT review
+echo '{"number":1, "body": "smoke-test-review-body", "grant": "write"}' | bash gh/scripts/gh.sh reviews.create | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok | `.status` in `("ok")` |
+| review has id | `.data.id != null` |
+| state is not APPROVED/CHANGES_REQUESTED | `.data.state != "APPROVED"` and `.data.state != "CHANGES_REQUESTED"` |
+
+### reviews.create (reject APPROVE event)
+
+```bash
+# Test: APPROVE event should be rejected
+echo '{"number":1, "body": "approval", "event": "APPROVE", "grant": "write"}' | bash gh/scripts/gh.sh reviews.create 2>&1 | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status failed | `.status == "failed"` |
+| error code INVALID_PARAMETER | `.error.code == "INVALID_PARAMETER"` |
+
+### reviews.submit-comment
+
+```bash
+# Test: submit comment to pending review
+echo '{"number":1, "review_id":1, "body": "smoke-test-submit-comment", "grant": "write"}' | bash gh/scripts/gh.sh reviews.submit-comment | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok | `.status` in `("ok")` |
+| review has id | `.data.id != null` |
+
+## Review Thread Actions
+
+### review-threads.read
+
+```bash
+# Test: list review threads on a PR
+echo '{"number":12}' | bash gh/scripts/gh.sh review-threads.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Data has threads array | `.data.threads \| type == "array"` |
+| Threads have thread_id | `.data.threads[0].thread_id != null` (if threads exist) |
+| Threads have comments | `.data.threads[0].comments \| type == "array"` (if threads exist) |
+| Threads have resolved | `.data.threads[0].resolved \| type == "boolean"` (if threads exist) |
+
+### review-threads.read (single thread)
+
+```bash
+# Test: get single thread by thread_id
+echo '{"number":12, "thread_id":1}' | bash gh/scripts/gh.sh review-threads.read | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns single thread | `.data.threads \| length == 1` |
+
+### review-threads.resolve
+
+```bash
+# Test: resolve a review thread
+echo '{"thread_id":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.resolve | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| resolved is true | `.data.resolved == true` |
+
+### review-threads.unresolve
+
+```bash
+# Test: unresolve a review thread
+echo '{"thread_id":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.unresolve | jq .
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| status ok or already_applied | `.status` in `("ok", "already_applied")` |
+| resolved is false | `.data.resolved == false` |
+
 ## PR Lifecycle Actions
 
 ### pr.create
@@ -805,6 +1038,30 @@ Additional verification points for review without destructive side effects:
 - `comments.read` collection uses `call_gh_api_paginated` for full pagination.
 - `per_page` must be an integer in [1, 100]; non-integer (e.g. 1.5) or out-of-range → `INVALID_PARAMETER`.
 - Verify 101+ comments are all fetched (observation: smoke tests use disposable per_page=100).
+
+### Review comment parent verification
+- Single review comment read must verify `comment.pull_request_url` == parent PR `url`; return `PARENT_MISMATCH` on mismatch.
+- Reply must verify `reply_to.pull_request_url` == parent PR `url`; return `REPLY_MISMATCH` on mismatch.
+- Review comment API endpoints use `/pulls/{n}/comments` and `/pulls/comments/{id}` (separate from conversation comments).
+
+### Root comment resolution (review-comments.reply)
+- Reply tracks the `in_reply_to_id` chain through a visited set to detect circular references.
+- Root resolution must have a max depth guard (50 hops) to prevent infinite loops.
+- Reply inherits `path` and `commit_id` from the root comment.
+
+### Review event restriction
+- `reviews.create` and `reviews.submit-comment` only allow `event=COMMENT`.
+- `APPROVE` and `REQUEST_CHANGES` events must be rejected with `INVALID_PARAMETER`.
+
+### Thread state verification
+- `review-threads.resolve` and `review-threads.unresolve` must verify the before/after `resolved` state via refetch.
+- Already-resolved threads must return `already_applied` on re-resolve.
+- Already-unresolved threads must return `already_applied` on re-unresolve.
+
+### Nested pagination (review-threads.read)
+- All review comments are fetched via `call_gh_api_paginated`, then grouped by root thread ID.
+- Thread grouping uses a `find_root` recursive lookup to resolve `in_reply_to_id` chains.
+- Each thread outputs: `thread_id`, `resolved`, `comments` (sorted by `created_at`).
 
 ## Repository Cleanliness
 
