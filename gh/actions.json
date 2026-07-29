@@ -2061,7 +2061,7 @@
     },
     {
       "name": "review-threads.read",
-      "description": "Read review comment threads on a pull request (nested pagination, groups comments by in_reply_to_id)",
+      "description": "Read review comment threads on a pull request via GraphQL (cursor-paginated reviewThreads connection)",
       "category": "review-thread",
       "permission": "read",
       "requires_auth": true,
@@ -2072,14 +2072,14 @@
           "description": "Pull request number"
         },
         "thread_id": {
-          "type": "number",
+          "type": "string",
           "required": false,
-          "description": "Specific thread ID (root comment ID)"
+          "description": "Specific thread GraphQL node ID"
         },
         "per_page": {
           "type": "number",
           "required": false,
-          "description": "Results per page for collection reads (1-100, default: 100)"
+          "description": "Threads per page (1-100, default: 100)"
         }
       },
       "output_schema": {
@@ -2091,7 +2091,7 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "thread_id": "integer",
+                  "thread_id": "string",
                   "resolved": "boolean",
                   "comments": {
                     "type": "array",
@@ -2121,15 +2121,15 @@
     },
     {
       "name": "review-threads.resolve",
-      "description": "Resolve a review comment thread",
+      "description": "Resolve a review comment thread via GraphQL resolveReviewThread mutation",
       "category": "review-thread",
       "permission": "sensitive-write",
       "requires_auth": true,
       "input_schema": {
         "thread_id": {
-          "type": "number",
+          "type": "string",
           "required": true,
-          "description": "Thread ID (root comment ID) to resolve"
+          "description": "Thread GraphQL node ID to resolve"
         },
         "grant": {
           "type": "string",
@@ -2141,7 +2141,7 @@
         "data": {
           "type": "object",
           "properties": {
-            "thread_id": "integer",
+            "thread_id": "string",
             "resolved": "boolean"
           }
         }
@@ -2149,15 +2149,15 @@
     },
     {
       "name": "review-threads.unresolve",
-      "description": "Unresolve a review comment thread",
+      "description": "Unresolve a review comment thread via GraphQL unresolveReviewThread mutation",
       "category": "review-thread",
       "permission": "sensitive-write",
       "requires_auth": true,
       "input_schema": {
         "thread_id": {
-          "type": "number",
+          "type": "string",
           "required": true,
-          "description": "Thread ID (root comment ID) to unresolve"
+          "description": "Thread GraphQL node ID to unresolve"
         },
         "grant": {
           "type": "string",
@@ -2169,7 +2169,7 @@
         "data": {
           "type": "object",
           "properties": {
-            "thread_id": "integer",
+            "thread_id": "string",
             "resolved": "boolean"
           }
         }

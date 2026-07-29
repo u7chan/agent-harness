@@ -7,6 +7,17 @@ source "$SCRIPT_DIR/../common/target.sh"
 source "$SCRIPT_DIR/../common/http.sh"
 source "$SCRIPT_DIR/../common/file.sh"
 
+call_graphql() {
+  local query="$1"
+  shift
+  local result exit_code=0
+  result="$(gh api graphql -f query="$query" "$@" 2>/dev/null)" || exit_code=$?
+  if [ "$exit_code" -ne 0 ]; then
+    return 1
+  fi
+  printf '%s\n' "$result"
+}
+
 main() {
   local request_file="$1"
 
@@ -42,50 +53,9 @@ main() {
   pr_number="$(echo "$target" | jq -r '.number')"
   pr_url="$(echo "$target" | jq -r '.url')"
 
-  local raw_data
-  raw_data="$(call_gh_api_paginated "repos/$owner_repo/pulls/$pr_number/comments" '[.[]]' "$per_page")" || {
-    envelope_fail "review-threads.read" "API_ERROR" "Failed to list review comments" false
-    exit 1
-  }
-
-  local comments_file
-  comments_file="$(gh_make_temp "comments")"
-  echo "$raw_data" | jq -c '
-    [.[] | {id, body, html_url, path, line, commit_id, in_reply_to_id,
-             user: {login: .user.login}, created_at, updated_at,
-             author_association, resolved: (.resolved // false)}]
-  ' > "$comments_file"
-
-  local lookup_file
-  lookup_file="$(gh_make_temp "lookup")"
-  jq -c 'reduce .[] as $c ({}; .[$c.id | tostring] = $c)' "$comments_file" > "$lookup_file"
-
-  local thread_json
-  thread_json="$(jq -c --slurpfile comments "$comments_file" --slurpfile lookup "$lookup_file" '
-    $comments[0] as $all
-    | $lookup[0] as $idmap
-    | def find_root($cid):
-        $idmap[$cid|tostring] as $node
-        | if $node == null then $cid
-          elif $node.in_reply_to_id == null then $cid
-          else find_root($node.in_reply_to_id)
-          end;
-    $all
-    | group_by(.id | find_root(.))
-    | map({
-        thread_id: .[0].id | find_root(.),
-        resolved: ([.[] | .resolved] | max // false),
-        comments: sort_by(.created_at)
-      })
-    | unique_by(.thread_id)
-  ')" || {
-    gh_cleanup "$comments_file"
-    gh_cleanup "$lookup_file"
-    envelope_fail "review-threads.read" "API_ERROR" "Failed to group review threads" false
-    exit 1
-  }
-  gh_cleanup "$comments_file"
-  gh_cleanup "$lookup_file"
+  local owner repo
+  owner="${owner_repo%%/*}"
+  repo="${owner_repo#*/}"
 
   local collection_target
   collection_target="$(jq -n \
@@ -100,9 +70,69 @@ main() {
       url: $url
     }')"
 
+  local all_threads="[]"
+  local cursor="null"
+
+  while :; do
+    local query
+    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { nodes { id body html_url path line commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } } } }"
+
+    local page_result
+    page_result="$(call_graphql "$query" \
+      -F owner="$owner" \
+      -F repo="$repo" \
+      -F prNumber="$pr_number" \
+      -F first="$per_page" \
+      -F after="$cursor" \
+    2>/dev/null)" || {
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to fetch review threads" false
+      exit 1
+    }
+
+    local threads_page page_info has_next end_cursor
+    threads_page="$(echo "$page_result" | jq -c '.data.repository.pullRequest.reviewThreads.nodes // []' 2>/dev/null)" || threads_page="[]"
+    page_info="$(echo "$page_result" | jq '.data.repository.pullRequest.reviewThreads.pageInfo // {}' 2>/dev/null)" || page_info="{}"
+    has_next="$(echo "$page_info" | jq -r '.hasNextPage // false')"
+    end_cursor="$(echo "$page_info" | jq -r '.endCursor // "null"')"
+
+    local formatted_page
+    formatted_page="$(echo "$threads_page" | jq -c '
+      [.[] | {
+        thread_id: (.id // empty),
+        resolved: (.isResolved // false),
+        comments: [.comments.nodes[]? | {
+          id: (.id // empty),
+          body: (.body // ""),
+          html_url: (.html_url // ""),
+          path: (.path // ""),
+          line: (.line // null),
+          commit_id: (.commit.oid // ""),
+          in_reply_to_id: (.replyTo.id // null),
+          user: {login: (.author.login // "")},
+          created_at: (.createdAt // ""),
+          updated_at: (.updatedAt // ""),
+          author_association: (.authorAssociation // "")
+        }]
+      }]
+    ' 2>/dev/null)" || formatted_page="[]"
+
+    local concat_tmp
+    concat_tmp="$(gh_make_temp "concat")"
+    echo "$all_threads" > "$concat_tmp"
+    all_threads="$(echo "$formatted_page" | jq -c --slurpfile old "$concat_tmp" '$old[0] + .')" || {
+      all_threads="$(echo "$formatted_page" | jq -c --argjson old_threads "$all_threads" '$old_threads + .')"
+    }
+    gh_cleanup "$concat_tmp"
+
+    if [ "$has_next" != "true" ] || [ "$end_cursor" = "null" ]; then
+      break
+    fi
+    cursor="$end_cursor"
+  done
+
   if [ -n "$thread_id" ]; then
     local filtered
-    filtered="$(echo "$thread_json" | jq --argjson tid "$thread_id" '
+    filtered="$(echo "$all_threads" | jq --arg tid "$thread_id" '
       [ .[] | select(.thread_id == $tid) ]
     ')"
     local wrapper
@@ -110,7 +140,7 @@ main() {
     envelope_ok "review-threads.read" "$collection_target" "$wrapper"
   else
     local wrapper
-    wrapper="$(jq -n --argjson threads "$thread_json" '{threads: $threads}')"
+    wrapper="$(jq -n --argjson threads "$all_threads" '{threads: $threads}')"
     envelope_ok "review-threads.read" "$collection_target" "$wrapper"
   fi
 }
