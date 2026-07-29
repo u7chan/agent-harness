@@ -1755,11 +1755,6 @@
           "required": false,
           "description": "LEFT or RIGHT side for start_line"
         },
-        "in_reply_to": {
-          "type": "number",
-          "required": false,
-          "description": "Review comment ID to reply to (creates a threaded reply)"
-        },
         "subject_type": {
           "type": "string",
           "required": false,

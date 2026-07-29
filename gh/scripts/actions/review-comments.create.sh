@@ -10,11 +10,10 @@ source "$SCRIPT_DIR/../common/file.sh"
 main() {
   local request_file="$1"
 
-  local number commit_id path body
+  local number commit_id path
   number="$(jq -r '.number' "$request_file")"
   commit_id="$(jq -r '.commit_id' "$request_file")"
   path="$(jq -r '.path' "$request_file")"
-  body="$(jq -j '.body' "$request_file")"
 
   local target
   target="$(resolve_pr_target)" || {
@@ -44,6 +43,13 @@ main() {
   check_body_file="$(gh_make_temp "check-body")"
   jq -j '.body' "$request_file" > "$check_body_file"
 
+  local line side start_line start_side subject_type
+  line="$(jq -r '.line' "$request_file")"
+  side="$(jq -r '.side // empty' "$request_file")"
+  start_line="$(jq -r '.start_line // empty' "$request_file")"
+  start_side="$(jq -r '.start_side // empty' "$request_file")"
+  subject_type="$(jq -r '.subject_type // empty' "$request_file")"
+
   local existing
   existing="$(call_gh_api_paginated "repos/$owner_repo/pulls/$pr_number/comments" '[.[]]' "100" 2>/dev/null)" || {
     gh_cleanup "$check_body_file"
@@ -52,9 +58,29 @@ main() {
   }
 
   local dedup
-  dedup="$(echo "$existing" | jq -r --rawfile b "$check_body_file" --arg actor "$actor" '
-    first(.[] | select(.user.login == $actor and .body == $b))
-  ' 2>/dev/null)" || dedup=""
+  dedup="$(echo "$existing" | jq -r \
+    --rawfile b "$check_body_file" \
+    --arg actor "$actor" \
+    --arg commit_id "$commit_id" \
+    --arg path "$path" \
+    --argjson line "$line" \
+    --arg side "$side" \
+    --arg start_line "$start_line" \
+    --arg start_side "$start_side" \
+    --arg subject_type "$subject_type" \
+    '
+      first(.[] | select(
+        .user.login == $actor and
+        .body == $b and
+        .path == $path and
+        .commit_id == $commit_id and
+        (.line // 0) == ($line // 0) and
+        ((.side // "") == $side) and
+        ((.start_line // "") | tostring) == $start_line and
+        ((.start_side // "") == $start_side) and
+        ((.subject_type // "") == $subject_type)
+      ))
+    ' 2>/dev/null)" || dedup=""
   gh_cleanup "$check_body_file"
 
   if [ -n "$dedup" ] && [ "$dedup" != "null" ]; then
@@ -98,11 +124,6 @@ main() {
   start_side="$(jq -r '.start_side // empty' "$request_file")"
   if [ -n "$start_side" ]; then
     jq --arg ss "$start_side" '. + {start_side: $ss}' "$body_file" > "${body_file}.tmp" && mv "${body_file}.tmp" "$body_file"
-  fi
-  local in_reply_to
-  in_reply_to="$(jq -r '.in_reply_to // empty' "$request_file")"
-  if [ -n "$in_reply_to" ]; then
-    jq --argjson irt "$in_reply_to" '. + {in_reply_to: $irt}' "$body_file" > "${body_file}.tmp" && mv "${body_file}.tmp" "$body_file"
   fi
   local subject_type
   subject_type="$(jq -r '.subject_type // empty' "$request_file")"

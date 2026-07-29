@@ -146,9 +146,17 @@ main() {
   }
 
   local dedup
-  dedup="$(echo "$existing" | jq -r --rawfile b "$check_body_file" --arg actor "$actor" '
-    first(.[] | select(.user.login == $actor and .body == $b))
-  ' 2>/dev/null)" || dedup=""
+  dedup="$(echo "$existing" | jq -r \
+    --rawfile b "$check_body_file" \
+    --arg actor "$actor" \
+    --argjson effective_in_reply_to "$effective_in_reply_to" \
+    '
+      first(.[] | select(
+        .user.login == $actor and
+        .body == $b and
+        (.in_reply_to_id // 0) == ($effective_in_reply_to // 0)
+      ))
+    ' 2>/dev/null)" || dedup=""
   gh_cleanup "$check_body_file"
 
   if [ -n "$dedup" ] && [ "$dedup" != "null" ]; then
