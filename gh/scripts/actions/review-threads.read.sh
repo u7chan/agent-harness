@@ -70,12 +70,14 @@ main() {
       url: $url
     }')"
 
-  local all_threads="[]"
+  local threads_tmp
+  threads_tmp="$(gh_make_temp "threads-raw")"
+  echo "[]" > "$threads_tmp"
   local cursor="null"
 
   while :; do
     local query
-    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { nodes { id body url path line commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } } } }"
+    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id body url path line commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } } } }"
 
     local page_result
     page_result="$(call_graphql "$query" \
@@ -84,45 +86,39 @@ main() {
       -F prNumber="$pr_number" \
       -F first="$per_page" \
       -F after="$cursor" \
-    2>/dev/null)" || {
+     2>/dev/null)" || {
+      gh_cleanup "$threads_tmp"
       envelope_fail "review-threads.read" "API_ERROR" "Failed to fetch review threads" false
       exit 1
     }
 
-    local threads_page page_info has_next end_cursor
-    threads_page="$(echo "$page_result" | jq -c '.data.repository.pullRequest.reviewThreads.nodes // []' 2>/dev/null)" || threads_page="[]"
-    page_info="$(echo "$page_result" | jq '.data.repository.pullRequest.reviewThreads.pageInfo // {}' 2>/dev/null)" || page_info="{}"
-    has_next="$(echo "$page_info" | jq -r '.hasNextPage // false')"
-    end_cursor="$(echo "$page_info" | jq -r '.endCursor // "null"')"
+    local page_threads
+    page_threads="$(echo "$page_result" | jq -c '[.data.repository.pullRequest.reviewThreads.nodes[]? | {
+      thread_id: .id,
+      is_resolved: (.isResolved // false),
+      comments: [.comments.nodes[]? | {
+        id: (.id // empty),
+        body: (.body // ""),
+        url: (.url // ""),
+        path: (.path // ""),
+        line: (.line // null),
+        commit_oid: (.commit.oid // ""),
+        reply_to_id: (.replyTo.id // null),
+        author_login: (.author.login // ""),
+        author_association: (.authorAssociation // ""),
+        created_at: (.createdAt // ""),
+        updated_at: (.updatedAt // "")
+      }],
+      comments_pageInfo: .comments.pageInfo
+    }]' 2>/dev/null)" || page_threads="[]"
 
-    local formatted_page
-    formatted_page="$(echo "$threads_page" | jq -c '
-      [.[] | {
-        thread_id: (.id // empty),
-        resolved: (.isResolved // false),
-        comments: [.comments.nodes[]? | {
-          id: (.id // empty),
-          body: (.body // ""),
-          html_url: (.url // ""),
-          path: (.path // ""),
-          line: (.line // null),
-          commit_id: (.commit.oid // ""),
-          in_reply_to_id: (.replyTo.id // null),
-          user: {login: (.author.login // "")},
-          created_at: (.createdAt // ""),
-          updated_at: (.updatedAt // ""),
-          author_association: (.authorAssociation // "")
-        }]
-      }]
-    ' 2>/dev/null)" || formatted_page="[]"
+    local merged
+    merged="$(echo "$page_threads" | jq -c --slurpfile old "$threads_tmp" '$old[0] + .')"
+    echo "$merged" > "$threads_tmp"
 
-    local concat_tmp
-    concat_tmp="$(gh_make_temp "concat")"
-    echo "$all_threads" > "$concat_tmp"
-    all_threads="$(echo "$formatted_page" | jq -c --slurpfile old "$concat_tmp" '$old[0] + .')" || {
-      all_threads="$(echo "$formatted_page" | jq -c --argjson old_threads "$all_threads" '$old_threads + .')"
-    }
-    gh_cleanup "$concat_tmp"
+    local has_next end_cursor
+    has_next="$(echo "$page_result" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false')"
+    end_cursor="$(echo "$page_result" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // "null"')"
 
     if [ "$has_next" != "true" ] || [ "$end_cursor" = "null" ]; then
       break
@@ -130,9 +126,87 @@ main() {
     cursor="$end_cursor"
   done
 
+  local cquery
+  cquery='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id body url path line commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } }'
+
+  local threads_json
+  threads_json="$(cat "$threads_tmp")"
+  local pending_count=1
+
+  while [ "$pending_count" -gt 0 ]; do
+    pending_count="$(echo "$threads_json" | jq '[.[] | select(.comments_pageInfo.hasNextPage == true)] | length' 2>/dev/null)" || pending_count=0
+    if [ "$pending_count" -eq 0 ]; then
+      break
+    fi
+
+    local tid
+    tid="$(echo "$threads_json" | jq -r '[.[] | select(.comments_pageInfo.hasNextPage == true)][0].thread_id // empty' 2>/dev/null)" || tid=""
+    if [ -z "$tid" ]; then
+      break
+    fi
+
+    local comment_cursor
+    comment_cursor="$(echo "$threads_json" | jq -r --arg tid "$tid" '[.[] | select(.thread_id == $tid)][0].comments_pageInfo.endCursor // "null"' 2>/dev/null)" || comment_cursor="null"
+    if [ "$comment_cursor" = "null" ]; then
+      break
+    fi
+
+    local cresult
+    cresult="$(call_graphql "$cquery" -F threadId="$tid" -F after="$comment_cursor" 2>/dev/null)" || {
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to paginate comments for thread" false
+      exit 1
+    }
+
+    local new_comments
+    new_comments="$(echo "$cresult" | jq -c '[.data.node.comments.nodes[]? | {
+      id: (.id // empty),
+      body: (.body // ""),
+      url: (.url // ""),
+      path: (.path // ""),
+      line: (.line // null),
+      commit_oid: (.commit.oid // ""),
+      reply_to_id: (.replyTo.id // null),
+      author_login: (.author.login // ""),
+      author_association: (.authorAssociation // ""),
+      created_at: (.createdAt // ""),
+      updated_at: (.updatedAt // "")
+    }]' 2>/dev/null)" || new_comments="[]"
+
+    local new_page_info
+    new_page_info="$(echo "$cresult" | jq -c '.data.node.comments.pageInfo // {hasNextPage: false, endCursor: null}' 2>/dev/null)" || new_page_info='{"hasNextPage":false,"endCursor":null}'
+
+    threads_json="$(echo "$threads_json" | jq -c --arg tid "$tid" --argjson nc "$new_comments" --argjson npi "$new_page_info" '
+      map(if .thread_id == $tid then
+        .comments += $nc | .comments_pageInfo = $npi
+      else . end)
+    ')"
+  done
+
+  gh_cleanup "$threads_tmp"
+
+  local formatted_threads
+  formatted_threads="$(echo "$threads_json" | jq -c '[.[] | {
+    thread_id: .thread_id,
+    resolved: .is_resolved,
+    comments: [.comments[] | {
+      id: .id,
+      body: .body,
+      html_url: .url,
+      path: .path,
+      line: .line,
+      commit_id: .commit_oid,
+      in_reply_to_id: .reply_to_id,
+      user: {login: .author_login},
+      created_at: .created_at,
+      updated_at: .updated_at,
+      author_association: .author_association
+    }]
+  }]' 2>/dev/null)" || formatted_threads="[]"
+
   if [ -n "$thread_id" ]; then
     local filtered
-    filtered="$(echo "$all_threads" | jq --arg tid "$thread_id" '
+    filtered="$(echo "$formatted_threads" | jq --arg tid "$thread_id" '
       [ .[] | select(.thread_id == $tid) ]
     ')"
     local wrapper
@@ -140,7 +214,7 @@ main() {
     envelope_ok "review-threads.read" "$collection_target" "$wrapper"
   else
     local wrapper
-    wrapper="$(jq -n --argjson threads "$all_threads" '{threads: $threads}')"
+    wrapper="$(jq -n --argjson threads "$formatted_threads" '{threads: $threads}')"
     envelope_ok "review-threads.read" "$collection_target" "$wrapper"
   fi
 }
