@@ -50,8 +50,14 @@ main() {
 
   local already_resolved
   already_resolved="$(echo "$thread_data" | jq -r '.isResolved // false')"
-  local thread_url
+  local thread_url thread_repo
   thread_url="$(echo "$thread_data" | jq -r '.pullRequest.url // ""')"
+  thread_repo="$(echo "$thread_data" | jq -r '.pullRequest.repository.nameWithOwner // ""')"
+
+  if [ -n "$thread_repo" ] && [ "$thread_repo" != "null" ] && [ "$thread_repo" != "$owner_repo" ]; then
+    envelope_fail "review-threads.resolve" "TARGET_MISMATCH" "Thread belongs to $thread_repo, not $owner_repo" false
+    exit 1
+  fi
 
   local thread_target
   thread_target="$(jq -n \
