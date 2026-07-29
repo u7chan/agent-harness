@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common/envelope.sh"
 source "$SCRIPT_DIR/../common/manifest.sh"
 source "$SCRIPT_DIR/../common/config.sh"
+source "$SCRIPT_DIR/../common/herdr_cli.sh"
 
 herdr_team_generate_id() {
   local ts
@@ -15,39 +16,63 @@ herdr_team_generate_id() {
 }
 
 herdr_get_current_pane() {
-  herdr pane current 2>/dev/null | jq -c '.' 2>/dev/null || echo '{}'
+  herdr_cli_safe_call herdr pane current
 }
 
 herdr_pane_split() {
   local direction="${1:-right}"
-  herdr pane split --current --direction "$direction" --cwd "$PWD" --no-focus 2>/dev/null \
-    | jq -c '.' 2>/dev/null || echo '{"status":"failed"}'
+  herdr_cli_safe_call herdr pane split --current --direction "$direction" --cwd "$PWD" --no-focus
 }
 
 herdr_agent_start() {
   local name="$1"
   local kind="$2"
   local pane_id="$3"
-  herdr agent start "$name" --kind "$kind" --pane "$pane_id" 2>/dev/null | jq -c '.' 2>/dev/null || echo '{"status":"failed"}'
+  herdr_cli_safe_call herdr agent start "$name" --kind "$kind" --pane "$pane_id"
 }
 
 herdr_agent_rename() {
   local pane_id="$1"
   local name="$2"
-  herdr agent rename "$pane_id" "$name" 2>/dev/null | jq -c '.' 2>/dev/null || echo '{"status":"failed"}'
+  herdr_cli_safe_call herdr agent rename "$pane_id" "$name"
 }
 
 herdr_agent_prompt() {
   local target="$1"
   local text="$2"
   local timeout="${3:-30000}"
-  herdr agent prompt "$target" "$text" --wait --timeout "$timeout" 2>/dev/null | jq -c '.' 2>/dev/null || echo '{"status":"failed"}'
+  herdr_cli_safe_call herdr agent prompt "$target" "$text" --wait --timeout "$timeout"
 }
 
 herdr_agent_label() {
   local pane_id="$1"
   local label="$2"
-  herdr pane label "$pane_id" "$label" 2>/dev/null || true
+  herdr pane label "$pane_id" "$label" >/dev/null 2>&1 || true
+}
+
+herdr_agent_ready_wait() {
+  local pane_id="$1"
+  local deadline_epoch="$2"
+  local max_attempts=10
+  local attempt=0
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    if herdr_cli_deadline_expired "$deadline_epoch"; then
+      return 1
+    fi
+    local info
+    info="$(herdr_cli_safe_call herdr pane get "$pane_id")"
+    local agent_status
+    agent_status="$(echo "$info" | jq -r '.result.pane.agent_status // "unknown"')"
+    if [ "$agent_status" = "running" ] || [ "$agent_status" = "idle" ] || [ "$agent_status" = "unknown" ]; then
+      return 0
+    elif [ "$agent_status" = "agent_pane_busy" ]; then
+      sleep 0.5
+      attempt=$((attempt + 1))
+    else
+      return 0
+    fi
+  done
+  return 1
 }
 
 main() {
@@ -72,18 +97,35 @@ main() {
     timeout=30000
   fi
 
+  local deadline_epoch
+  deadline_epoch="$(herdr_cli_deadline_from_timeout "$timeout")"
+
+  local lock_file=""
+  lock_file="$(herdr_manifest_lock "$request_id" 30)" || {
+    envelope_fail "team.start" "LOCK_FAILED" "Could not acquire lock for request_id: $request_id" true
+    exit 1
+  }
+
   local existing_duplicate
   existing_duplicate="$(herdr_manifest_find_by_request_id "$request_id")"
   if [ -n "$existing_duplicate" ] && [ "$existing_duplicate" != "null" ]; then
     local dup_manifest
     dup_manifest="$(herdr_manifest_read "$existing_duplicate")"
-    local dup_members
-    dup_members="$(echo "$dup_manifest" | jq -c '{
-      team_id: .team_id,
-      members: [.members[] | {role: .role, kind: .kind, activation: .activation, agent_name: .agent_name, pane_id: .pane_id}],
-      manifest_path: "'"$(herdr_manifest_path "$existing_duplicate")"'"
-    }')"
-    envelope_already_applied "team.start" "{\"type\":\"team\",\"team_id\":\"$existing_duplicate\"}" "$dup_members"
+    local dup_status
+    dup_status="$(echo "$dup_manifest" | jq -r '.status // "active"')"
+    herdr_manifest_unlock "$lock_file"
+
+    if [ "$dup_status" = "unknown_outcome" ]; then
+      envelope_unknown_outcome "team.start" "{\"type\":\"team\",\"team_id\":\"$existing_duplicate\"}" "$(echo "$dup_manifest" | jq -c '{team_id: .team_id, members: [.members[] | {role: .role, kind: .kind, activation: .activation, agent_name: .agent_name, pane_id: .pane_id}]}')"
+    else
+      local dup_members
+      dup_members="$(echo "$dup_manifest" | jq -c '{
+        team_id: .team_id,
+        members: [.members[] | {role: .role, kind: .kind, activation: .activation, agent_name: .agent_name, pane_id: .pane_id}],
+        manifest_path: "'"$(herdr_manifest_path "$existing_duplicate")"'"
+      }')"
+      envelope_already_applied "team.start" "{\"type\":\"team\",\"team_id\":\"$existing_duplicate\"}" "$dup_members"
+    fi
     exit 0
   fi
 
@@ -92,6 +134,7 @@ main() {
   workspace_id="$(echo "$current_pane" | jq -r '.result.pane.workspace_id // ""')"
 
   if [ -z "$workspace_id" ] || [ "$workspace_id" = "null" ]; then
+    herdr_manifest_unlock "$lock_file"
     envelope_fail "team.start" "HERDR_ERROR" "Cannot determine current workspace. Is herdr running?" false
     exit 1
   fi
@@ -110,11 +153,13 @@ main() {
   member_count="$(echo "$config_json" | jq -r '.members | length // 0')"
 
   if [ "$member_count" -eq 0 ]; then
+    herdr_manifest_unlock "$lock_file"
     envelope_fail "team.start" "CONFIG_ERROR" "No valid team members found in config" false
     exit 1
   fi
 
   if ! herdr_config_validate_members "$config_json"; then
+    herdr_manifest_unlock "$lock_file"
     envelope_fail "team.start" "CONFIG_ERROR" "Config validation failed (see stderr)" false
     exit 1
   fi
@@ -124,8 +169,8 @@ main() {
 
   local team_short_id="${team_id: -8}"
 
-  local config_dir
-  config_dir="$(echo "$config_json" | jq -r '._config_dir // ""')"
+  local prompt_snapshots
+  prompt_snapshots="$(herdr_config_snapshot_prompts "$config_json")"
 
   local deferred_roles=""
   local members_json
@@ -161,6 +206,15 @@ main() {
     activation="$(echo "$member" | jq -r '.activation')"
     member_kind="$(echo "$member" | jq -r '.kind')"
 
+    if herdr_cli_deadline_expired "$deadline_epoch"; then
+      if [ "$keep_on_failure" != "true" ]; then
+        herdr_rollback_panes "$created_panes"
+      fi
+      herdr_manifest_unlock "$lock_file"
+      envelope_fail "team.start" "TIMEOUT" "Start deadline expired before creating pane for role '$role'" false
+      exit 1
+    fi
+
     local split_result pane_id
     split_result="$(herdr_pane_split "$layout_dir")"
     pane_id="$(echo "$split_result" | jq -r '.result.pane.pane_id // ""')"
@@ -169,14 +223,26 @@ main() {
       if [ "$keep_on_failure" != "true" ]; then
         herdr_rollback_panes "$created_panes"
       fi
+      herdr_manifest_unlock "$lock_file"
       envelope_fail "team.start" "PANEL_CREATE_FAILED" "Failed to split pane for role '$role'" false
       exit 1
     fi
 
     created_panes="${created_panes}${pane_id}\n"
 
+    herdr_agent_ready_wait "$pane_id" "$deadline_epoch" || true
+
+    if herdr_cli_deadline_expired "$deadline_epoch"; then
+      if [ "$keep_on_failure" != "true" ]; then
+        herdr_rollback_panes "$created_panes"
+      fi
+      herdr_manifest_unlock "$lock_file"
+      envelope_fail "team.start" "TIMEOUT" "Start deadline expired after pane create for role '$role'" false
+      exit 1
+    fi
+
     local agent_status
-    agent_status="$(herdr pane get "$pane_id" 2>/dev/null | jq -r '.result.pane.agent_status // "unknown"')"
+    agent_status="$(herdr_cli_safe_call herdr pane get "$pane_id" | jq -r '.result.pane.agent_status // "unknown"')"
 
     local agent_result
     if [ "$agent_status" = "unknown" ]; then
@@ -185,13 +251,11 @@ main() {
       agent_result="$(herdr_agent_rename "$pane_id" "$agent_name")"
     fi
 
-    local agent_start_ok
-    agent_start_ok="$(echo "$agent_result" | jq -r '.status // "failed"')"
-
-    if [ "$agent_start_ok" != "ok" ] && [ "$agent_start_ok" != "completed" ]; then
+    if ! herdr_cli_result_ok "$agent_result"; then
       if [ "$keep_on_failure" != "true" ]; then
         herdr_rollback_panes "$created_panes"
       fi
+      herdr_manifest_unlock "$lock_file"
       envelope_fail "team.start" "AGENT_START_FAILED" "Failed to start agent for role '$role'" false
       exit 1
     fi
@@ -202,7 +266,7 @@ main() {
 
     if [ "$activation" = "immediate" ]; then
       local role_prompt
-      role_prompt="$(herdr_config_resolve_prompt "$config_json" "$role")"
+      role_prompt="$(echo "$prompt_snapshots" | jq -r --arg role "$role" '.[$role] // ""')"
       local prompt_text="$role_prompt"
       if [ -n "$kickoff_context" ] && [ "$kickoff_context" != "{}" ] && [ "$kickoff_context" != "null" ]; then
         prompt_text="${prompt_text}
@@ -212,21 +276,46 @@ main() {
 $(echo "$kickoff_context" | jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")')"
       fi
 
-      local prompt_result
-      prompt_result="$(herdr_agent_prompt "$agent_name" "$prompt_text" "$timeout")"
-      local prompt_status
-      prompt_status="$(echo "$prompt_result" | jq -r '.status // "failed"')"
+      local remaining_timeout
+      remaining_timeout="$(herdr_cli_timeout_remaining "$deadline_epoch")"
 
-      if [ "$prompt_status" != "ok" ] && [ "$prompt_status" != "completed" ]; then
-        if [ "$keep_on_failure" != "true" ]; then
-          herdr_rollback_panes "$created_panes"
-        fi
+      local prompt_result prompt_status
+      prompt_result="$(herdr_agent_prompt "$agent_name" "$prompt_text" "$remaining_timeout")"
+      prompt_status="$(herdr_cli_outcome "$prompt_result")"
+
+      if [ "$prompt_status" != "ok" ]; then
         if [ "$prompt_status" = "failed" ]; then
-          envelope_fail "team.start" "PROMPT_FAILED" "Failed to send kickoff prompt to $role ($agent_name): $prompt_status" false
-        else
-          envelope_unknown_outcome "team.start" "{\"type\":\"team\",\"team_id\":\"$team_id\"}" "$(jq -nc --arg role "$role" --arg agent_name "$agent_name" '{failed_role: $role, agent_name: $agent_name}')"
+          if [ "$keep_on_failure" != "true" ]; then
+            herdr_rollback_panes "$created_panes"
+          fi
+          herdr_manifest_unlock "$lock_file"
+          envelope_fail "team.start" "PROMPT_FAILED" "Failed to send kickoff prompt to $role ($agent_name)" false
+          exit 1
         fi
-        exit 1
+
+        local unknown_manifest
+        unknown_manifest="$(jq -nc \
+          --arg team_id "$team_id" \
+          --arg workspace_id "$workspace_id" \
+          --arg request_id "$request_id" \
+          --argjson members "$members_json" \
+          --argjson kickoff_context "$(echo "$kickoff_context" | jq -c '. // {}')" \
+          '{
+            schema_version: 1,
+            team_id: $team_id,
+            workspace_id: $workspace_id,
+            request_id: $request_id,
+            members: $members,
+            kickoff_context: $kickoff_context,
+            created_at: (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+            status: "unknown_outcome",
+            deferred: [],
+            prompt_history: {}
+          }')"
+        herdr_manifest_write "$team_id" "$unknown_manifest"
+        herdr_manifest_unlock "$lock_file"
+        envelope_unknown_outcome "team.start" "{\"type\":\"team\",\"team_id\":\"$team_id\"}" "$(jq -nc --arg role "$role" '{failed_role: $role, team_id: "'"$team_id"'"}')"
+        exit 0
       fi
     else
       deferred_roles="${deferred_roles}${role}\n"
@@ -243,11 +332,12 @@ $(echo "$kickoff_context" | jq -r 'to_entries | map("\(.key): \(.value)") | join
   fi
 
   local saved_config_json
-  saved_config_json="$(echo "$config_json" | jq -c '{
+  saved_config_json="$(echo "$config_json" | jq -c --argjson prompts "$prompt_snapshots" '{
     schema_version: .schema_version,
     _config_dir: ._config_dir,
     _config_path: ._config_path,
-    members: [.members[] | {role: .role, kind: .kind, activation: .activation, prompt_file: .prompt_file}]
+    members: [.members[] | {role: .role, kind: .kind, activation: .activation, prompt_file: .prompt_file}],
+    prompt_snapshots: $prompts
   }')"
 
   local manifest_json
@@ -274,6 +364,7 @@ $(echo "$kickoff_context" | jq -r 'to_entries | map("\(.key): \(.value)") | join
     }')"
 
   herdr_manifest_write "$team_id" "$manifest_json"
+  herdr_manifest_unlock "$lock_file"
 
   local summary
   summary="$(echo "$members_json" | jq -c '{

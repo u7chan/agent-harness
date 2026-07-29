@@ -57,7 +57,7 @@ herdr_manifest_delete() {
 
 herdr_manifest_lock() {
   local team_id="$1"
-  local timeout_sec="${2:-10}"
+  local timeout_sec="${2:-30}"
 
   local lock_dir
   lock_dir="$(herdr_manifest_lock_dir)"
@@ -70,7 +70,7 @@ herdr_manifest_lock() {
     if [ "$waited" -ge "$timeout_sec" ]; then
       return 1
     fi
-    sleep 0.1
+    sleep 0.5
     waited=$((waited + 1))
   done
 

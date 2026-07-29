@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common/envelope.sh"
 source "$SCRIPT_DIR/../common/manifest.sh"
+source "$SCRIPT_DIR/../common/herdr_cli.sh"
 
 main() {
   local input

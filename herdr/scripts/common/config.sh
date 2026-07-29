@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CONFIG_ALLOWED_TOP_FIELDS='["schema_version","members"]'
+CONFIG_ALLOWED_MEMBER_FIELDS='["role","kind","activation","prompt_file"]'
+CONFIG_VALID_ACTIVATIONS='["immediate","deferred"]'
+
 herdr_config_resolve() {
   local explicit_path="${1:-}"
   local fallback_kind="${2:-}"
@@ -110,12 +114,22 @@ herdr_config_resolve() {
 herdr_config_validate_members() {
   local config_json="$1"
 
-  local role kind activation prompt_file
   local errors=""
-  local seen_roles=""
+
+  local top_unknown
+  top_unknown="$(echo "$config_json" | jq -r --argjson allowed "$CONFIG_ALLOWED_TOP_FIELDS" '
+    [keys[] | select(. != "schema_version" and . != "members" and . != "_config_dir" and . != "_config_path")] | join(", ")
+  ')"
+  if [ -n "$top_unknown" ] && [ "$top_unknown" != "null" ]; then
+    errors="${errors}top-level unknown fields: $top_unknown\n"
+  fi
 
   local config_dir
   config_dir="$(echo "$config_json" | jq -r '._config_dir // ""')"
+
+  local role kind activation prompt_file
+  local seen_roles=()
+  local seen
 
   local count
   count="$(echo "$config_json" | jq -r '.members | length')"
@@ -131,12 +145,26 @@ herdr_config_validate_members() {
       continue
     fi
 
-    if echo "$seen_roles" | grep -qx "$role"; then
-      errors="${errors}member[$i] ($role): duplicate role\n"
+    local member_unknown
+    member_unknown="$(echo "$config_json" | jq -r --argjson allowed "$CONFIG_ALLOWED_MEMBER_FIELDS" --arg i "$i" '
+      [.members[$i|tonumber] | keys[] | select(. as $k | $allowed | index($k) | not)] | join(", ")
+    ')"
+    if [ -n "$member_unknown" ] && [ "$member_unknown" != "null" ] && [ "$member_unknown" != "" ]; then
+      errors="${errors}member[$i] ($role): unknown fields: $member_unknown\n"
     fi
-    seen_roles="${seen_roles}${role}\n"
 
-    if [ -z "$kind" ]; then
+    for seen in "${seen_roles[@]}"; do
+      if [ "$seen" = "$role" ]; then
+        errors="${errors}member[$i] ($role): duplicate role\n"
+      fi
+    done
+    seen_roles+=("$role")
+
+    local kind_type
+    kind_type="$(echo "$config_json" | jq -r ".members[$i].kind | type")"
+    if [ "$kind_type" != "string" ]; then
+      errors="${errors}member[$i] ($role): kind must be string, got $kind_type\n"
+    elif [ -z "$kind" ]; then
       errors="${errors}member[$i] ($role): kind is required\n"
     fi
 
@@ -145,14 +173,26 @@ herdr_config_validate_members() {
     fi
 
     if [ -n "$prompt_file" ] && [ "$prompt_file" != "null" ]; then
-      if [[ "$prompt_file" =~ ^/ ]] || [[ "$prompt_file" =~ \.\./ ]]; then
-        if [ -n "$config_dir" ] && [ "$config_dir" != "null" ]; then
-          errors="${errors}member[$i] ($role): prompt_file must be relative to config directory and cannot contain '..' or absolute paths (got '$prompt_file')\n"
-        fi
+      local pf_type
+      pf_type="$(echo "$config_json" | jq -r ".members[$i].prompt_file | type")"
+      if [ "$pf_type" != "string" ]; then
+        errors="${errors}member[$i] ($role): prompt_file must be string, got $pf_type\n"
+      elif [[ "$prompt_file" =~ ^/ ]] || [[ "$prompt_file" =~ \.\./ ]]; then
+        errors="${errors}member[$i] ($role): prompt_file must be relative and cannot contain '..' or absolute paths (got '$prompt_file')\n"
       elif [ -n "$config_dir" ] && [ "$config_dir" != "null" ]; then
         local resolved="$config_dir/$prompt_file"
         if [ ! -f "$resolved" ]; then
           errors="${errors}member[$i] ($role): prompt_file '$prompt_file' not found relative to config dir\n"
+        else
+          local real_prompt
+          real_prompt="$(realpath "$resolved" 2>/dev/null || readlink -f "$resolved" 2>/dev/null || echo "")"
+          local real_config
+          real_config="$(realpath "$config_dir" 2>/dev/null || readlink -f "$config_dir" 2>/dev/null || echo "")"
+          if [ -n "$real_prompt" ] && [ -n "$real_config" ]; then
+            if [[ "$real_prompt" != "$real_config"/* ]]; then
+              errors="${errors}member[$i] ($role): prompt_file resolves outside config directory ($real_prompt not under $real_config)\n"
+            fi
+          fi
         fi
       fi
     fi
@@ -226,4 +266,26 @@ herdr_config_resolve_prompt() {
   fi
 
   return 1
+}
+
+herdr_config_snapshot_prompts() {
+  local config_json="$1"
+
+  local result="{}"
+  local count
+  count="$(echo "$config_json" | jq -r '.members | length')"
+  local i
+  for i in $(seq 0 $((count - 1))); do
+    local role
+    role="$(echo "$config_json" | jq -r ".members[$i].role")"
+    if [ -z "$role" ] || [ "$role" = "null" ]; then
+      continue
+    fi
+    local prompt_content
+    prompt_content="$(herdr_config_resolve_prompt "$config_json" "$role" 2>/dev/null || echo "")"
+    if [ -n "$prompt_content" ]; then
+      result="$(echo "$result" | jq -c --arg role "$role" --arg content "$prompt_content" '. + {($role): $content}')"
+    fi
+  done
+  echo "$result"
 }

@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -eu
 
-# Live smoke test for herdr skill using real Herdr CLI.
-# Prerequisites:
-#   - HERDR_ENV=1 must be set
-#   - herdr must be in PATH
-#   - Run from a Herdr workspace with an active agent pane
-#
-# Run: HERDR_ENV=1 bash herdr/tests/live-smoke.sh
-#
-# ⚠️ This test creates real panes and agents. Cleanup is automatic.
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERDR_DIR="$(dirname "$SCRIPT_DIR")"
 HERDR_SCRIPT="$HERDR_DIR/scripts/herdr.sh"
@@ -27,19 +17,16 @@ fi
 
 LIVE_STATE_HOME="$(mktemp -d /tmp/herdr-live-state-XXXXXX)"
 export XDG_STATE_HOME="$LIVE_STATE_HOME"
-trap 'rm -rf "$LIVE_STATE_HOME"' EXIT
 
 PASS=0
 FAIL=0
+LIVE_TEAM_ID=""
 
 assert_ok() {
-  local result
-  result="$(cat)"
-  local check="$1"
-  local name="${2:-$check}"
-  local jq_result=0
-  echo "$result" | jq -e "$check" >/dev/null 2>&1 || jq_result=$?
-  if [ "$jq_result" -eq 0 ]; then
+  local result="$1"
+  local check="$2"
+  local name="${3:-$check}"
+  if echo "$result" | jq -e "$check" >/dev/null 2>&1; then
     echo "PASS: $name"
     PASS=$((PASS + 1))
   else
@@ -47,79 +34,65 @@ assert_ok() {
     echo "  got: $(echo "$result" | jq -c '.' 2>/dev/null || echo "$result")"
     FAIL=$((FAIL + 1))
   fi
-  return "$jq_result"
 }
+
+cleanup_team() {
+  if [ -n "$LIVE_TEAM_ID" ] && [ "$LIVE_TEAM_ID" != "null" ]; then
+    echo "[cleanup] Stopping team $LIVE_TEAM_ID..."
+    echo "{\"team_id\":\"$LIVE_TEAM_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop 2>/dev/null || true
+  fi
+}
+
+final_cleanup() {
+  cleanup_team
+  rm -rf "$LIVE_STATE_HOME"
+}
+trap final_cleanup EXIT
 
 echo "=== Herdr Live Smoke Tests ==="
 echo ""
 
 # --- Preflight ---
 echo "--- Preflight ---"
-
 HERDR_PANE_CURRENT=$(herdr pane current 2>/dev/null || echo '{}')
 if echo "$HERDR_PANE_CURRENT" | jq -e '.result.pane.pane_id != null' >/dev/null 2>&1; then
   echo "PASS: herdr is running and accessible"
   PASS=$((PASS + 1))
 else
   echo "FAIL: herdr pane current did not return a valid pane"
-  FAIL=$((FAIL + 1))
   echo "  got: $(echo "$HERDR_PANE_CURRENT" | jq -c '.' 2>/dev/null || echo "$HERDR_PANE_CURRENT")"
+  FAIL=$((FAIL + 1))
 fi
 
-# --- Catalog (always safe) ---
+# --- Catalog ---
 echo "--- Catalog ---"
+assert_ok "$(bash "$HERDR_SCRIPT" actions.list)" '.status == "ok"' "actions.list"
+assert_ok "$(echo '{"action":"team.start"}' | bash "$HERDR_SCRIPT" actions.describe)" '.status == "ok"' "actions.describe"
 
-bash "$HERDR_SCRIPT" actions.list | assert_ok '.status == "ok"' "actions.list"
-
-echo '{"action":"team.start"}' | bash "$HERDR_SCRIPT" actions.describe | assert_ok '.status == "ok"' "actions.describe"
-
-# --- Validation (no Herdr calls needed) ---
+# --- Validation ---
 echo "--- Validation ---"
+UNKNOWN_OUTPUT=$(bash "$HERDR_SCRIPT" unknown.action 2>&1) || UNKNOWN_OUTPUT=""
+assert_ok "$UNKNOWN_OUTPUT" '.status == "failed" and .error.code == "UNKNOWN_ACTION"' "unknown action"
+assert_ok "$(echo '{}' | bash "$HERDR_SCRIPT" actions.describe 2>&1)" '.status == "failed"' "missing input"
 
-set +e
-UNKNOWN_OUTPUT=$(bash "$HERDR_SCRIPT" unknown.action 2>&1) || true
-echo "$UNKNOWN_OUTPUT" | assert_ok '.status == "failed" and .error.code == "UNKNOWN_ACTION"' "unknown action"
-set -e
-
-echo '{}' | bash "$HERDR_SCRIPT" actions.describe 2>&1 | assert_ok '.status == "failed"' "missing input"
-
-# --- Team Start (creates real panes) ---
+# --- Team Start ---
 echo "--- Team Start (live) ---"
-
 TEAM_RESULT=$(echo '{"request_id":"live-smoke-001","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
-echo "$TEAM_RESULT" | assert_ok '.status == "ok"' "team.start creates team"
+assert_ok "$TEAM_RESULT" '.status == "ok"' "team.start creates team"
+LIVE_TEAM_ID=$(echo "$TEAM_RESULT" | jq -r '.data.team_id // ""')
+echo "Team ID: $LIVE_TEAM_ID"
 
-TEAM_ID=$(echo "$TEAM_RESULT" | jq -r '.data.team_id // ""')
-echo "Team ID: $TEAM_ID"
-
-if [ -n "$TEAM_ID" ] && [ "$TEAM_ID" != "null" ]; then
-  # Idempotency
-  echo '{"request_id":"live-smoke-001","grant":"write"}' | bash "$HERDR_SCRIPT" team.start | assert_ok '.status == "already_applied"' "team.start idempotent"
-
-  # Team get
-  echo "{\"team_id\":\"$TEAM_ID\"}" | bash "$HERDR_SCRIPT" team.get | assert_ok '.status == "ok" and .data.members | length > 0' "team.get"
-
-  # Team list (workspace-bound)
-  bash "$HERDR_SCRIPT" team.list | assert_ok '.status == "ok"' "team.list"
-
-  # Member prompt including deferred activation
-  echo "{\"request_id\":\"live-msg-001\",\"team_id\":\"$TEAM_ID\",\"role\":\"review\",\"text\":\"Please review PR #1\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt | assert_ok '.status == "ok" or .status == "already_applied" or .status == "unknown_outcome"' "member.prompt review"
-
-  # Member wait
-  echo "{\"team_id\":\"$TEAM_ID\",\"role\":\"review\",\"timeout\":5000}" | bash "$HERDR_SCRIPT" member.wait | assert_ok '.status == "waiting" or .status == "completed"' "member.wait"
-
-  # Member read
-  echo "{\"team_id\":\"$TEAM_ID\",\"role\":\"review\",\"lines\":10}" | bash "$HERDR_SCRIPT" member.read | assert_ok '.status == "ok"' "member.read"
-
-  # Member close with verification
-  echo "{\"team_id\":\"$TEAM_ID\",\"role\":\"review\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close | assert_ok '.status == "ok"' "member.close review"
-  echo "{\"team_id\":\"$TEAM_ID\",\"role\":\"review\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close | assert_ok '.status == "already_applied"' "member.close idempotent"
-
-  # Team stop with verification
-  echo "{\"team_id\":\"$TEAM_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop | assert_ok '.status == "ok"' "team.stop"
-
-  # Stop idempotency
-  echo "{\"team_id\":\"$TEAM_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop | assert_ok '.status == "already_applied"' "team.stop idempotent"
+if [ -n "$LIVE_TEAM_ID" ] && [ "$LIVE_TEAM_ID" != "null" ]; then
+  assert_ok "$(echo '{"request_id":"live-smoke-001","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)" '.status == "already_applied"' "team.start idempotent"
+  assert_ok "$(echo "{\"team_id\":\"$LIVE_TEAM_ID\"}" | bash "$HERDR_SCRIPT" team.get)" '.status == "ok" and .data.members | length > 0' "team.get"
+  assert_ok "$(bash "$HERDR_SCRIPT" team.list)" '.status == "ok"' "team.list"
+  assert_ok "$(echo "{\"request_id\":\"live-msg-001\",\"team_id\":\"$LIVE_TEAM_ID\",\"role\":\"review\",\"text\":\"Please review PR #1\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)" '.status == "ok" or .status == "already_applied" or .status == "unknown_outcome"' "member.prompt review"
+  assert_ok "$(echo "{\"team_id\":\"$LIVE_TEAM_ID\",\"role\":\"review\",\"timeout\":5000}" | bash "$HERDR_SCRIPT" member.wait)" '.status == "waiting" or .status == "completed"' "member.wait"
+  assert_ok "$(echo "{\"team_id\":\"$LIVE_TEAM_ID\",\"role\":\"review\",\"lines\":10}" | bash "$HERDR_SCRIPT" member.read)" '.status == "ok"' "member.read"
+  assert_ok "$(echo "{\"team_id\":\"$LIVE_TEAM_ID\",\"role\":\"review\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close)" '.status == "ok"' "member.close review"
+  assert_ok "$(echo "{\"team_id\":\"$LIVE_TEAM_ID\",\"role\":\"review\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close)" '.status == "already_applied"' "member.close idempotent"
+  assert_ok "$(echo "{\"team_id\":\"$LIVE_TEAM_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop)" '.status == "ok"' "team.stop"
+  assert_ok "$(echo "{\"team_id\":\"$LIVE_TEAM_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop)" '.status == "already_applied"' "team.stop idempotent"
 else
   echo "SKIP: team.start did not return a valid team_id"
 fi

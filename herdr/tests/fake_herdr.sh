@@ -4,35 +4,61 @@ set -euo pipefail
 FAKE_STATE="${FAKE_STATE_DIR:-/tmp/herdr-fake-state}"
 mkdir -p "$FAKE_STATE"
 
+_pane_counter_file() {
+  echo "$FAKE_STATE/.pane_counter"
+}
+
+_pane_next_id() {
+  local counter_file
+  counter_file="$(_pane_counter_file)"
+  local count=0
+  if [ -f "$counter_file" ]; then
+    count="$(cat "$counter_file")"
+  fi
+  count=$((count + 1))
+  echo "$count" > "$counter_file"
+  echo "fake-pane-${count}"
+}
+
 _pane_current() {
   cat <<'EOF'
-{"schema_version":1,"status":"ok","result":{"pane":{"pane_id":"pane-1","workspace_id":"ws-fake-001","tab_id":"tab-1","agent":"opencode","agent_status":"running","cols":160}}}
+{"id":"cli:pane:current","result":{"pane":{"pane_id":"pane-1","workspace_id":"ws-fake-001","tab_id":"tab-1","agent":"opencode","agent_status":"running","cols":160}}}
 EOF
 }
 
 _pane_split() {
-  local pane_idx="${FAKE_PANE_IDX:-0}"
-  FAKE_PANE_IDX=$((pane_idx + 1))
-  local pid="fake-pane-${FAKE_PANE_IDX}"
+  local pid
+  pid="$(_pane_next_id)"
   cat <<EOF
-{"schema_version":1,"status":"ok","result":{"pane":{"pane_id":"$pid","workspace_id":"ws-fake-001","tab_id":"tab-1","agent_status":"unknown"}}}
+{"id":"cli:pane:split","result":{"pane":{"pane_id":"$pid","workspace_id":"ws-fake-001","tab_id":"tab-1","agent_status":"unknown"}}}
 EOF
 }
 
 _pane_get() {
   local pid="${1:-unknown}"
   cat <<EOF
-{"schema_version":1,"status":"ok","result":{"pane":{"pane_id":"$pid","workspace_id":"ws-fake-001","tab_id":"tab-1","agent_status":"unknown"}}}
+{"id":"cli:pane:get","result":{"pane":{"pane_id":"$pid","workspace_id":"ws-fake-001","tab_id":"tab-1","agent_status":"unknown"}}}
 EOF
 }
 
 _agent_start() {
   local name="$1"
   local kind="$2"
-  echo "${kind} ${name}" >> "$FAKE_STATE/started_agents.log"
-  cat <<EOF
-{"schema_version":1,"status":"ok","result":{"agent":{"name":"$name","kind":"$kind","status":"running"}}}
+  local mode="${FAKE_AGENT_START_MODE:-ok}"
+  case "$mode" in
+    fail)
+      echo '{"id":"cli:agent:start","error":{"code":"AGENT_START_FAILED","message":"simulated failure"}}'
+      ;;
+    unknown)
+      echo '{}'
+      ;;
+    *)
+      echo "${kind} ${name}" >> "$FAKE_STATE/started_agents.log"
+      cat <<EOF
+{"id":"cli:agent:start","result":{"agent":{"name":"$name","kind":"$kind","status":"running"}}}
 EOF
+      ;;
+  esac
 }
 
 _agent_rename() {
@@ -40,7 +66,7 @@ _agent_rename() {
   local name="$2"
   echo "rename ${pid} ${name}" >> "$FAKE_STATE/started_agents.log"
   cat <<EOF
-{"schema_version":1,"status":"ok","result":{"agent":{"name":"$name","pane_id":"$pid"}}}
+{"id":"cli:agent:rename","result":{"agent":{"name":"$name","pane_id":"$pid"}}}
 EOF
 }
 
@@ -48,21 +74,35 @@ _pane_label() {
   local pid="$1"
   local label="$2"
   echo "label ${pid} ${label}" >> "$FAKE_STATE/pane_labels.log"
+  cat <<EOF
+{"id":"cli:pane:label","result":{"type":"ok"}}
+EOF
 }
 
 _agent_prompt() {
   local target="$1"
   local text="$2"
-  echo "$text" > "$FAKE_STATE/${target}.last_prompt"
-  cat <<EOF
-{"schema_version":1,"status":"ok","result":{"agent":{"name":"$target"},"message":"prompt sent"}}
+  local mode="${FAKE_PROMPT_MODE:-ok}"
+  case "$mode" in
+    fail)
+      echo '{"id":"cli:agent:prompt","error":{"code":"PROMPT_FAILED","message":"simulated prompt failure"}}'
+      ;;
+    unknown)
+      echo '{}'
+      ;;
+    *)
+      echo "$text" > "$FAKE_STATE/${target}.last_prompt"
+      cat <<EOF
+{"id":"cli:agent:prompt","result":{"agent":{"name":"$target"},"message":"prompt sent"}}
 EOF
+      ;;
+  esac
 }
 
 _agent_wait() {
   local target="$1"
   cat <<EOF
-{"schema_version":1,"status":"completed","result":{"agent":{"name":"$target","status":"completed"}}}
+{"id":"cli:agent:wait","result":{"agent":{"name":"$target","status":"completed"}}}
 EOF
 }
 
@@ -76,12 +116,25 @@ _agent_read() {
 }
 
 _agent_list() {
-  echo '{"schema_version":1,"status":"ok","result":{"agents":[]}}'
+  echo '{"id":"cli:agent:list","result":{"agents":[]}}'
 }
 
 _pane_close() {
   local pid="$1"
-  echo '{"schema_version":1,"status":"ok"}'
+  local mode="${FAKE_CLOSE_MODE:-ok}"
+  case "$mode" in
+    fail)
+      echo '{"id":"cli:pane:close","error":{"code":"CLOSE_FAILED","message":"simulated close failure"}}'
+      ;;
+    unknown)
+      echo '{}'
+      ;;
+    *)
+      cat <<EOF
+{"id":"cli:pane:close","result":{"type":"ok"}}
+EOF
+      ;;
+  esac
 }
 
 main() {
@@ -97,7 +150,7 @@ main() {
         get) _pane_get "${1:-}" ;;
         close) _pane_close "${1:-}" ;;
         label) _pane_label "${1:-}" "${2:-}" ;;
-        *) echo '{"status":"failed","error":"unknown pane command"}' ;;
+        *) echo '{"id":"cli:pane:error","error":{"code":"UNKNOWN_COMMAND","message":"unknown pane command"}}' ;;
       esac
       ;;
     agent)
@@ -119,7 +172,7 @@ main() {
           local target=""; local text=""
           while [ $# -gt 0 ]; do
             case "$1" in
-              --wait|--timeout|30000|60000|[0-9]*) shift ;;
+              --wait|--timeout|[0-9]*) shift ;;
               *)
                 if [ -z "$target" ]; then target="$1"
                 elif [ -z "$text" ]; then text="$1"
@@ -156,11 +209,11 @@ main() {
           _agent_read "$target"
           ;;
         list) _agent_list ;;
-        *) echo '{"status":"failed","error":"unknown agent command"}' ;;
+        *) echo '{"id":"cli:agent:error","error":{"code":"UNKNOWN_COMMAND","message":"unknown agent command"}}' ;;
       esac
       ;;
     *)
-      echo '{"status":"failed","error":"unknown command"}'
+      echo '{"id":"cli:error","error":{"code":"UNKNOWN_COMMAND","message":"unknown command"}}'
       ;;
   esac
 }

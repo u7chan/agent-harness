@@ -10,6 +10,7 @@ ACTIONS_JSON="$HERDR_DIR/actions.json"
 source "$COMMON_DIR/envelope.sh"
 source "$COMMON_DIR/config.sh"
 source "$COMMON_DIR/manifest.sh"
+source "$COMMON_DIR/herdr_cli.sh"
 
 if [ -z "${HERDR_TEMP_DIR:-}" ]; then
   export HERDR_TEMP_DIR="$(mktemp -d /tmp/herdr-skill-XXXXXX)"
