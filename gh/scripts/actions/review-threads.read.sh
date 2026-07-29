@@ -75,7 +75,7 @@ main() {
 
   while :; do
     local query
-    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { nodes { id body html_url path line commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } } } }"
+    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { nodes { id body url path line commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } } } }"
 
     local page_result
     page_result="$(call_graphql "$query" \
@@ -103,7 +103,7 @@ main() {
         comments: [.comments.nodes[]? | {
           id: (.id // empty),
           body: (.body // ""),
-          html_url: (.html_url // ""),
+          html_url: (.url // ""),
           path: (.path // ""),
           line: (.line // null),
           commit_id: (.commit.oid // ""),
