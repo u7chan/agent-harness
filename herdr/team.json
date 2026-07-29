@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "members": [
+    {
+      "role": "impl",
+      "activation": "immediate"
+    },
+    {
+      "role": "review",
+      "activation": "deferred"
+    },
+    {
+      "role": "pr-fix",
+      "activation": "deferred"
+    }
+  ]
+}
