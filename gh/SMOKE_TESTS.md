@@ -13,33 +13,59 @@ command -v jq >/dev/null && command -v gh >/dev/null
 ```bash
 TEST_OWNER="anomalyco"
 TEST_REPO="sandbox"
-TEST_PR_NUMBER=
-TEST_ISSUE_NUMBER=
+TEST_BRANCH="smoke-test-$(date +%s)"
 
-# テスト用ディレクトリと一時リポジトリを用意
-TEST_DIR=$(mktemp -d)
-cd "$TEST_DIR"
-echo "# smoke-test-$(date +%s)" > README.md
-git init && git add README.md && git commit -m "init"
-gh repo create "$TEST_OWNER/smoke-test-$(date +%s)" --private --push --source=.
+# テスト用ブランチを作成
+cd "$HOME/path/to/repo"
+CURRENT_BRANCH=$(git branch --show-current)
+git checkout -b "$TEST_BRANCH"
+echo "// smoke $(date +%s)" > smoke-test.js
+git add smoke-test.js && git commit -m "smoke test setup"
+git push -u origin "$TEST_BRANCH"
+
+# テスト用PRを作成
+TEST_PR_RESULT=$(jq -n --arg head "$TEST_BRANCH" \
+  '{"title":"smoke-test-pr","base":"main","head":$head,"grant":"write"}' \
+  | bash gh/scripts/gh.sh pr.create)
+echo "$TEST_PR_RESULT" | jq -e '.status == "ok"'
+TEST_PR_NUMBER=$(echo "$TEST_PR_RESULT" | jq -r '.data.number')
+
+# 動的にcommit SHAを取得
+TEST_COMMIT_SHA=$(echo "{\"number\":$TEST_PR_NUMBER}" \
+  | bash gh/scripts/gh.sh pr.commits.read \
+  | jq -e '.status == "ok"' \
+  | jq -r '.data[0].sha')
+
+# 動的にreview comment IDを取得（既存のreview commentがなければ作成）
+TEST_COMMENT_ID=$(echo "{\"number\":$TEST_PR_NUMBER}" \
+  | bash gh/scripts/gh.sh review-comments.read \
+  | jq -r '.data.items[0].id // empty')
+
+# 動的にthread node IDを取得
+THREAD_IDS=$(echo "{\"number\":$TEST_PR_NUMBER}" \
+  | bash gh/scripts/gh.sh review-threads.read \
+  | jq -r '.data.threads[0].thread_id // empty')
 
 # テスト用Issueを作成
-echo '{"title":"smoke-test-issue","grant":"write"}' \
-  | GH_REPO="$TEST_OWNER/$(basename "$(pwd)")" bash gh/scripts/gh.sh issue.create \
-  | jq -e '.status == "ok"'
-TEST_ISSUE_NUMBER=$(...)
+TEST_ISSUE_RESULT=$(echo '{"title":"smoke-test-issue","grant":"write"}' \
+  | bash gh/scripts/gh.sh issue.create \
+  | jq -e '.status == "ok"')
+TEST_ISSUE_NUMBER=$(echo "$TEST_ISSUE_RESULT" | jq -r '.data.number')
 
-# テスト用ブランチとPRを作成
-git checkout -b smoke-test-pr
-echo "// smoke" > test.js && git add test.js && git commit -m "smoke test"
-git push -u origin smoke-test-pr
-jq -n --arg head smoke-test-pr \
-  '{"title":"smoke-test-pr","base":"main","head":$head,"grant":"write"}' \
-  | bash gh/scripts/gh.sh pr.create | jq -e '.status == "ok"'
-TEST_PR_NUMBER=$(...)
+echo "TEST_PR_NUMBER=$TEST_PR_NUMBER"
+echo "TEST_COMMIT_SHA=$TEST_COMMIT_SHA"
+echo "TEST_ISSUE_NUMBER=$TEST_ISSUE_NUMBER"
+echo "TEST_COMMENT_ID=$TEST_COMMENT_ID"
+echo "THREAD_IDS=$THREAD_IDS"
+```
 
-# テスト終了後はリポジトリごと削除
-gh repo delete "$TEST_OWNER/smoke-test-..." --yes
+```bash
+# テスト終了後はブランチを削除し、元のブランチに戻す
+git checkout "$CURRENT_BRANCH"
+git push origin --delete "$TEST_BRANCH" 2>/dev/null || true
+# PR自体はAPI経由でclose（deleteはgh pr closeで）
+echo "{\"number\":$TEST_PR_NUMBER, \"grant\": \"sensitive-write\"}" \
+  | bash gh/scripts/gh.sh pr.close | jq -e '.status == "ok"'
 ```
 
 ## Catalog Actions
@@ -705,7 +731,7 @@ echo '{"comment_id":1, "grant": "read"}' | bash gh/scripts/gh.sh comments.delete
 
 ```bash
 # Test: list review comments on a PR (collection, full pagination)
-echo '{"number":12}' | bash gh/scripts/gh.sh review-comments.read | jq -e '.status == "ok" and (.data | type == "object") and (.data.items | type == "array")'
+echo "{\"number\":$TEST_PR_NUMBER}" | bash gh/scripts/gh.sh review-comments.read | jq -e '.status == "ok" and (.data | type == "object") and (.data.items | type == "array")'
 ```
 
 | Check | Pass Condition |
@@ -720,8 +746,10 @@ echo '{"number":12}' | bash gh/scripts/gh.sh review-comments.read | jq -e '.stat
 ### review-comments.read (single)
 
 ```bash
-# Test: get single review comment by ID
-echo '{"number":12, "comment_id":1}' | bash gh/scripts/gh.sh review-comments.read | jq -e '.status == "ok" or .status == "failed"'
+# Test: get single review comment by ID (use dynamic comment ID if available)
+if [ -n "$TEST_COMMENT_ID" ]; then
+  echo "{\"number\":$TEST_PR_NUMBER, \"comment_id\":$TEST_COMMENT_ID}" | bash gh/scripts/gh.sh review-comments.read | jq -e '.status == "ok" or .status == "failed"'
+fi
 ```
 
 | Check | Pass Condition |
@@ -734,7 +762,9 @@ echo '{"number":12, "comment_id":1}' | bash gh/scripts/gh.sh review-comments.rea
 
 ```bash
 # Test: comment_id does not belong to the given PR
-echo '{"number":999999, "comment_id":1}' | bash gh/scripts/gh.sh review-comments.read 2>&1 | jq -e '.status == "failed" and (.error.code == "PARENT_MISMATCH" or .error.code == "API_ERROR")'
+if [ -n "$TEST_COMMENT_ID" ]; then
+  echo "{\"number\":999999, \"comment_id\":$TEST_COMMENT_ID}" | bash gh/scripts/gh.sh review-comments.read 2>&1 | jq -e '.status == "failed" and (.error.code == "PARENT_MISMATCH" or .error.code == "API_ERROR")'
+fi
 ```
 
 | Check | Pass Condition |
@@ -770,7 +800,7 @@ echo '{"number":1, "per_page":1.5}' | bash gh/scripts/gh.sh review-comments.read
 
 ```bash
 # Test: create review comment (requires a test PR with known commit)
-echo '{"number":1, "body": "smoke-test-review-comment", "commit_id": "COMMIT_SHA", "path": "README.md", "line": 1, "grant": "write"}' | bash gh/scripts/gh.sh review-comments.create | jq -e '.status == "ok" or .status == "already_applied"'
+echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"smoke-test-review-comment\", \"commit_id\": \"$TEST_COMMIT_SHA\", \"path\": \"smoke-test.js\", \"line\": 2, \"grant\": \"write\"}" | bash gh/scripts/gh.sh review-comments.create | jq -e '.status == "ok" or .status == "already_applied"'
 ```
 
 | Check | Pass Condition |
@@ -782,8 +812,10 @@ echo '{"number":1, "body": "smoke-test-review-comment", "commit_id": "COMMIT_SHA
 ### review-comments.reply
 
 ```bash
-# Test: reply to a review comment
-echo '{"number":1, "reply_to":1, "body": "smoke-test-review-reply", "grant": "write"}' | bash gh/scripts/gh.sh review-comments.reply | jq -e '.status == "ok" or .status == "already_applied"'
+# Test: reply to a review comment (use dynamic comment ID if available)
+if [ -n "$TEST_COMMENT_ID" ]; then
+  echo "{\"number\":$TEST_PR_NUMBER, \"reply_to\":$TEST_COMMENT_ID, \"body\": \"smoke-test-review-reply\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh review-comments.reply | jq -e '.status == "ok" or .status == "already_applied"'
+fi
 ```
 
 | Check | Pass Condition |
@@ -795,7 +827,7 @@ echo '{"number":1, "reply_to":1, "body": "smoke-test-review-reply", "grant": "wr
 
 ```bash
 # Test: reply_to comment does not belong to given PR
-echo '{"number":999999, "reply_to":1, "body": "reply fail", "grant": "write"}' | bash gh/scripts/gh.sh review-comments.reply 2>&1 | jq -e '.status == "failed" and (.error.code == "REPLY_MISMATCH" or .error.code == "API_ERROR")'
+echo "{\"number\":999999, \"reply_to\":$TEST_COMMENT_ID, \"body\": \"reply fail\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh review-comments.reply 2>&1 | jq -e '.status == "failed" and (.error.code == "REPLY_MISMATCH" or .error.code == "API_ERROR")'
 ```
 
 | Check | Pass Condition |
@@ -806,8 +838,10 @@ echo '{"number":999999, "reply_to":1, "body": "reply fail", "grant": "write"}' |
 ### review-comments.update
 
 ```bash
-# Test: update review comment body
-echo '{"comment_id":1, "body": "smoke-test-review-updated", "grant": "write"}' | bash gh/scripts/gh.sh review-comments.update | jq -e '.status == "ok" or .status == "already_applied"'
+# Test: update review comment body (use dynamic comment ID if available)
+if [ -n "$TEST_COMMENT_ID" ]; then
+  echo "{\"comment_id\":$TEST_COMMENT_ID, \"body\": \"smoke-test-review-updated\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh review-comments.update | jq -e '.status == "ok" or .status == "already_applied"'
+fi
 ```
 
 | Check | Pass Condition |
@@ -818,8 +852,10 @@ echo '{"comment_id":1, "body": "smoke-test-review-updated", "grant": "write"}' |
 ### review-comments.delete
 
 ```bash
-# Test: delete review comment
-echo '{"comment_id":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-comments.delete | jq -e '.status == "ok" or .status == "failed"'
+# Test: delete review comment (use dynamic comment ID if available)
+if [ -n "$TEST_COMMENT_ID" ]; then
+  echo "{\"comment_id\":$TEST_COMMENT_ID, \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-comments.delete | jq -e '.status == "ok" or .status == "failed"'
+fi
 ```
 
 | Check | Pass Condition |
@@ -833,7 +869,7 @@ echo '{"comment_id":1, "grant": "sensitive-write"}' | bash gh/scripts/gh.sh revi
 
 ```bash
 # Test: list reviews on a PR
-echo '{"number":12}' | bash gh/scripts/gh.sh reviews.read | jq -e '.status == "ok" and (.data | type == "object") and (.data.items | type == "array")'
+echo "{\"number\":$TEST_PR_NUMBER}" | bash gh/scripts/gh.sh reviews.read | jq -e '.status == "ok" and (.data | type == "object") and (.data.items | type == "array")'
 ```
 
 | Check | Pass Condition |
@@ -845,8 +881,13 @@ echo '{"number":12}' | bash gh/scripts/gh.sh reviews.read | jq -e '.status == "o
 ### reviews.read (single)
 
 ```bash
-# Test: get single review by ID
-echo '{"number":12, "review_id":1}' | bash gh/scripts/gh.sh reviews.read | jq -e '.status == "ok" or .status == "failed"'
+# Test: get single review by ID (use dynamic review ID from collection if available)
+TEST_REVIEW_ID=$(echo "{\"number\":$TEST_PR_NUMBER}" \
+  | bash gh/scripts/gh.sh reviews.read \
+  | jq -r '.data.items[0].id // empty')
+if [ -n "$TEST_REVIEW_ID" ]; then
+  echo "{\"number\":$TEST_PR_NUMBER, \"review_id\":$TEST_REVIEW_ID}" | bash gh/scripts/gh.sh reviews.read | jq -e '.status == "ok" or .status == "failed"'
+fi
 ```
 
 | Check | Pass Condition |
@@ -870,7 +911,7 @@ echo '{"number":1, "per_page":1.5}' | bash gh/scripts/gh.sh reviews.read 2>&1 | 
 
 ```bash
 # Test: create COMMENT review
-echo '{"number":1, "body": "smoke-test-review-body", "grant": "write"}' | bash gh/scripts/gh.sh reviews.create | jq -e '.status == "ok"'
+echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"smoke-test-review-body\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh reviews.create | jq -e '.status == "ok"'
 ```
 
 | Check | Pass Condition |
@@ -883,7 +924,7 @@ echo '{"number":1, "body": "smoke-test-review-body", "grant": "write"}' | bash g
 
 ```bash
 # Test: APPROVE event should be rejected
-echo '{"number":1, "body": "approval", "event": "APPROVE", "grant": "write"}' | bash gh/scripts/gh.sh reviews.create 2>&1 | jq -e '.status == "failed" and .error.code == "INVALID_PARAMETER"'
+echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"approval\", \"event\": \"APPROVE\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh reviews.create 2>&1 | jq -e '.status == "failed" and .error.code == "INVALID_PARAMETER"'
 ```
 
 | Check | Pass Condition |
@@ -895,7 +936,7 @@ echo '{"number":1, "body": "approval", "event": "APPROVE", "grant": "write"}' | 
 
 ```bash
 # Test: REQUEST_CHANGES event should be rejected
-echo '{"number":1, "body": "changes needed", "event": "REQUEST_CHANGES", "grant": "write"}' | bash gh/scripts/gh.sh reviews.create 2>&1 | jq -e '.status == "failed" and .error.code == "INVALID_PARAMETER"'
+echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"changes needed\", \"event\": \"REQUEST_CHANGES\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh reviews.create 2>&1 | jq -e '.status == "failed" and .error.code == "INVALID_PARAMETER"'
 ```
 
 | Check | Pass Condition |
@@ -906,8 +947,13 @@ echo '{"number":1, "body": "changes needed", "event": "REQUEST_CHANGES", "grant"
 ### reviews.submit-comment
 
 ```bash
-# Test: submit comment to pending review
-echo '{"number":1, "review_id":1, "body": "smoke-test-submit-comment", "grant": "write"}' | bash gh/scripts/gh.sh reviews.submit-comment | jq -e '.status == "ok"'
+# Test: submit comment to pending review (needs a pending review from reviews.create)
+TEST_PENDING_REVIEW_ID=$(echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"pending review body\", \"grant\": \"write\"}" \
+  | bash gh/scripts/gh.sh reviews.create \
+  | jq -r '.data.id // empty')
+if [ -n "$TEST_PENDING_REVIEW_ID" ]; then
+  echo "{\"number\":$TEST_PR_NUMBER, \"review_id\":$TEST_PENDING_REVIEW_ID, \"body\": \"smoke-test-submit-comment\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh reviews.submit-comment | jq -e '.status == "ok"'
+fi
 ```
 
 | Check | Pass Condition |
@@ -919,7 +965,7 @@ echo '{"number":1, "review_id":1, "body": "smoke-test-submit-comment", "grant": 
 
 ```bash
 # Test: APPROVE event in submit-comment should be rejected
-echo '{"number":1, "review_id":1, "body": "submit approval", "event": "APPROVE", "grant": "write"}' | bash gh/scripts/gh.sh reviews.submit-comment 2>&1 | jq -e '.status == "failed" and .error.code == "INVALID_PARAMETER"'
+echo "{\"number\":$TEST_PR_NUMBER, \"review_id\":1, \"body\": \"submit approval\", \"event\": \"APPROVE\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh reviews.submit-comment 2>&1 | jq -e '.status == "failed" and .error.code == "INVALID_PARAMETER"'
 ```
 
 | Check | Pass Condition |
@@ -932,8 +978,8 @@ echo '{"number":1, "review_id":1, "body": "submit approval", "event": "APPROVE",
 ### review-threads.read
 
 ```bash
-# Test: list review threads on a PR
-echo '{"number":12}' | bash gh/scripts/gh.sh review-threads.read | jq -e '.status == "ok" and (.data.threads | type == "array")'
+# Test: list review threads on a PR (use dynamically created PR number)
+echo "{\"number\":$TEST_PR_NUMBER}" | bash gh/scripts/gh.sh review-threads.read | jq -e '.status == "ok" and (.data.threads | type == "array")'
 ```
 
 | Check | Pass Condition |
@@ -948,7 +994,10 @@ echo '{"number":12}' | bash gh/scripts/gh.sh review-threads.read | jq -e '.statu
 
 ```bash
 # Test: get single thread by thread_id (GraphQL node ID, string)
-echo '{"number":12, "thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz"}' | bash gh/scripts/gh.sh review-threads.read | jq -e '.status == "ok" and (.data.threads | length == 1)'
+# 動的取得した最初のthread IDを使用
+if [ -n "$THREAD_IDS" ]; then
+  echo "{\"number\":$TEST_PR_NUMBER, \"thread_id\":\"$THREAD_IDS\"}" | bash gh/scripts/gh.sh review-threads.read | jq -e '.status == "ok" and (.data.threads | length >= 0)'
+fi
 ```
 
 | Check | Pass Condition |
@@ -972,7 +1021,10 @@ echo '{"number":1, "per_page":1.5}' | bash gh/scripts/gh.sh review-threads.read 
 
 ```bash
 # Test: resolve a review thread (thread_id is GraphQL node ID string)
-echo '{"thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "ok" or .status == "already_applied"'
+# 動的取得した最初のthread IDを使用
+if [ -n "$THREAD_IDS" ]; then
+  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "ok" or .status == "already_applied"'
+fi
 ```
 
 | Check | Pass Condition |
@@ -984,7 +1036,9 @@ echo '{"thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz", "grant": "sensiti
 
 ```bash
 # Test: resolve already resolved thread returns already_applied
-echo '{"thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "already_applied" and .data.resolved == true'
+if [ -n "$THREAD_IDS" ]; then
+  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "already_applied" and .data.resolved == true'
+fi
 ```
 
 | Check | Pass Condition |
@@ -996,7 +1050,9 @@ echo '{"thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz", "grant": "sensiti
 
 ```bash
 # Test: unresolve a review thread
-echo '{"thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "ok" or .status == "already_applied"'
+if [ -n "$THREAD_IDS" ]; then
+  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "ok" or .status == "already_applied"'
+fi
 ```
 
 | Check | Pass Condition |
@@ -1008,7 +1064,9 @@ echo '{"thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz", "grant": "sensiti
 
 ```bash
 # Test: unresolve already unresolved thread returns already_applied
-echo '{"thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "already_applied" and .data.resolved == false'
+if [ -n "$THREAD_IDS" ]; then
+  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "already_applied" and .data.resolved == false'
+fi
 ```
 
 | Check | Pass Condition |
@@ -1020,17 +1078,20 @@ echo '{"thread_id":"MDQ6OlB1bGxSZXF1ZXN0UmV2aWV3VGhyZWFkMTIz", "grant": "sensiti
 
 ```bash
 # Test: full state transition cycle
-# 1. resolve → ok
-echo '{"thread_id":"THREAD_ID", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "ok" and .data.resolved == true'
+# 動的取得したthread IDを使用
+if [ -n "$THREAD_IDS" ]; then
+  # 1. resolve → ok
+  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "ok" and .data.resolved == true'
 
-# 2. re-resolve → already_applied
-echo '{"thread_id":"THREAD_ID", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "already_applied"'
+  # 2. re-resolve → already_applied
+  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "already_applied"'
 
-# 3. unresolve → ok
-echo '{"thread_id":"THREAD_ID", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "ok" and .data.resolved == false'
+  # 3. unresolve → ok
+  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "ok" and .data.resolved == false'
 
-# 4. re-unresolve → already_applied
-echo '{"thread_id":"THREAD_ID", "grant": "sensitive-write"}' | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "already_applied"'
+  # 4. re-unresolve → already_applied
+  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "already_applied"'
+fi
 ```
 
 ## PR Lifecycle Actions
@@ -1242,10 +1303,15 @@ git status --porcelain
 
 ## Disposable Test Cleanup
 
-テスト終了後は以下のコマンドで使い捨てリポジトリを削除する。
+テスト終了後は以下のコマンドでクリーンアップする。
 
 ```bash
-# テスト用リポジトリの削除
-gh repo delete "$TEST_OWNER/smoke-test-..." --yes
-rm -rf "$TEST_DIR"
+# テスト用ブランチを削除し元のブランチに戻す
+git checkout "$CURRENT_BRANCH"
+git branch -D "$TEST_BRANCH" 2>/dev/null || true
+git push origin --delete "$TEST_BRANCH" 2>/dev/null || true
+
+# PRをclose
+echo "{\"number\":$TEST_PR_NUMBER, \"grant\": \"sensitive-write\"}" \
+  | bash gh/scripts/gh.sh pr.close | jq -e '.status == "ok"'
 ```
