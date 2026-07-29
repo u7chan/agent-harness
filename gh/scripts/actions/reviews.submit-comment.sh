@@ -45,6 +45,45 @@ main() {
     --arg url "$pr_url" \
     '{type: $type, repository: $repo, number: $number, url: $url}')"
 
+  local expected_body_file
+  expected_body_file="$(gh_make_temp "expected-body")"
+  jq -j '.body' "$request_file" > "$expected_body_file"
+
+  local before_state before_body
+  before_state="$(echo "$review_before" | jq -r '.state // empty')"
+  before_body="$(echo "$review_before" | jq -j '.body // ""')"
+
+  if [ "$before_state" != "PENDING" ]; then
+    local before_body_file
+    before_body_file="$(gh_make_temp "before-body")"
+    echo "$before_body" > "$before_body_file"
+
+    if cmp -s "$expected_body_file" "$before_body_file" 2>/dev/null; then
+      gh_cleanup "$expected_body_file"
+      gh_cleanup "$before_body_file"
+
+      local dedup_target
+      dedup_target="$(jq -n \
+        --arg type "review" \
+        --arg repo "$owner_repo" \
+        --argjson id "$review_id" \
+        --argjson parent_number "$pr_number" \
+        --arg url "$(echo "$review_before" | jq -r '.html_url // ""')" \
+        '{
+          type: $type, repository: $repo, id: $id,
+          parent: {type: "pull_request", repository: $repo, number: $parent_number},
+          url: $url
+        }')"
+
+      local dedup_formatted
+      dedup_formatted="$(echo "$review_before" | jq '{id, state, body, html_url, user: {login: .user.login}, submitted_at, commit_id}')"
+      envelope_already_applied "reviews.submit-comment" "$dedup_target" "$dedup_formatted"
+      exit 0
+    fi
+
+    gh_cleanup "$before_body_file"
+  fi
+
   local body_file
   body_file="$(gh_make_temp "write-body")"
   jq '{body: .body, event: "COMMENT"}' "$request_file" > "$body_file"
@@ -55,6 +94,7 @@ main() {
   _res="$(call_gh_api "repos/$owner_repo/pulls/$pr_number/reviews/$review_id/events" "POST" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     GH_RETRY_MAX="$_saved_retry"
     gh_cleanup "$body_file"
+    gh_cleanup "$expected_body_file"
     envelope_unknown_outcome "reviews.submit-comment" "$pr_target" "{}"
     exit 1
   }
@@ -66,6 +106,7 @@ main() {
 
   local verified
   verified="$(call_gh_api "repos/$owner_repo/pulls/$pr_number/reviews/$review_id" 2>/dev/null)" || {
+    gh_cleanup "$expected_body_file"
     envelope_unknown_outcome "reviews.submit-comment" "$pr_target" "{}"
     exit 1
   }
@@ -86,6 +127,21 @@ main() {
     triple_ok=false
   fi
 
+  echo "$_res" | jq -j '.body // ""' > "$GH_TEMP_DIR/res-body-tmp"
+  echo "$verified" | jq -j '.body // ""' > "$GH_TEMP_DIR/verified-body-tmp"
+  if ! cmp -s "$GH_TEMP_DIR/res-body-tmp" "$GH_TEMP_DIR/verified-body-tmp" 2>/dev/null; then
+    triple_ok=false
+  fi
+
+  if [ "$triple_ok" = "true" ] && [ -f "$expected_body_file" ]; then
+    if ! cmp -s "$expected_body_file" "$GH_TEMP_DIR/verified-body-tmp" 2>/dev/null; then
+      triple_ok=false
+    fi
+  fi
+
+  rm -f "$GH_TEMP_DIR/res-body-tmp" "$GH_TEMP_DIR/verified-body-tmp"
+  gh_cleanup "$expected_body_file"
+
   local review_target
   review_target="$(jq -n \
     --arg type "review" \
@@ -100,6 +156,12 @@ main() {
     }')"
 
   if [ "$triple_ok" != "true" ]; then
+    gh_cleanup "$expected_body_file" 2>/dev/null || true
+    envelope_unknown_outcome "reviews.submit-comment" "$review_target" "$verified"
+    exit 1
+  fi
+
+  if [ "$verified_state" != "COMMENTED" ]; then
     envelope_unknown_outcome "reviews.submit-comment" "$review_target" "$verified"
     exit 1
   fi
