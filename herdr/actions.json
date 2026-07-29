@@ -83,6 +83,11 @@
           "required": false,
           "description": "Context passed to team members (e.g. issue, base branch, work branch)"
         },
+        "timeout": {
+          "type": "number",
+          "required": false,
+          "description": "Timeout in ms for pane split, agent start, and prompt (default: 30000, max: 300000)"
+        },
         "keep_on_failure": {
           "type": "boolean",
           "required": false,

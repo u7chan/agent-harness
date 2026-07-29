@@ -92,14 +92,11 @@ main() {
     exit 1
   fi
 
-  local config_json
-  config_json="$(herdr_config_resolve "" "$(echo "$member" | jq -r '.kind // "opencode"')")"
-
-  local is_deferred="false"
   local deferred_list
   deferred_list="$(echo "$manifest" | jq -r --arg role "$role" '
     .deferred // [] | index($role)
   ')"
+  local is_deferred="false"
   if [ -n "$deferred_list" ] && [ "$deferred_list" != "null" ]; then
     is_deferred="true"
   fi
@@ -107,16 +104,27 @@ main() {
   local prompt_text="$text"
 
   if [ "$is_deferred" = "true" ] && [ "$activation" = "deferred" ]; then
+    local saved_config
+    saved_config="$(echo "$manifest" | jq -c '.config // {}')"
+
     local role_prompt
-    role_prompt="$(herdr_config_resolve_prompt "$config_json" "$role" 2>/dev/null || echo "")"
+    role_prompt="$(herdr_config_resolve_prompt "$saved_config" "$role" 2>/dev/null || echo "")"
     if [ -n "$role_prompt" ]; then
-      prompt_text="${role_prompt}\n\n---\n\n${text}"
+      prompt_text="${role_prompt}
+
+---
+
+${text}"
     fi
 
     local kickoff_context
     kickoff_context="$(echo "$manifest" | jq -c '.kickoff_context // {}')"
     if [ -n "$kickoff_context" ] && [ "$kickoff_context" != "{}" ] && [ "$kickoff_context" != "null" ]; then
-      prompt_text="${prompt_text}\n\n## Kickoff Context\n\n$(echo "$kickoff_context" | jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")')"
+      prompt_text="${prompt_text}
+
+## Kickoff Context
+
+$(echo "$kickoff_context" | jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")')"
     fi
 
     manifest="$(echo "$manifest" | jq -c --arg role "$role" '

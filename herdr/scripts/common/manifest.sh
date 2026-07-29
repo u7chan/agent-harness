@@ -5,6 +5,10 @@ herdr_manifest_dir() {
   echo "${XDG_STATE_HOME:-$HOME/.local/state}/herdr-skill/teams"
 }
 
+herdr_manifest_lock_dir() {
+  echo "$(herdr_manifest_dir)/locks"
+}
+
 herdr_manifest_path() {
   local team_id="$1"
   echo "$(herdr_manifest_dir)/${team_id}.json"
@@ -36,7 +40,12 @@ herdr_manifest_write() {
   dir="$(herdr_manifest_dir)"
   mkdir -p "$dir"
 
-  echo "$manifest_json" > "$(herdr_manifest_path "$team_id")"
+  local path
+  path="$(herdr_manifest_path "$team_id")"
+  local tmp_path="${path}.tmp.$$"
+
+  echo "$manifest_json" > "$tmp_path"
+  mv "$tmp_path" "$path"
 }
 
 herdr_manifest_delete() {
@@ -44,6 +53,35 @@ herdr_manifest_delete() {
   local path
   path="$(herdr_manifest_path "$team_id")"
   rm -f "$path"
+}
+
+herdr_manifest_lock() {
+  local team_id="$1"
+  local timeout_sec="${2:-10}"
+
+  local lock_dir
+  lock_dir="$(herdr_manifest_lock_dir)"
+  mkdir -p "$lock_dir"
+
+  local lock_file="$lock_dir/${team_id}.lock"
+
+  local waited=0
+  while ! mkdir "$lock_file" 2>/dev/null; do
+    if [ "$waited" -ge "$timeout_sec" ]; then
+      return 1
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+
+  echo "$lock_file"
+}
+
+herdr_manifest_unlock() {
+  local lock_file="$1"
+  if [ -n "$lock_file" ] && [ -d "$lock_file" ]; then
+    rmdir "$lock_file" 2>/dev/null || true
+  fi
 }
 
 herdr_manifest_list() {

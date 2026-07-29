@@ -59,8 +59,19 @@ main() {
   pane_id="$(echo "$member" | jq -r '.pane_id // ""')"
   agent_name="$(echo "$member" | jq -r '.agent_name // ""')"
 
+  local close_ok=true
+  local close_result close_status
   if [ -n "$pane_id" ] && [ "$pane_id" != "null" ]; then
-    herdr pane close "$pane_id" 2>/dev/null || true
+    close_result="$(herdr pane close "$pane_id" 2>/dev/null | jq -c '.' 2>/dev/null || echo '{"status":"failed"}')"
+    close_status="$(echo "$close_result" | jq -r '.status // "failed"')"
+    if [ "$close_status" != "ok" ]; then
+      close_ok=false
+    fi
+  fi
+
+  if [ "$close_ok" = false ]; then
+    envelope_fail "member.close" "CLOSE_FAILED" "Failed to close pane for role '$role'. Manifest preserved for retry." true
+    exit 1
   fi
 
   local updated_manifest

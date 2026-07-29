@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# fake_herdr.sh - Minimal fake herdr CLI for smoke tests.
-# Responds to a subset of herdr commands with canned JSON.
-# Set HERDR_BIN=herdr/tests/fake_herdr.sh for smoke.sh.
-
 FAKE_STATE="${FAKE_STATE_DIR:-/tmp/herdr-fake-state}"
 mkdir -p "$FAKE_STATE"
 
@@ -32,17 +28,26 @@ EOF
 
 _agent_start() {
   local name="$1"
+  local kind="$2"
+  echo "${kind} ${name}" >> "$FAKE_STATE/started_agents.log"
   cat <<EOF
-{"schema_version":1,"status":"ok","result":{"agent":{"name":"$name","kind":"opencode","status":"running"}}}
+{"schema_version":1,"status":"ok","result":{"agent":{"name":"$name","kind":"$kind","status":"running"}}}
 EOF
 }
 
 _agent_rename() {
   local pid="$1"
   local name="$2"
+  echo "rename ${pid} ${name}" >> "$FAKE_STATE/started_agents.log"
   cat <<EOF
 {"schema_version":1,"status":"ok","result":{"agent":{"name":"$name","pane_id":"$pid"}}}
 EOF
+}
+
+_pane_label() {
+  local pid="$1"
+  local label="$2"
+  echo "label ${pid} ${label}" >> "$FAKE_STATE/pane_labels.log"
 }
 
 _agent_prompt() {
@@ -91,6 +96,7 @@ main() {
         split) _pane_split ;;
         get) _pane_get "${1:-}" ;;
         close) _pane_close "${1:-}" ;;
+        label) _pane_label "${1:-}" "${2:-}" ;;
         *) echo '{"status":"failed","error":"unknown pane command"}' ;;
       esac
       ;;
@@ -106,15 +112,15 @@ main() {
               *) name="$1"; shift ;;
             esac
           done
-          _agent_start "$name"
+          _agent_start "$name" "$kind"
           ;;
         rename) _agent_rename "${1:-}" "${2:-}" ;;
         prompt)
           local target=""; local text=""
           while [ $# -gt 0 ]; do
             case "$1" in
-              --wait|--timeout|30000|60000) shift ;;
-              *) 
+              --wait|--timeout|30000|60000|[0-9]*) shift ;;
+              *)
                 if [ -z "$target" ]; then target="$1"
                 elif [ -z "$text" ]; then text="$1"
                 fi
@@ -124,18 +130,31 @@ main() {
           _agent_prompt "$target" "$text"
           ;;
         wait)
-          local target=""; local timeout=""
+          local target=""
           while [ $# -gt 0 ]; do
             case "$1" in
-              --timeout) timeout="$2"; shift 2 ;;
-              60000|30000|*) 
+              --timeout) shift 2 ;;
+              [0-9]*) shift ;;
+              *)
                 if [ -z "$target" ]; then target="$1"; fi
                 shift ;;
             esac
           done
           _agent_wait "$target"
           ;;
-        read) _agent_read "${1:-}" ;;
+        read)
+          local target=""
+          while [ $# -gt 0 ]; do
+            case "$1" in
+              --source|--lines) shift 2 ;;
+              recent-unwrapped|[0-9]*) shift ;;
+              *)
+                if [ -z "$target" ]; then target="$1"; fi
+                shift ;;
+            esac
+          done
+          _agent_read "$target"
+          ;;
         list) _agent_list ;;
         *) echo '{"status":"failed","error":"unknown agent command"}' ;;
       esac

@@ -7,8 +7,14 @@ herdr_config_resolve() {
 
   local config_path=""
 
-  if [ -n "$explicit_path" ] && [ -f "$explicit_path" ]; then
-    config_path="$explicit_path"
+  if [ -n "$explicit_path" ]; then
+    if [ -f "$explicit_path" ]; then
+      config_path="$(cd "$(dirname "$explicit_path")" && pwd)/$(basename "$explicit_path")"
+    else
+      echo "config: explicit config_path not found: $explicit_path" >&2
+      echo '{}'
+      return 1
+    fi
   else
     local git_root
     git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -17,7 +23,7 @@ herdr_config_resolve() {
       local dir="$PWD"
       while true; do
         if [ -f "$dir/.herdr/team.json" ]; then
-          config_path="$dir/.herdr/team.json"
+          config_path="$(cd "$dir" && pwd)/.herdr/team.json"
           break
         fi
         [ "$dir" = "/" ] && break
@@ -87,11 +93,15 @@ herdr_config_resolve() {
     --arg config_dir "$config_dir" \
     --arg fallback_kind "$fallback_kind" \
     '
-    .members = [.members[] | . + {
-      kind: (.kind // $fallback_kind),
-      activation: (.activation // (if .role == "impl" then "immediate" else "deferred" end)),
-      prompt_file: (.prompt_file // null)
-    }]
+    . + {
+      _config_dir: $config_dir,
+      _config_path: input_filename,
+      members: [.members[] | . + {
+        kind: (.kind // $fallback_kind),
+        activation: (.activation // (if .role == "impl" then "immediate" else "deferred" end)),
+        prompt_file: (.prompt_file // null)
+      }]
+    }
     ' "$config_path")"
 
   echo "$validated"
@@ -100,8 +110,12 @@ herdr_config_resolve() {
 herdr_config_validate_members() {
   local config_json="$1"
 
-  local role kind prompt_file
+  local role kind activation prompt_file
   local errors=""
+  local seen_roles=""
+
+  local config_dir
+  config_dir="$(echo "$config_json" | jq -r '._config_dir // ""')"
 
   local count
   count="$(echo "$config_json" | jq -r '.members | length')"
@@ -109,6 +123,7 @@ herdr_config_validate_members() {
   for i in $(seq 0 $((count - 1))); do
     role="$(echo "$config_json" | jq -r ".members[$i].role // \"\"")"
     kind="$(echo "$config_json" | jq -r ".members[$i].kind // \"\"")"
+    activation="$(echo "$config_json" | jq -r ".members[$i].activation // \"\"")"
     prompt_file="$(echo "$config_json" | jq -r ".members[$i].prompt_file // \"\"")"
 
     if [ -z "$role" ]; then
@@ -116,17 +131,40 @@ herdr_config_validate_members() {
       continue
     fi
 
+    if echo "$seen_roles" | grep -qx "$role"; then
+      errors="${errors}member[$i] ($role): duplicate role\n"
+    fi
+    seen_roles="${seen_roles}${role}\n"
+
     if [ -z "$kind" ]; then
       errors="${errors}member[$i] ($role): kind is required\n"
     fi
 
+    if [ "$activation" != "immediate" ] && [ "$activation" != "deferred" ]; then
+      errors="${errors}member[$i] ($role): activation must be immediate or deferred, got '$activation'\n"
+    fi
+
     if [ -n "$prompt_file" ] && [ "$prompt_file" != "null" ]; then
-      local config_dir
-      config_dir="$(echo "$config_json" | jq -r '._config_dir // ""')"
-      if [ -n "$config_dir" ] && [ "$config_dir" != "null" ]; then
-        if [[ "$prompt_file" == /* ]]; then
-          errors="${errors}member[$i] ($role): prompt_file must be relative to config directory\n"
+      if [[ "$prompt_file" =~ ^/ ]] || [[ "$prompt_file" =~ \.\./ ]]; then
+        if [ -n "$config_dir" ] && [ "$config_dir" != "null" ]; then
+          errors="${errors}member[$i] ($role): prompt_file must be relative to config directory and cannot contain '..' or absolute paths (got '$prompt_file')\n"
         fi
+      elif [ -n "$config_dir" ] && [ "$config_dir" != "null" ]; then
+        local resolved="$config_dir/$prompt_file"
+        if [ ! -f "$resolved" ]; then
+          errors="${errors}member[$i] ($role): prompt_file '$prompt_file' not found relative to config dir\n"
+        fi
+      fi
+    fi
+
+    local is_custom_role=true
+    case "$role" in
+      impl|review|pr-fix) is_custom_role=false ;;
+    esac
+
+    if [ "$is_custom_role" = true ]; then
+      if [ -z "$prompt_file" ] || [ "$prompt_file" = "null" ]; then
+        errors="${errors}member[$i] ($role): custom role requires prompt_file\n"
       fi
     fi
   done
@@ -141,10 +179,16 @@ herdr_config_validate_members() {
 herdr_config_default() {
   local kind="${1:-opencode}"
 
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
   jq -nc \
     --arg kind "$kind" \
+    --arg config_dir "$script_dir" \
     '{
       schema_version: 1,
+      _config_dir: $config_dir,
+      _config_path: "bundled-default",
       members: [
         {role: "impl", kind: $kind, activation: "immediate"},
         {role: "review", kind: $kind, activation: "deferred"},

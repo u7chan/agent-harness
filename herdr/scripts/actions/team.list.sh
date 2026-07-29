@@ -6,6 +6,9 @@ source "$SCRIPT_DIR/../common/envelope.sh"
 source "$SCRIPT_DIR/../common/manifest.sh"
 
 main() {
+  local workspace_id
+  workspace_id="$(herdr_get_workspace_id)"
+
   local manifests
   manifests="$(herdr_manifest_list)"
 
@@ -15,7 +18,7 @@ main() {
   fi
 
   local summaries
-  summaries="$(echo "$manifests" | jq -c '[.[] | {
+  summaries="$(echo "$manifests" | jq -c --arg ws "$workspace_id" '[.[] | select(.workspace_id == $ws) | {
     team_id: .team_id,
     workspace_id: .workspace_id,
     member_count: (.members | length),
