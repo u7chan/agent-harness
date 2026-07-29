@@ -948,19 +948,25 @@ echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"changes needed\", \"event\": \"RE
 
 ```bash
 # Test: submit comment to pending review (create PENDING review first)
-TEST_PENDING_REVIEW_ID=$(echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"pending review body\", \"event\": \"PENDING\", \"grant\": \"write\"}" \
-  | bash gh/scripts/gh.sh reviews.create \
-  | jq -r '.data.id // empty')
-if [ -n "$TEST_PENDING_REVIEW_ID" ]; then
-  echo "{\"number\":$TEST_PR_NUMBER, \"review_id\":$TEST_PENDING_REVIEW_ID, \"body\": \"smoke-test-submit-comment\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh reviews.submit-comment | jq -e '.status == "ok"'
-fi
+TEST_PENDING_RESULT=$(echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"pending review body\", \"event\": \"PENDING\", \"grant\": \"write\"}" \
+  | bash gh/scripts/gh.sh reviews.create)
+# Verify pending review was created successfully
+echo "$TEST_PENDING_RESULT" | jq -e '.status == "ok" and .data.id != null and .data.state == "PENDING"'
+TEST_PENDING_REVIEW_ID=$(echo "$TEST_PENDING_RESULT" | jq -r '.data.id')
+# Submit comment and verify result
+echo "{\"number\":$TEST_PR_NUMBER, \"review_id\":$TEST_PENDING_REVIEW_ID, \"body\": \"smoke-test-submit-comment\", \"grant\": \"write\"}" \
+  | bash gh/scripts/gh.sh reviews.submit-comment \
+  | jq -e '.status == "ok" and .data.state == "COMMENTED" and .data.body == "smoke-test-submit-comment"'
 ```
 
 | Check | Pass Condition |
 |-------|---------------|
-| status ok | `.status` == `"ok"` |
-| review has id | `.data.id != null` |
-| state is COMMENTED | `.data.state == "COMMENTED"` |
+| pending review created | `.status` == `"ok"` |
+| pending review has id | `.data.id != null` |
+| pending review state is PENDING | `.data.state` == `"PENDING"` |
+| submit-comment status ok | `.status` == `"ok"` |
+| submitted review state is COMMENTED | `.data.state` == `"COMMENTED"` |
+| submitted body matches expected | `.data.body` == `"smoke-test-submit-comment"` |
 
 ### reviews.submit-comment (reject non-COMMENT event)
 
@@ -1261,7 +1267,8 @@ Additional verification points for review without destructive side effects:
 - Reply inherits `path` and `commit_id` from the root comment.
 
 ### Review event restriction
-- `reviews.create` and `reviews.submit-comment` only allow `event=COMMENT`.
+- `reviews.create` allows `event=COMMENT` (default, immediate submit) or `event=PENDING` (create pending review for later submission).
+- `reviews.submit-comment` only allows `event=COMMENT`.
 - `APPROVE` and `REQUEST_CHANGES` events must be rejected with `INVALID_PARAMETER`.
 
 ### Review comment dedup (review-comments.create)

@@ -47,10 +47,18 @@ main() {
   local has_comments
   has_comments="$(jq -r 'if has("comments") and (.comments | type == "array") then "true" else "false" end' "$request_file")"
 
-  if [ "$has_comments" = "true" ]; then
-    jq --arg ev "$event" '{body: .body, event: $ev, comments: .comments}' "$request_file" > "$body_file"
+  if [ "$event" = "PENDING" ]; then
+    if [ "$has_comments" = "true" ]; then
+      jq '{body: .body, comments: .comments}' "$request_file" > "$body_file"
+    else
+      jq '{body: .body}' "$request_file" > "$body_file"
+    fi
   else
-    jq --arg ev "$event" '{body: .body, event: $ev}' "$request_file" > "$body_file"
+    if [ "$has_comments" = "true" ]; then
+      jq '{body: .body, event: "COMMENT", comments: .comments}' "$request_file" > "$body_file"
+    else
+      jq '{body: .body, event: "COMMENT"}' "$request_file" > "$body_file"
+    fi
   fi
 
   local _saved_retry="${GH_RETRY_MAX:-3}"
