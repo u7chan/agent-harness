@@ -177,21 +177,18 @@ main() {
 
   local body_file
   body_file="$(gh_make_temp "write-body")"
-  jq -n \
-    --rawfile b "$(gh_make_temp "tmp-reply-body")" \
-    --arg commit_id "$inherit_commit_id" \
-    --arg path "$inherit_path" \
-    --argjson in_reply_to "$effective_in_reply_to" \
-    '{body: $b, commit_id: $commit_id, path: $path, line: 1, in_reply_to: $in_reply_to}' > "$body_file" || true
-  jq -j '.body' "$request_file" > "$GH_TEMP_DIR/tmp-reply-body"
+
+  local reply_body_tmp
+  reply_body_tmp="$(gh_make_temp "reply-body-tmp")"
+  jq -j '.body' "$request_file" > "$reply_body_tmp"
 
   jq -n \
-    --rawfile b "$GH_TEMP_DIR/tmp-reply-body" \
+    --rawfile b "$reply_body_tmp" \
     --arg commit_id "$inherit_commit_id" \
     --arg path "$inherit_path" \
     --argjson in_reply_to "$effective_in_reply_to" \
     '{body: $b, commit_id: $commit_id, path: $path, line: 1, in_reply_to: $in_reply_to}' > "$body_file"
-  rm -f "$GH_TEMP_DIR/tmp-reply-body"
+  gh_cleanup "$reply_body_tmp"
 
   local _saved_retry="${GH_RETRY_MAX:-3}"
   GH_RETRY_MAX=1
