@@ -2058,6 +2058,122 @@
           }
         }
       }
+    },
+    {
+      "name": "review-threads.read",
+      "description": "Read review comment threads on a pull request (nested pagination, groups comments by in_reply_to_id)",
+      "category": "review-thread",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "thread_id": {
+          "type": "number",
+          "required": false,
+          "description": "Specific thread ID (root comment ID)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page for collection reads (1-100, default: 100)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "threads": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "thread_id": "integer",
+                  "resolved": "boolean",
+                  "comments": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": "integer",
+                        "body": "string",
+                        "html_url": "string",
+                        "path": "string",
+                        "line": "integer",
+                        "commit_id": "string",
+                        "in_reply_to_id": "integer",
+                        "user": { "login": "string" },
+                        "created_at": "string",
+                        "updated_at": "string",
+                        "author_association": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "review-threads.resolve",
+      "description": "Resolve a review comment thread",
+      "category": "review-thread",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "thread_id": {
+          "type": "number",
+          "required": true,
+          "description": "Thread ID (root comment ID) to resolve"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "thread_id": "integer",
+            "resolved": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "review-threads.unresolve",
+      "description": "Unresolve a review comment thread",
+      "category": "review-thread",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "thread_id": {
+          "type": "number",
+          "required": true,
+          "description": "Thread ID (root comment ID) to unresolve"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "thread_id": "integer",
+            "resolved": "boolean"
+          }
+        }
+      }
     }
   ]
 }
