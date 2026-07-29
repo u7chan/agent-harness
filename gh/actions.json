@@ -1902,6 +1902,162 @@
           }
         }
       }
+    },
+    {
+      "name": "reviews.read",
+      "description": "Read PR reviews (full pagination, each with comments_count)",
+      "category": "review",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "review_id": {
+          "type": "number",
+          "required": false,
+          "description": "Specific review ID (returns single review)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page for collection reads (1-100, default: 100)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": "integer",
+                  "state": "string",
+                  "body": "string",
+                  "html_url": "string",
+                  "user": { "login": "string" },
+                  "submitted_at": "string",
+                  "commit_id": "string",
+                  "comments_count": "integer"
+                }
+              }
+            },
+            "item": {
+              "type": "object",
+              "properties": {
+                "id": "integer",
+                "state": "string",
+                "body": "string",
+                "html_url": "string",
+                "user": { "login": "string" },
+                "submitted_at": "string",
+                "commit_id": "string",
+                "comments_count": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "reviews.create",
+      "description": "Create a PR review (COMMENT event only)",
+      "category": "review",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Review body in Markdown"
+        },
+        "comments": {
+          "type": "array",
+          "required": false,
+          "description": "Inline review comments (array of {path, line, body})"
+        },
+        "event": {
+          "type": "string",
+          "required": false,
+          "description": "Fixed to COMMENT"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "state": "string",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "submitted_at": "string",
+            "commit_id": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reviews.submit-comment",
+      "description": "Submit a comment to an existing pending review (COMMENT event only)",
+      "category": "review",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "review_id": {
+          "type": "number",
+          "required": true,
+          "description": "Pending review ID to add a comment to"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Comment body in Markdown"
+        },
+        "event": {
+          "type": "string",
+          "required": false,
+          "description": "Fixed to COMMENT"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "state": "string",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "submitted_at": "string",
+            "commit_id": "string"
+          }
+        }
+      }
     }
   ]
 }
