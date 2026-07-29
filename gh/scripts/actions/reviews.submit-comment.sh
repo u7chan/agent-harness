@@ -49,14 +49,13 @@ main() {
   expected_body_file="$(gh_make_temp "expected-body")"
   jq -j '.body' "$request_file" > "$expected_body_file"
 
-  local before_state before_body
+  local before_state
   before_state="$(echo "$review_before" | jq -r '.state // empty')"
-  before_body="$(echo "$review_before" | jq -j '.body // ""')"
 
   if [ "$before_state" != "PENDING" ]; then
     local before_body_file
     before_body_file="$(gh_make_temp "before-body")"
-    echo "$before_body" > "$before_body_file"
+    echo "$review_before" | jq -j '.body // ""' > "$before_body_file"
 
     if cmp -s "$expected_body_file" "$before_body_file" 2>/dev/null; then
       gh_cleanup "$expected_body_file"
