@@ -1,0 +1,2169 @@
+{
+  "schema_version": 1,
+  "actions": [
+    {
+      "name": "actions.list",
+      "description": "List all available actions with name, description, category, and permission",
+      "category": "catalog",
+      "permission": "read",
+      "requires_auth": false,
+      "input_schema": {},
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "name": "string",
+            "description": "string",
+            "category": "string",
+            "permission": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "actions.describe",
+      "description": "Describe a specific action's full schema, input, output, and permission",
+      "category": "catalog",
+      "permission": "read",
+      "requires_auth": false,
+      "input_schema": {
+        "action": {
+          "type": "string",
+          "required": true,
+          "description": "The action name to describe"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "description": "Full action definition"
+        }
+      }
+    },
+    {
+      "name": "repo.get",
+      "description": "Get repository metadata",
+      "category": "repository",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {},
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "name": "string",
+            "full_name": "string",
+            "description": "string",
+            "private": "boolean",
+            "html_url": "string",
+            "default_branch": "string",
+            "language": "string",
+            "stargazers_count": "integer",
+            "forks_count": "integer",
+            "open_issues_count": "integer",
+            "topics": "array",
+            "created_at": "string",
+            "updated_at": "string",
+            "pushed_at": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.get",
+      "description": "Get a single issue",
+      "category": "issue",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "body": "string",
+            "user": { "login": "string" },
+            "labels": [{ "name": "string" }],
+            "assignees": [{ "login": "string" }],
+            "milestone": { "title": "string" },
+            "comments": "integer",
+            "created_at": "string",
+            "updated_at": "string",
+            "closed_at": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.list",
+      "description": "List repository issues",
+      "category": "issue",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "state": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by state (open, closed, all, default: open)"
+        },
+        "labels": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by labels (comma-separated)"
+        },
+        "assignee": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by assignee login"
+        },
+        "milestone": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by milestone"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page (default: 30)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": "integer",
+              "number": "integer",
+              "title": "string",
+              "state": "string",
+              "html_url": "string",
+              "user": { "login": "string" },
+              "labels": ["string"],
+              "assignees": ["string"],
+              "milestone": { "title": "string" },
+              "comments": "integer",
+              "created_at": "string",
+              "updated_at": "string",
+              "closed_at": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.create",
+      "description": "Create a new issue",
+      "category": "issue",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "Issue title"
+        },
+        "body": {
+          "type": "string",
+          "required": false,
+          "description": "Issue body in Markdown"
+        },
+        "labels": {
+          "type": "array",
+          "required": false,
+          "description": "Labels to apply"
+        },
+        "assignees": {
+          "type": "array",
+          "required": false,
+          "description": "Assignees to add"
+        },
+        "milestone": {
+          "type": "number",
+          "required": false,
+          "description": "Milestone number"
+        },
+        "parent": {
+          "type": "number",
+          "required": false,
+          "description": "Parent issue number to add this as a sub-issue"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.update",
+      "description": "Update issue title and/or body",
+      "category": "issue",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "title": {
+          "type": "string",
+          "required": false,
+          "description": "New title"
+        },
+        "body": {
+          "type": "string",
+          "required": false,
+          "description": "New body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.close",
+      "description": "Close an issue",
+      "category": "issue",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "state_reason": {
+          "type": "string",
+          "required": false,
+          "description": "Reason for closing (completed, not_planned)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.reopen",
+      "description": "Reopen a closed issue",
+      "category": "issue",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "labels.add",
+      "description": "Add labels to an issue",
+      "category": "metadata",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "labels": {
+          "type": "array",
+          "required": true,
+          "description": "Label names to add"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "labels.remove",
+      "description": "Remove a label from an issue",
+      "category": "metadata",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Label name to remove"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "labels.set",
+      "description": "Replace all labels on an issue",
+      "category": "metadata",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "labels": {
+          "type": "array",
+          "required": true,
+          "description": "New set of label names"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "assignees.add",
+      "description": "Add assignees to an issue",
+      "category": "metadata",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "assignees": {
+          "type": "array",
+          "required": true,
+          "description": "Assignee logins to add"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "assignees.remove",
+      "description": "Remove assignees from an issue",
+      "category": "metadata",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "assignees": {
+          "type": "array",
+          "required": true,
+          "description": "Assignee logins to remove"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "milestone.set",
+      "description": "Set milestone on an issue",
+      "category": "metadata",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "milestone": {
+          "type": "number",
+          "required": true,
+          "description": "Milestone number"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "milestone.clear",
+      "description": "Clear milestone from an issue",
+      "category": "metadata",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "labels": ["string"],
+            "assignees": ["string"],
+            "milestone": { "title": "string" }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.subissues.add",
+      "description": "Add a sub-issue",
+      "category": "subissue",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Parent issue number"
+        },
+        "sub_issue_id": {
+          "type": "number",
+          "required": true,
+          "description": "Sub-issue integer ID (not issue number)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.subissues.remove",
+      "description": "Remove a sub-issue",
+      "category": "subissue",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Parent issue number"
+        },
+        "sub_issue_id": {
+          "type": "number",
+          "required": true,
+          "description": "Sub-issue integer ID to remove"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.subissues.reorder",
+      "description": "Reprioritize a sub-issue",
+      "category": "subissue",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Parent issue number"
+        },
+        "sub_issue_id": {
+          "type": "number",
+          "required": true,
+          "description": "Sub-issue integer ID to move"
+        },
+        "after_id": {
+          "type": "number",
+          "required": false,
+          "description": "Position after this sub-issue integer ID"
+        },
+        "before_id": {
+          "type": "number",
+          "required": false,
+          "description": "Position before this sub-issue integer ID"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "prs.list",
+      "description": "List pull requests in a repository",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "state": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by state (open, closed, all; default: open)"
+        },
+        "head": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by head branch or owner:branch"
+        },
+        "base": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by base branch"
+        },
+        "sort": {
+          "type": "string",
+          "required": false,
+          "description": "Sort by (created, updated, popularity, long-running; default: created)"
+        },
+        "direction": {
+          "type": "string",
+          "required": false,
+          "description": "Sort direction (asc, desc; default: desc)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page (default: 30)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": "integer",
+              "number": "integer",
+              "title": "string",
+              "state": "string",
+              "html_url": "string",
+              "user": { "login": "string" },
+              "labels": ["string"],
+              "draft": "boolean",
+              "created_at": "string",
+              "updated_at": "string",
+              "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+              "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "prs.search",
+      "description": "Search pull requests in a repository",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "q": {
+          "type": "string",
+          "required": true,
+          "description": "Search query (auto-scoped to repo PRs; e.g. 'is:merged label:bug')"
+        },
+        "sort": {
+          "type": "string",
+          "required": false,
+          "description": "Sort by (comments, reactions, created, updated; default: best match)"
+        },
+        "order": {
+          "type": "string",
+          "required": false,
+          "description": "Sort order (asc, desc; default: desc)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page (default: 30)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": "integer",
+                  "number": "integer",
+                  "title": "string",
+                  "state": "string",
+                  "html_url": "string",
+                  "user": { "login": "string" },
+                  "labels": ["string"],
+                  "draft": "boolean",
+                  "created_at": "string",
+                  "updated_at": "string"
+                }
+              }
+            },
+            "truncated": "boolean",
+            "total_count": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.read",
+      "description": "Get a single pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "body": "string",
+            "user": { "login": "string" },
+            "labels": [{ "name": "string" }],
+            "assignees": [{ "login": "string" }],
+            "milestone": { "title": "string" },
+            "draft": "boolean",
+            "merged": "boolean",
+            "mergeable": "string",
+            "comments": "integer",
+            "commits": "integer",
+            "additions": "integer",
+            "deletions": "integer",
+            "changed_files": "integer",
+            "created_at": "string",
+            "updated_at": "string",
+            "closed_at": "string",
+            "merged_at": "string",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.diff.read",
+      "description": "Get the diff of a pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "output_file": "string",
+            "size_bytes": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.files.read",
+      "description": "List files changed in a pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sha": "string",
+              "filename": "string",
+              "status": "string",
+              "additions": "integer",
+              "deletions": "integer",
+              "changes": "integer",
+              "blob_url": "string",
+              "raw_url": "string",
+              "contents_url": "string",
+              "patch": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.commits.read",
+      "description": "List commits on a pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sha": "string",
+              "html_url": "string",
+              "commit": {
+                "message": "string",
+                "author": {
+                  "name": "string",
+                  "email": "string",
+                  "date": "string"
+                },
+                "committer": {
+                  "name": "string",
+                  "email": "string",
+                  "date": "string"
+                }
+              },
+              "author": { "login": "string", "avatar_url": "string" },
+              "committer": { "login": "string", "avatar_url": "string" },
+              "parents": [{ "sha": "string", "html_url": "string" }]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.checks.read",
+      "description": "List check runs on a pull request (summary only; no CI log/artifact inspection)",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": "string",
+              "status": "string",
+              "conclusion": "string",
+              "html_url": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.read",
+      "description": "Read conversation comments on an issue or pull request (full pagination)",
+      "category": "comment",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue or pull request number"
+        },
+        "comment_id": {
+          "type": "number",
+          "required": false,
+          "description": "Specific comment ID (returns single comment)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page for collection reads (1-100, default: 100)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": "integer",
+                  "body": "string",
+                  "html_url": "string",
+                  "user": { "login": "string" },
+                  "created_at": "string",
+                  "updated_at": "string",
+                  "author_association": "string"
+                }
+              }
+            },
+            "item": {
+              "type": "object",
+              "properties": {
+                "id": "integer",
+                "body": "string",
+                "html_url": "string",
+                "user": { "login": "string" },
+                "created_at": "string",
+                "updated_at": "string",
+                "author_association": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.create",
+      "description": "Create a conversation comment on an issue or pull request",
+      "category": "comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue or pull request number"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Comment body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.reply",
+      "description": "Reply to a conversation comment (non-native thread via body prefix convention)",
+      "category": "comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue or pull request number"
+        },
+        "reply_to": {
+          "type": "number",
+          "required": true,
+          "description": "Comment ID to reply to"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Reply body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string",
+            "native_thread": "boolean",
+            "reply_to_url": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.update",
+      "description": "Update a conversation comment body",
+      "category": "comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "comment_id": {
+          "type": "number",
+          "required": true,
+          "description": "Comment ID to update"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "New comment body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "comments.delete",
+      "description": "Delete a conversation comment",
+      "category": "comment",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "comment_id": {
+          "type": "number",
+          "required": true,
+          "description": "Comment ID to delete"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "deleted": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.create",
+      "description": "Create a new pull request",
+      "category": "pr",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "PR title"
+        },
+        "body": {
+          "type": "string",
+          "required": false,
+          "description": "PR body in Markdown"
+        },
+        "base": {
+          "type": "string",
+          "required": true,
+          "description": "Base branch name"
+        },
+        "head": {
+          "type": "string",
+          "required": true,
+          "description": "Head branch name (or owner:branch for forks)"
+        },
+        "draft": {
+          "type": "boolean",
+          "required": false,
+          "description": "Create as draft PR"
+        },
+        "maintainer_can_modify": {
+          "type": "boolean",
+          "required": false,
+          "description": "Allow maintainer to modify the PR"
+        },
+        "head_repository": {
+          "type": "string",
+          "required": false,
+          "description": "Head repository (owner/repo) for fork PRs"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "body": "string",
+            "draft": "boolean",
+            "user": { "login": "string" },
+            "labels": [{ "name": "string" }],
+            "assignees": [{ "login": "string" }],
+            "milestone": { "title": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.update",
+      "description": "Update pull request metadata",
+      "category": "pr",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "title": {
+          "type": "string",
+          "required": false,
+          "description": "New title"
+        },
+        "body": {
+          "type": "string",
+          "required": false,
+          "description": "New body in Markdown"
+        },
+        "base": {
+          "type": "string",
+          "required": false,
+          "description": "New base branch"
+        },
+        "maintainer_can_modify": {
+          "type": "boolean",
+          "required": false,
+          "description": "Allow maintainer to modify the PR"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "body": "string",
+            "draft": "boolean",
+            "user": { "login": "string" },
+            "labels": [{ "name": "string" }],
+            "assignees": [{ "login": "string" }],
+            "milestone": { "title": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.close",
+      "description": "Close a pull request",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "draft": "boolean",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.reopen",
+      "description": "Reopen a closed pull request",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "draft": "boolean",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.draft",
+      "description": "Convert a pull request to draft",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "draft": "boolean",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "pr.ready",
+      "description": "Mark a draft pull request as ready for review",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "number": "integer",
+            "title": "string",
+            "state": "string",
+            "html_url": "string",
+            "draft": "boolean",
+            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
+            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "name": "reviewers.read",
+      "description": "List requested reviewers on a pull request",
+      "category": "pr",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
+            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+          }
+        }
+      }
+    },
+    {
+      "name": "reviewers.request",
+      "description": "Request reviewers on a pull request",
+      "category": "pr",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "reviewers": {
+          "type": "array",
+          "required": true,
+          "description": "Reviewer logins to request"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
+            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+          }
+        }
+      }
+    },
+    {
+      "name": "reviewers.remove",
+      "description": "Remove requested reviewers from a pull request",
+      "category": "pr",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
+        "number": {
+          "type": "number",
+          "required": false,
+          "description": "PR number (required if reference is owner/repo)"
+        },
+        "reviewers": {
+          "type": "array",
+          "required": true,
+          "description": "Reviewer logins to remove"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
+            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+          }
+        }
+      }
+    },
+    {
+      "name": "review-comments.read",
+      "description": "Read review comments on a pull request (full pagination, native threads)",
+      "category": "review-comment",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "comment_id": {
+          "type": "number",
+          "required": false,
+          "description": "Specific review comment ID (returns single comment)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page for collection reads (1-100, default: 100)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": "integer",
+                  "body": "string",
+                  "html_url": "string",
+                  "path": "string",
+                  "line": "integer",
+                  "commit_id": "string",
+                  "in_reply_to_id": "integer",
+                  "user": { "login": "string" },
+                  "created_at": "string",
+                  "updated_at": "string",
+                  "author_association": "string"
+                }
+              }
+            },
+            "item": {
+              "type": "object",
+              "properties": {
+                "id": "integer",
+                "body": "string",
+                "html_url": "string",
+                "path": "string",
+                "line": "integer",
+                "commit_id": "string",
+                "in_reply_to_id": "integer",
+                "user": { "login": "string" },
+                "created_at": "string",
+                "updated_at": "string",
+                "author_association": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "review-comments.create",
+      "description": "Create a review comment on a pull request diff",
+      "category": "review-comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Comment body in Markdown"
+        },
+        "commit_id": {
+          "type": "string",
+          "required": true,
+          "description": "SHA of the commit to comment on"
+        },
+        "path": {
+          "type": "string",
+          "required": true,
+          "description": "Relative file path in the repository"
+        },
+  "position": {
+    "type": "number",
+    "required": true,
+    "description": "Position in the diff to comment on"
+  },
+        "side": {
+          "type": "string",
+          "required": false,
+          "description": "LEFT or RIGHT side of the diff"
+        },
+        "start_line": {
+          "type": "number",
+          "required": false,
+          "description": "First line of a multi-line comment range"
+        },
+  "start_side": {
+    "type": "string",
+    "required": false,
+    "description": "LEFT or RIGHT side for start_line"
+  },
+  "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "path": "string",
+            "line": "integer",
+            "commit_id": "string",
+            "in_reply_to_id": "integer",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "review-comments.reply",
+      "description": "Reply to a review comment (resolves root comment and creates native thread reply)",
+      "category": "review-comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "reply_to": {
+          "type": "number",
+          "required": true,
+          "description": "Review comment ID to reply to"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Reply body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "path": "string",
+            "line": "integer",
+            "commit_id": "string",
+            "in_reply_to_id": "integer",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "review-comments.update",
+      "description": "Update a review comment body",
+      "category": "review-comment",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "comment_id": {
+          "type": "number",
+          "required": true,
+          "description": "Review comment ID to update"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "New comment body in Markdown"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "created_at": "string",
+            "updated_at": "string",
+            "author_association": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "review-comments.delete",
+      "description": "Delete a review comment",
+      "category": "review-comment",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "comment_id": {
+          "type": "number",
+          "required": true,
+          "description": "Review comment ID to delete"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "deleted": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "reviews.read",
+      "description": "Read PR reviews (full pagination, each with comments_count)",
+      "category": "review",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "review_id": {
+          "type": "number",
+          "required": false,
+          "description": "Specific review ID (returns single review)"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Results per page for collection reads (1-100, default: 100)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": "integer",
+                  "state": "string",
+                  "body": "string",
+                  "html_url": "string",
+                  "user": { "login": "string" },
+                  "submitted_at": "string",
+                  "commit_id": "string",
+                  "comments_count": "integer"
+                }
+              }
+            },
+            "item": {
+              "type": "object",
+              "properties": {
+                "id": "integer",
+                "state": "string",
+                "body": "string",
+                "html_url": "string",
+                "user": { "login": "string" },
+                "submitted_at": "string",
+                "commit_id": "string",
+                "comments_count": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "reviews.create",
+      "description": "Create a PR review (COMMENT or PENDING event only)",
+      "category": "review",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Review body in Markdown"
+        },
+        "comments": {
+          "type": "array",
+          "required": false,
+          "description": "Inline review comments (array of {path, position, body})"
+        },
+        "event": {
+          "type": "string",
+          "required": false,
+          "description": "COMMENT (default, immediate submit) or PENDING (create pending review for later submission)"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "state": "string",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "submitted_at": "string",
+            "commit_id": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reviews.submit-comment",
+      "description": "Submit a comment to an existing pending review (COMMENT event only)",
+      "category": "review",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "review_id": {
+          "type": "number",
+          "required": true,
+          "description": "Pending review ID to add a comment to"
+        },
+        "body": {
+          "type": "string",
+          "required": true,
+          "description": "Comment body in Markdown"
+        },
+        "event": {
+          "type": "string",
+          "required": false,
+          "description": "Fixed to COMMENT"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "id": "integer",
+            "state": "string",
+            "body": "string",
+            "html_url": "string",
+            "user": { "login": "string" },
+            "submitted_at": "string",
+            "commit_id": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "review-threads.read",
+      "description": "Read review comment threads on a pull request via GraphQL (cursor-paginated reviewThreads connection)",
+      "category": "review-thread",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Pull request number"
+        },
+        "thread_id": {
+          "type": "string",
+          "required": false,
+          "description": "Specific thread GraphQL node ID"
+        },
+        "per_page": {
+          "type": "number",
+          "required": false,
+          "description": "Threads per page (1-100, default: 100)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "threads": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "thread_id": "string",
+                  "resolved": "boolean",
+                  "comments": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": "integer",
+                        "body": "string",
+                        "html_url": "string",
+                        "path": "string",
+                        "line": "integer",
+                        "commit_id": "string",
+                        "in_reply_to_id": "integer",
+                        "user": { "login": "string" },
+                        "created_at": "string",
+                        "updated_at": "string",
+                        "author_association": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "review-threads.resolve",
+      "description": "Resolve a review comment thread via GraphQL resolveReviewThread mutation",
+      "category": "review-thread",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "thread_id": {
+          "type": "string",
+          "required": true,
+          "description": "Thread GraphQL node ID to resolve"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "thread_id": "string",
+            "resolved": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "review-threads.unresolve",
+      "description": "Unresolve a review comment thread via GraphQL unresolveReviewThread mutation",
+      "category": "review-thread",
+      "permission": "sensitive-write",
+      "requires_auth": true,
+      "input_schema": {
+        "thread_id": {
+          "type": "string",
+          "required": true,
+          "description": "Thread GraphQL node ID to unresolve"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "thread_id": "string",
+            "resolved": "boolean"
+          }
+        }
+      }
+    }
+  ]
+}

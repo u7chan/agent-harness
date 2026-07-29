@@ -47,7 +47,7 @@ Kind: `codex`, `opencode`, `claude`, etc. See `herdr agent start --help` for sup
 ### 3. Send prompt
 
 ```bash
-herdr agent prompt <target> "<text>" --wait --until working --timeout 30000
+herdr agent prompt <target> "<text>" --wait --timeout 30000
 ```
 
 Target = agent name or pane ID. Prefer agent name when known.
@@ -75,7 +75,7 @@ Find the agent, then prompt, wait, and read:
 
 ```bash
 herdr agent list
-herdr agent prompt <name-or-pane-id> "<text>" --wait --until working --timeout 30000
+herdr agent prompt <name-or-pane-id> "<text>" --wait --timeout 30000
 herdr agent wait <name-or-pane-id> --timeout 1800000
 herdr agent read <name-or-pane-id> --source recent-unwrapped --lines 200
 ```
