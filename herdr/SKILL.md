@@ -98,7 +98,7 @@ If `team.start` fails partway through, created panes are automatically closed. S
 
 | status | 動作 |
 |--------|------|
-| `"ok"` | 通常フロー継続 |
+| `"ok"` | 通常フロー継続。`data.start_prompt_status` が `"unknown"` の場合、impl が kickoff を受け取っていない可能性があるため、最初の `member.prompt` で改めて指示を送る。 |
 | `"already_applied"` | `team.get` で既存teamの状態を確認し、起動済みで継続可能な場合のみ続行 |
 | `"failed"` | 実装を開始しない。エラー情報をユーザーに報告する。rollback結果を尊重する。 |
 | `"unknown_outcome"` | 実装を開始しない。自動再実行しない。後続のwrite操作に進まない。read-only操作のみ許可。ユーザーの指示を待つ。 |
@@ -121,7 +121,7 @@ Team manifests are bound to the `workspace_id` that created them. Operations fro
 
 ### Timeouts
 
-- `team.start`: default 30s, max 300s; one deadline covers pane split/get, agent start/rename, and kickoff prompt
+- `team.start`: default 30s, max 300s; one deadline covers pane split/get and agent start/rename. Kickoff prompt has a dedicated minimum 10s timeout, decoupled from the overall deadline.
 - `member.prompt`: default 30s, max 300s
 - `member.wait`: default 60s, max 60s (returns `waiting` on timeout, not an error)
 

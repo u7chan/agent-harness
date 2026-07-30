@@ -409,20 +409,34 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
 
       sleep 0.2
 
+      local min_kickoff_ms=10000
       local remaining prompt_result prompt_outcome
       remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
       if [ "$remaining" -le 0 ]; then
         prompt_result='{}'
       else
-        prompt_result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent prompt "$agent_name" "$prompt_text" --wait)"
+        local kickoff_timeout=$remaining
+        if [ "$remaining" -lt "$min_kickoff_ms" ]; then
+          kickoff_timeout=$min_kickoff_ms
+        fi
+        prompt_result="$(herdr_cli_safe_call_timeout "$kickoff_timeout" herdr agent prompt "$agent_name" "$prompt_text" --wait --timeout "$kickoff_timeout")"
       fi
       prompt_outcome="$(herdr_cli_outcome "$prompt_result")"
       if [ "$prompt_outcome" = "failed" ]; then
         local start_prompt_err
         start_prompt_err="$(herdr_cli_error_code "$prompt_result" | tr '[:upper:]' '[:lower:]')"
         if [[ "$start_prompt_err" == *timeout* ]] || [[ "$start_prompt_err" == *timed*out* ]] || [[ "$start_prompt_err" == *deadline* ]]; then
-          manifest="$(jq -c '.start_prompt.status = "unknown"' <<< "$manifest")"
-          herdr_team_unknown "$team_id" "$manifest" "$role" "kickoff.prompt"
+          manifest="$(jq -c '.status = "active" | .start_outcome = "succeeded" | .start_prompt.status = "unknown"' <<< "$manifest")"
+          herdr_manifest_write "$team_id" "$manifest"
+          herdr_team_release_lock
+          local kickoff_unknown_summary
+          kickoff_unknown_summary="$(jq -c --arg manifest_path "$(herdr_manifest_path "$team_id")" '{
+            team_id,
+            members: [.members[] | {role, kind, activation, agent_name, pane_id, status}],
+            manifest_path: $manifest_path,
+            start_prompt_status: .start_prompt.status
+          }' <<< "$manifest")"
+          envelope_ok "team.start" "$(jq -nc --arg team_id "$team_id" '{type:"team",team_id:$team_id}')" "$kickoff_unknown_summary"
           return 0
         fi
         manifest="$(jq -c '.start_prompt.status = "failed"' <<< "$manifest")"
@@ -431,8 +445,17 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
         return $?
       fi
       if [ "$prompt_outcome" = "unknown" ]; then
-        manifest="$(jq -c '.start_prompt.status = "unknown"' <<< "$manifest")"
-        herdr_team_unknown "$team_id" "$manifest" "$role" "kickoff.prompt"
+        manifest="$(jq -c '.status = "active" | .start_outcome = "succeeded" | .start_prompt.status = "unknown"' <<< "$manifest")"
+        herdr_manifest_write "$team_id" "$manifest"
+        herdr_team_release_lock
+        local kickoff_unknown_summary
+        kickoff_unknown_summary="$(jq -c --arg manifest_path "$(herdr_manifest_path "$team_id")" '{
+          team_id,
+          members: [.members[] | {role, kind, activation, agent_name, pane_id, status}],
+          manifest_path: $manifest_path,
+          start_prompt_status: .start_prompt.status
+        }' <<< "$manifest")"
+        envelope_ok "team.start" "$(jq -nc --arg team_id "$team_id" '{type:"team",team_id:$team_id}')" "$kickoff_unknown_summary"
         return 0
       fi
       manifest="$(jq -c '.start_prompt.status = "succeeded"' <<< "$manifest")"

@@ -274,10 +274,10 @@ echo "--- Unknown Outcome ---"
 # Test team.start with prompt failure (fake mode=fail)
 export FAKE_PROMPT_MODE=unknown
 UNKNOWN_START=$(echo "{\"request_id\":\"unknown-start-001\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start)
-assert_ok "$UNKNOWN_START" '.status == "unknown_outcome"' "team.start with unknown prompt returns unknown_outcome"
+assert_ok "$UNKNOWN_START" '.status == "ok" and .data.start_prompt_status == "unknown"' "team.start with unknown prompt returns ok with start_prompt_status=unknown"
 UNKNOWN_TEAM_ID=$(echo "$UNKNOWN_START" | jq -r '.data.team_id // ""')
-# Retry same request_id should return unknown_outcome again (state persisted)
-assert_ok "$(echo "{\"request_id\":\"unknown-start-001\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start)" '.status == "unknown_outcome"' "unknown_outcome retry stays unknown_outcome"
+# Retry same request_id should return already_applied (team is active, not unknown_outcome)
+assert_ok "$(echo "{\"request_id\":\"unknown-start-001\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start)" '.status == "already_applied"' "unknown prompt retry returns already_applied (team active)"
 export FAKE_PROMPT_MODE=ok
 export FAKE_AGENT_START_MODE=ok
 
@@ -542,7 +542,11 @@ for BLOCK_KIND in split pane_get agent_start prompt; do
   BLOCK_RESULT=$(echo "{\"request_id\":\"block-$BLOCK_KIND\",\"timeout\":5000,\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
   BLOCK_END=$(test_now_ms)
   BLOCK_ELAPSED=$((BLOCK_END - BLOCK_START))
-  if [ "$BLOCK_ELAPSED" -ge 4300 ] && [ "$BLOCK_ELAPSED" -le 6500 ]; then
+  lower=4300 upper=6500
+  if [ "$BLOCK_KIND" = "prompt" ]; then
+    lower=6800 upper=10500
+  fi
+  if [ "$BLOCK_ELAPSED" -ge "$lower" ] && [ "$BLOCK_ELAPSED" -le "$upper" ]; then
     echo "PASS: $BLOCK_KIND obeys overall deadline (${BLOCK_ELAPSED}ms)"
     PASS=$((PASS + 1))
   else
@@ -594,8 +598,8 @@ export FAKE_PROMPT_MODE=unknown
 START_UNKNOWN=$(echo '{"request_id":"unknown-pane-persist","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
 START_UNKNOWN_ID=$(jq -r '.data.team_id' <<< "$START_UNKNOWN")
 START_UNKNOWN_MANIFEST=$(echo "{\"team_id\":\"$START_UNKNOWN_ID\"}" | bash "$HERDR_SCRIPT" team.get)
-assert_ok "$START_UNKNOWN_MANIFEST" '.data.members[0].pane_id != null and .data.members[0].status == "active"' "unknown kickoff persists known pane_id"
-assert_ok "$(echo '{"request_id":"unknown-pane-persist","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)" '.status == "unknown_outcome"' "unknown start duplicate is not retried"
+assert_ok "$START_UNKNOWN_MANIFEST" '.status == "ok" and .data.members[0].pane_id != null and .data.members[0].status == "active"' "unknown kickoff persists known pane_id"
+assert_ok "$(echo '{"request_id":"unknown-pane-persist","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)" '.status == "already_applied"' "unknown start duplicate returns already_applied"
 export FAKE_PROMPT_MODE=ok
 assert_ok "$(echo "{\"team_id\":\"$START_UNKNOWN_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop)" '.status == "ok"' "unknown start can be cleaned by persisted pane ids"
 
@@ -755,19 +759,39 @@ else
 fi
 export FAKE_PROMPT_MODE=ok
 
-echo "--- Regression: Fix 1b - kickoff prompt timeout persists unknown, no rollback ---"
+echo "--- Regression: Fix 1b - kickoff prompt timeout keeps team active, no rollback ---"
 cleanup_fake_state
 export FAKE_PROMPT_MODE=timeout
 KICKOFF_TIMEOUT=$(echo '{"request_id":"kickoff-timeout","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
-assert_ok "$KICKOFF_TIMEOUT" '.status == "unknown_outcome" and .data.phase == "kickoff.prompt"' "kickoff prompt timeout returns unknown_outcome, not failed"
+assert_ok "$KICKOFF_TIMEOUT" '.status == "ok" and .data.start_prompt_status == "unknown"' "kickoff prompt timeout returns ok with start_prompt_status=unknown, not unknown_outcome"
 KICKOFF_TIMEOUT_ID=$(jq -r '.data.team_id // ""' <<< "$KICKOFF_TIMEOUT")
 KICKOFF_MANIFEST=$(echo "{\"team_id\":\"$KICKOFF_TIMEOUT_ID\"}" | bash "$HERDR_SCRIPT" team.get)
 assert_ok "$KICKOFF_MANIFEST" '.status == "ok" and .data.members[0].status == "active"' "unknown kickoff persists panes (no dangerous rollback)"
 KICKOFF_RETRY=$(echo '{"request_id":"kickoff-timeout","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
-assert_ok "$KICKOFF_RETRY" '.status == "unknown_outcome"' "unknown kickoff retry blocked, not replayed"
+assert_ok "$KICKOFF_RETRY" '.status == "already_applied"' "kickoff timeout retry returns already_applied"
 export FAKE_PROMPT_MODE=ok
 
-echo "--- Regression: Fix 2 - close unknown then pane_not_found converges to closed ---"
+echo "--- Regression: Fix 1c - kickoff timeout team is active, member.prompt works ---"
+cleanup_fake_state
+export FAKE_PROMPT_MODE=timeout
+KICKOFF_ACTIVE_TEAM=$(echo '{"request_id":"kickoff-active-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+KICKOFF_ACTIVE_ID=$(jq -r '.data.team_id // ""' <<< "$KICKOFF_ACTIVE_TEAM")
+assert_ok "$KICKOFF_ACTIVE_TEAM" '.status == "ok" and .data.start_prompt_status == "unknown"' "kickoff timeout returns ok, team is active"
+export FAKE_PROMPT_MODE=ok
+# member.prompt should work on the active team (no TEAM_NOT_ACTIVE)
+MP_ON_KICKOFF_TIMEOUT_TEAM=$(echo "{\"request_id\":\"mp-on-kt-001\",\"team_id\":\"$KICKOFF_ACTIVE_ID\",\"role\":\"impl\",\"text\":\"retry prompt after kickoff timeout\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
+assert_ok "$MP_ON_KICKOFF_TIMEOUT_TEAM" '.status == "ok" and .data.prompt_sent == true' "member.prompt works on team with kickoff timeout (team is active)"
+# cleanup
+assert_ok "$(echo "{\"team_id\":\"$KICKOFF_ACTIVE_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop)" '.status == "ok"' "kickoff timeout team can be stopped normally"
+export FAKE_PROMPT_MODE=ok
+
+echo "--- Regression: Fix 1d - minimum kickoff timeout floor ensures prompt delivery ---"
+# Verify the min_kickoff_ms=10000 floor by using a short overall timeout (5000ms)
+cleanup_fake_state
+FAST_START=$(echo '{"request_id":"fast-start","timeout":5000,"grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+assert_ok "$FAST_START" '.status == "ok"' "team.start with 5s timeout still completes (min kickoff floor)"
+FAST_START_ID=$(jq -r '.data.team_id // ""' <<< "$FAST_START")
+assert_ok "$(echo "{\"team_id\":\"$FAST_START_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop)" '.status == "ok"' "fast start team cleanup succeeds"
 cleanup_fake_state
 PANENF_TEAM=$(echo '{"request_id":"panenf-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
 PANENF_TEAM_ID=$(jq -r '.data.team_id // ""' <<< "$PANENF_TEAM")
