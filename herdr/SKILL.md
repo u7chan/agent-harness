@@ -1,20 +1,147 @@
 ---
 name: herdr
-description: Start and prompt coding agents in adjacent Herdr panes. Use when asked to delegate work to another agent (review, implement, check) via Herdr.
+description: Start and prompt coding agents in adjacent Herdr panes. Use when asked to delegate work to another agent (review, implement, check) via Herdr. Supports team orchestration with impl→review→pr-fix loop.
 ---
 
-# Herdr (mini)
+# Herdr
 
-## Preflight
+Use `herdr.sh` as the single dispatcher for all Herdr team operations.
+
+```bash
+herdr/scripts/herdr.sh <action-name> [json-input-file]
+```
+
+## Action Index
+
+| Intent | Action | Permission |
+|--------|--------|------------|
+| List all available actions | `actions.list` | read |
+| Describe an action's schema | `actions.describe` | read |
+| List active teams | `team.list` | read |
+| Start a new team | `team.start` | write |
+| Get team manifest | `team.get` | read |
+| Stop team and close panes | `team.stop` | sensitive-write |
+| Send prompt to a member | `member.prompt` | write |
+| Wait for member to finish | `member.wait` | read |
+| Read member output | `member.read` | read |
+| Close a member's pane | `member.close` | sensitive-write |
+
+## Permission
+
+- `read` — No side effects. Read-only access.
+- `write` — Creates or modifies Herdr panes and agents. Requires confirmed intent from the user.
+- `sensitive-write` — Destructive operations (close panes, stop teams). Requires explicit user confirmation.
+
+## Team Orchestration
+
+### Quick start
+
+```bash
+# Start a team with default config (impl + review + pr-fix, same agent kind as current)
+echo '{"request_id":"run-001","grant":"write"}' | bash herdr/scripts/herdr.sh team.start
+
+# Start with explicit config and kickoff context
+echo '{"request_id":"run-002","config_path":".herdr/team.json","kickoff_context":{"issue":"43","base":"main","work_branch":"feat/my-feature"},"grant":"write"}' | bash herdr/scripts/herdr.sh team.start
+
+# Prompt a member
+echo '{"request_id":"msg-001","team_id":"opencode-1712345678-abcd","role":"impl","text":"Implement issue #43","grant":"write"}' | bash herdr/scripts/herdr.sh member.prompt
+
+# Wait for a member
+echo '{"team_id":"opencode-1712345678-abcd","role":"impl"}' | bash herdr/scripts/herdr.sh member.wait
+
+# Read member output
+echo '{"team_id":"opencode-1712345678-abcd","role":"impl","lines":200}' | bash herdr/scripts/herdr.sh member.read
+
+# Close a member
+echo '{"team_id":"opencode-1712345678-abcd","role":"impl","grant":"sensitive-write"}' | bash herdr/scripts/herdr.sh member.close
+
+# Stop full team
+echo '{"team_id":"opencode-1712345678-abcd","grant":"sensitive-write"}' | bash herdr/scripts/herdr.sh team.stop
+```
+
+### Config
+
+Config is resolved in order:
+1. Explicit `config_path` in the request
+2. Nearest `.herdr/team.json` from cwd up to git root
+3. `${XDG_CONFIG_HOME:-$HOME/.config}/herdr/team.json`
+4. Skill-bundled default (`herdr/team.json`)
+
+Config files are not merged. The first match wins.
+
+Example `.herdr/team.json`:
+
+```json
+{
+  "schema_version": 1,
+  "members": [
+    {"role": "impl", "kind": "opencode", "activation": "immediate"},
+    {"role": "review", "kind": "codex", "activation": "deferred"},
+    {"role": "pr-fix", "kind": "opencode", "activation": "deferred"}
+  ]
+}
+```
+
+When kind is omitted, the origin agent kind is inherited. When activation is omitted, `impl` defaults to `immediate` and all others to `deferred`.
+
+### Agent naming
+
+Agents are named `<kind>-<role>-<short-team-id>`. Pane display names are `<role> [<kind>]`.
+
+### Rollback on failure
+
+If `team.start` fails partway through, created panes are automatically closed. Set `keep_on_failure: true` to preserve them for debugging.
+
+### Idempotency
+
+- `team.start` and `member.prompt` require a `request_id`. Duplicate `request_id` returns `already_applied`.
+- Close operations (`member.close`, `team.stop`) are target-state idempotent — closing an already-closed resource returns `already_applied`.
+- Prompt delivery records `in_flight`, `succeeded`, `failed`, or `unknown` before and after the external call. `in_flight`/`unknown` are never resent automatically; an explicit failure remains retryable.
+
+### Workspace binding
+
+Team manifests are bound to the `workspace_id` that created them. Operations from a different workspace are rejected with `WORKSPACE_MISMATCH`.
+
+### Timeouts
+
+- `team.start`: default 30s, max 300s; one deadline covers pane split/get, agent start/rename, and kickoff prompt
+- `member.prompt`: default 30s, max 300s
+- `member.wait`: default 60s, max 60s (returns `waiting` on timeout, not an error)
+
+### Manifest storage
+
+Manifests are stored at `${XDG_STATE_HOME:-$HOME/.local/state}/herdr-skill/teams/<team-id>.json`. They hold only Herdr infrastructure state (pane IDs, agent names, activation status) — not PR workflow state.
+
+## Orchestrator Workflow
+
+The orchestrator prompt for the agent that drives the team is maintained in
+`prompts/orchestrator.md`. Load that file and replace its `#{issue}` placeholder
+before starting orchestration. Agent kind and pane configuration are resolved by
+`team.start`, not hardcoded in the prompt.
+
+## Role Prompts
+
+Standard role prompts are bundled in `herdr/prompts/`:
+
+- `prompts/orchestrator.md` — Team orchestration workflow
+- `prompts/impl.md` — Issue implementation role
+- `prompts/review.md` — Code review role
+- `prompts/pr-fix.md` — PR fix role
+
+Each role returns a structured JSON report in its final response.
+
+## Low-Level Operations
+
+### Preflight
 
 ```bash
 test "${HERDR_ENV:-}" = 1 || exit 1
 command -v herdr >/dev/null || exit 1
 ```
 
-## Delegate to a new agent
+### Delegate to a new agent
 
-### 1. Split pane
+#### 1. Split pane
 
 ```bash
 herdr pane split --current --direction right --cwd "$PWD" --no-focus
@@ -23,14 +150,14 @@ herdr pane split --current --direction right --cwd "$PWD" --no-focus
 
 Use `down` when the caller pane is already narrow.
 
-### 2. Agent detection
+#### 2. Agent detection
 
 ```bash
 herdr pane get <pane-id>
 # read .result.pane.agent_status
 ```
 
-- `agent_status != unknown` → agent is already auto-detected. Assign a name and go to step 3:
+- `agent_status != unknown` → agent is already auto-detected. Assign a name:
 
 ```bash
 herdr agent rename <pane-id> <name>
@@ -44,7 +171,7 @@ herdr agent start <name> --kind <kind> --pane <pane-id>
 
 Kind: `codex`, `opencode`, `claude`, etc. See `herdr agent start --help` for supported kinds.
 
-### 3. Send prompt
+#### 3. Send prompt
 
 ```bash
 herdr agent prompt <target> "<text>" --wait --timeout 30000
@@ -52,13 +179,13 @@ herdr agent prompt <target> "<text>" --wait --timeout 30000
 
 Target = agent name or pane ID. Prefer agent name when known.
 
-### 4. Wait
+#### 4. Wait
 
 ```bash
 herdr agent wait <target> --timeout 1800000
 ```
 
-### 5. Read output
+#### 5. Read output
 
 ```bash
 herdr agent read <target> --source recent-unwrapped --lines 200
@@ -69,9 +196,7 @@ herdr agent read <target> --source recent-unwrapped --lines 200
 - **name conflict** on `agent start` → check existing agents with `herdr agent list`. If an agent is already registered on the same pane via auto-detection, use `agent rename` instead. If the desired name is already taken by an agent on a different pane, choose a different name.
 - **pane not found** on `pane get` → the pane may not have finished initializing. Wait a moment and retry.
 
-## Send to an existing agent
-
-Find the agent, then prompt, wait, and read:
+### Send to an existing agent
 
 ```bash
 herdr agent list
@@ -80,26 +205,11 @@ herdr agent wait <name-or-pane-id> --timeout 1800000
 herdr agent read <name-or-pane-id> --source recent-unwrapped --lines 200
 ```
 
-## Map user intent to agent kind
-
-| User says | Agent kind |
-|-----------|------------|
-| codex / レビュー / review | `codex` |
-| opencode / 実装 / impl | `opencode` |
-
-## Agent naming
-
-Name agents by `<kind>-<role>`:
-
-| Role | Example name |
-|------|-------------|
-| Review PR | `codex-review` |
-| Implement feature | `opencode-impl` |
-| Verify fix | `codex-check` |
-
 ## Rules
 
 - Use `--no-focus` for background work. Do not switch focus unless asked.
 - Parse IDs from JSON responses. Do not guess pane or agent IDs.
 - Do not close panes or kill agents unless explicitly requested.
-- All delegation happens within the current workspace via `pane split`. Do not create a separate workspace for delegation — this causes workspace-scoped context confusion for the receiving agent.
+- All delegation happens within the current workspace via `pane split`. Do not create a separate workspace for delegation.
+- All actions return a common JSON envelope with `schema_version`, `status`, `action`, `actor`, `target`, `data`, and optional `error`.
+- Automatically inherit origin agent kind when not specified in config.
