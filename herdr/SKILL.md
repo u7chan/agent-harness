@@ -92,6 +92,19 @@ Agents are named `<kind>-<role>-<short-team-id>`. Pane display names are `<role>
 
 If `team.start` fails partway through, created panes are automatically closed. Set `keep_on_failure: true` to preserve them for debugging.
 
+### Safe-stop on team.start
+
+`team.start` の応答statusに応じて、オーケストレーターは以下の通り動作する:
+
+| status | 動作 |
+|--------|------|
+| `"ok"` | 通常フロー継続 |
+| `"already_applied"` | `team.get` で既存teamの状態を確認し、起動済みで継続可能な場合のみ続行 |
+| `"failed"` | 実装を開始しない。エラー情報をユーザーに報告する。rollback結果を尊重する。 |
+| `"unknown_outcome"` | 実装を開始しない。自動再実行しない。後続のwrite操作に進まない。read-only操作のみ許可。ユーザーの指示を待つ。 |
+
+`"failed"` または `"unknown_outcome"` の場合、オーケストレーターが親エージェントとして直接実装にフォールバックしてはならない。
+
 ### Idempotency
 
 - `team.start` and `member.prompt` require a `request_id`. Duplicate `request_id` returns `already_applied`.
