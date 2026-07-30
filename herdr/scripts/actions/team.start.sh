@@ -389,7 +389,7 @@ main() {
     local label_remaining
     label_remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
     if [ "$label_remaining" -gt 0 ]; then
-      herdr_cli_safe_call_timeout "$label_remaining" herdr pane label "$pane_id" "$pane_display_name" >/dev/null
+      herdr_cli_safe_call_timeout "$label_remaining" herdr pane rename "$pane_id" "$pane_display_name" >/dev/null
     fi
 
     if [ "$activation" = "immediate" ]; then
@@ -426,40 +426,23 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
         local start_prompt_err
         start_prompt_err="$(herdr_cli_error_code "$prompt_result" | tr '[:upper:]' '[:lower:]')"
         if [[ "$start_prompt_err" == *timeout* ]] || [[ "$start_prompt_err" == *timed*out* ]] || [[ "$start_prompt_err" == *deadline* ]]; then
-          manifest="$(jq -c '.status = "active" | .start_outcome = "succeeded" | .start_prompt.status = "unknown"' <<< "$manifest")"
+          manifest="$(jq -c '.start_prompt.status = "unknown"' <<< "$manifest")"
           herdr_manifest_write "$team_id" "$manifest"
-          herdr_team_release_lock
-          local kickoff_unknown_summary
-          kickoff_unknown_summary="$(jq -c --arg manifest_path "$(herdr_manifest_path "$team_id")" '{
-            team_id,
-            members: [.members[] | {role, kind, activation, agent_name, pane_id, status}],
-            manifest_path: $manifest_path,
-            start_prompt_status: .start_prompt.status
-          }' <<< "$manifest")"
-          envelope_ok "team.start" "$(jq -nc --arg team_id "$team_id" '{type:"team",team_id:$team_id}')" "$kickoff_unknown_summary"
-          return 0
+        else
+          manifest="$(jq -c '.start_prompt.status = "failed"' <<< "$manifest")"
+          herdr_manifest_write "$team_id" "$manifest"
+          herdr_team_known_failure "$team_id" "$manifest" "$keep_on_failure" "PROMPT_FAILED" "Failed to send kickoff prompt to role '$role'" "$role"
+          return $?
         fi
-        manifest="$(jq -c '.start_prompt.status = "failed"' <<< "$manifest")"
-        herdr_manifest_write "$team_id" "$manifest"
-        herdr_team_known_failure "$team_id" "$manifest" "$keep_on_failure" "PROMPT_FAILED" "Failed to send kickoff prompt to role '$role'" "$role"
-        return $?
       fi
       if [ "$prompt_outcome" = "unknown" ]; then
-        manifest="$(jq -c '.status = "active" | .start_outcome = "succeeded" | .start_prompt.status = "unknown"' <<< "$manifest")"
+        manifest="$(jq -c '.start_prompt.status = "unknown"' <<< "$manifest")"
         herdr_manifest_write "$team_id" "$manifest"
-        herdr_team_release_lock
-        local kickoff_unknown_summary
-        kickoff_unknown_summary="$(jq -c --arg manifest_path "$(herdr_manifest_path "$team_id")" '{
-          team_id,
-          members: [.members[] | {role, kind, activation, agent_name, pane_id, status}],
-          manifest_path: $manifest_path,
-          start_prompt_status: .start_prompt.status
-        }' <<< "$manifest")"
-        envelope_ok "team.start" "$(jq -nc --arg team_id "$team_id" '{type:"team",team_id:$team_id}')" "$kickoff_unknown_summary"
-        return 0
       fi
-      manifest="$(jq -c '.start_prompt.status = "succeeded"' <<< "$manifest")"
-      herdr_manifest_write "$team_id" "$manifest"
+      if [ "$prompt_outcome" = "ok" ]; then
+        manifest="$(jq -c '.start_prompt.status = "succeeded"' <<< "$manifest")"
+        herdr_manifest_write "$team_id" "$manifest"
+      fi
     fi
   done
 
@@ -469,7 +452,8 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
   summary="$(jq -c --arg manifest_path "$(herdr_manifest_path "$team_id")" '{
     team_id,
     members: [.members[] | {role, kind, activation, agent_name, pane_id, status}],
-    manifest_path: $manifest_path
+    manifest_path: $manifest_path,
+    start_prompt_status: (.start_prompt.status // null)
   }' <<< "$manifest")"
   herdr_team_release_lock
   envelope_ok "team.start" "$(jq -nc --arg team_id "$team_id" '{type:"team",team_id:$team_id}')" "$summary"

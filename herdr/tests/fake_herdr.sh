@@ -265,7 +265,7 @@ main() {
           jq -nc --argjson panes "$panes" '{id:"cli:pane:list",result:{panes:$panes}}'
           ;;
         close) _pane_close "${1:-}" ;;
-        label) _pane_label "${1:-}" "${2:-}" ;;
+        rename) _pane_label "${1:-}" "${2:-}" ;;
         *) echo '{"id":"cli:pane:error","error":{"code":"UNKNOWN_COMMAND","message":"unknown pane command"}}' ;;
       esac
       ;;
