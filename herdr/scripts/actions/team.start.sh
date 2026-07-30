@@ -58,9 +58,14 @@ herdr_agent_prepare_before_deadline() {
     remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
     [ "$remaining" -gt 0 ] || break
     if [ "$agent_status" = "unknown" ]; then
-      result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent start "$agent_name" --kind "$member_kind" --pane "$pane_id" --timeout "$remaining")"
+      result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent start "$agent_name" --kind "$member_kind" --pane "$pane_id")"
     else
       result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent rename "$pane_id" "$agent_name")"
+    fi
+
+    if [ "$result" = "{}" ]; then
+      sleep 0.1
+      continue
     fi
 
     error_code="$(herdr_cli_error_code "$result" | tr '[:upper:]' '[:lower:]')"
@@ -355,6 +360,8 @@ main() {
 
     manifest="$(jq -c --argjson i "$i" --arg pane_id "$pane_id" '.members[$i].pane_id = $pane_id | .members[$i].status = "pane-created"' <<< "$manifest")"
     herdr_manifest_write "$team_id" "$manifest"
+
+    sleep 0.2
 
     local agent_result agent_outcome
     agent_result="$(herdr_agent_prepare_before_deadline "$deadline_ms" "$pane_id" "$agent_name" "$member_kind")"
