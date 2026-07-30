@@ -27,11 +27,11 @@ HERDR_ENV=1 bash herdr/tests/live-smoke.sh
 ```
 
 ⚠️ **Caution**: The live test creates real Herdr panes and agents. Its EXIT cleanup
-collects team IDs and exact pane IDs from both manifests and the before/after pane
-diff. Temporary state is deleted only after every created pane is confirmed closed.
-If cleanup is failed or unknown, the state directory is retained for retry and the
-test fails. An externally supplied `HERDR_TEMP_DIR` is only a parent; it is never
-deleted.
+stops tracked teams and closes only manifest-owned panes (foreign panes are never
+touched). Temporary state is deleted only after every manifest-tracked pane is
+confirmed closed. If cleanup is failed or unknown, the state directory is retained
+for retry and the test fails. An externally supplied `HERDR_TEMP_DIR` is only a
+parent; it is never deleted.
 
 ## Test Coverage
 
@@ -60,7 +60,7 @@ deleted.
 | Catalog | `actions.list`, `actions.describe` |
 | Team lifecycle | `team.start` creates tracked panes and cleanup removes exact created pane IDs |
 | Member operations | Deferred prompt, wait, and read on real agents |
-| Cleanup | Manifest recovery when start output is unavailable, before/after pane diff, retained state on failed/unknown cleanup |
+| Cleanup | Manifest recovery when start output is unavailable, manifest-owned pane close, retained state on failed/unknown cleanup |
 
 ## Troubleshooting
 

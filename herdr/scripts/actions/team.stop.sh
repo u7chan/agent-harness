@@ -84,14 +84,26 @@ main() {
       close_outcome="$(herdr_cli_outcome "$close_result")"
       case "$close_outcome" in
         ok) member_status="closed" ;;
-        failed) member_status="close-failed" ;;
+        failed)
+          local stop_close_err
+          stop_close_err="$(herdr_cli_error_code "$close_result" | tr '[:upper:]' '[:lower:]')"
+          if [[ "$stop_close_err" =~ (pane.*not.?found|not.?found.*pane|no.*such.*pane) ]]; then
+            member_status="closed"
+          else
+            member_status="close-failed"
+          fi
+          ;;
         *) member_status="close-unknown" ;;
       esac
     fi
 
     manifest="$(jq -c --argjson i "$i" --arg status "$member_status" '.members[$i].status = $status' <<< "$manifest")"
     herdr_manifest_write "$team_id" "$manifest"
-    results="$(jq -c --arg role "$role" --arg pane_id "$pane_id" --arg outcome "$close_outcome" '. + [{role:$role,pane_id:(if $pane_id == "" then null else $pane_id end),outcome:$outcome}]' <<< "$results")"
+    local result_outcome="$close_outcome"
+    if [ "$member_status" = "closed" ] && [ "$close_outcome" = "failed" ]; then
+      result_outcome="ok"
+    fi
+    results="$(jq -c --arg role "$role" --arg pane_id "$pane_id" --arg outcome "$result_outcome" '. + [{role:$role,pane_id:(if $pane_id == "" then null else $pane_id end),outcome:$outcome}]' <<< "$results")"
   done
 
   local remaining unknown_count failed_count data

@@ -75,7 +75,15 @@ main() {
   local new_status
   case "$close_outcome" in
     ok) new_status="closed" ;;
-    failed) new_status="close-failed" ;;
+    failed)
+      local close_err
+      close_err="$(herdr_cli_error_code "$close_result" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$close_err" =~ (pane.*not.?found|not.?found.*pane|no.*such.*pane) ]]; then
+        new_status="closed"
+      else
+        new_status="close-failed"
+      fi
+      ;;
     *) new_status="close-unknown" ;;
   esac
   manifest="$(jq -c --arg role "$role" --arg status "$new_status" '.members = [.members[] | if .role == $role then .status = $status else . end]' <<< "$manifest")"
@@ -85,11 +93,18 @@ main() {
   herdr_manifest_write "$team_id" "$manifest"
   member_close_release_lock
 
-  local data
-  data="$(jq -nc --arg team_id "$team_id" --arg role "$role" --arg pane_id "$pane_id" --arg outcome "$close_outcome" '{team_id:$team_id,role:$role,pane_id:(if $pane_id == "" then null else $pane_id end),closed:($outcome == "ok"),outcome:$outcome}')"
-  case "$close_outcome" in
-    ok) envelope_ok "member.close" "$target" "$data" ;;
-    unknown)
+  local data data_outcome="$close_outcome"
+  local is_closed=false
+  if [ "$new_status" = "closed" ]; then
+    is_closed=true
+    if [ "$close_outcome" != "ok" ]; then
+      data_outcome="ok"
+    fi
+  fi
+  data="$(jq -nc --arg team_id "$team_id" --arg role "$role" --arg pane_id "$pane_id" --arg outcome "$data_outcome" --argjson closed "$is_closed" '{team_id:$team_id,role:$role,pane_id:(if $pane_id == "" then null else $pane_id end),closed:$closed,outcome:$outcome}')"
+  case "$new_status" in
+    closed) envelope_ok "member.close" "$target" "$data" ;;
+    close-unknown)
       envelope_unknown_outcome "member.close" "$target" "$data"
       ;;
     *)

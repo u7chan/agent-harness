@@ -81,12 +81,7 @@ manifest_pane_ids() {
 }
 
 owned_pane_ids() {
-  local ids
-  ids="$(manifest_pane_ids)" || return 1
-  local current diff
-  current="$(pane_ids)" || return 1
-  diff="$(jq -nc --argjson before "$INITIAL_PANE_IDS" --argjson after "$current" '$after - $before')"
-  jq -nc --argjson manifest "$ids" --argjson diff "$diff" '$manifest + $diff | unique'
+  manifest_pane_ids
 }
 
 safe_remove_live_state() {
@@ -94,9 +89,9 @@ safe_remove_live_state() {
 }
 
 final_cleanup() {
+  local original_rc=$?
   [ "$BASH_SUBSHELL" -eq 0 ] || return 0
   [ "$BASHPID" = "$LIVE_SMOKE_PROCESS_ID" ] || return 0
-  local original_rc=$?
   trap - EXIT
   local team_ids team_id stop_result candidate_panes pane_id close_result final_panes remaining
   team_ids="$(manifest_team_ids)"

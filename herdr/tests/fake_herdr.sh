@@ -144,6 +144,9 @@ _agent_prompt() {
     fail)
       echo '{"id":"cli:agent:prompt","error":{"code":"PROMPT_FAILED","message":"simulated prompt failure"}}'
       ;;
+    timeout)
+      echo '{"id":"cli:agent:prompt","error":{"code":"PROMPT_TIMEOUT","message":"simulated prompt timeout"}}'
+      ;;
     unknown)
       echo '{}'
       ;;
@@ -170,6 +173,18 @@ _agent_wait() {
       ;;
     malformed|unknown)
       echo 'not-json'
+      ;;
+    missing_status)
+      echo '{"id":"cli:agent:wait","result":{"agent":{"name":"test"}}}'
+      ;;
+    unknown_status)
+      echo '{"id":"cli:agent:wait","result":{"agent":{"name":"test","status":"weird_state"}}}'
+      ;;
+    type_ok)
+      echo '{"id":"cli:agent:wait","result":{"agent":{"name":"x"},"type":"ok"}}'
+      ;;
+    type_completed)
+      echo '{"id":"cli:agent:wait","result":{"type":"completed"}}'
       ;;
     *) cat <<EOF
 {"id":"cli:agent:wait","result":{"agent":{"name":"$target","status":"completed"}}}
@@ -214,6 +229,9 @@ _pane_close() {
   case "$mode" in
     fail)
       echo '{"id":"cli:pane:close","error":{"code":"CLOSE_FAILED","message":"simulated close failure"}}'
+      ;;
+    not_found)
+      echo '{"id":"cli:pane:close","error":{"code":"PANE_NOT_FOUND","message":"pane not found"}}'
       ;;
     unknown)
       echo '{}'

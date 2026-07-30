@@ -400,6 +400,13 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
       fi
       prompt_outcome="$(herdr_cli_outcome "$prompt_result")"
       if [ "$prompt_outcome" = "failed" ]; then
+        local start_prompt_err
+        start_prompt_err="$(herdr_cli_error_code "$prompt_result" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$start_prompt_err" == *timeout* ]] || [[ "$start_prompt_err" == *timed*out* ]] || [[ "$start_prompt_err" == *deadline* ]]; then
+          manifest="$(jq -c '.start_prompt.status = "unknown"' <<< "$manifest")"
+          herdr_team_unknown "$team_id" "$manifest" "$role" "kickoff.prompt"
+          return 0
+        fi
         manifest="$(jq -c '.start_prompt.status = "failed"' <<< "$manifest")"
         herdr_manifest_write "$team_id" "$manifest"
         herdr_team_known_failure "$team_id" "$manifest" "$keep_on_failure" "PROMPT_FAILED" "Failed to send kickoff prompt to role '$role'" "$role"

@@ -723,6 +723,133 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# --- Regression Tests (PR #44) ---
+echo "--- Regression: Fix 1 - Prompt timeout persists unknown_outcome ---"
+cleanup_fake_state
+TIMEOUT_TEAM=$(echo '{"request_id":"timeout-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+TIMEOUT_TEAM_ID=$(jq -r '.data.team_id // ""' <<< "$TIMEOUT_TEAM")
+echo "timeout team: $TIMEOUT_TEAM_ID"
+
+export FAKE_PROMPT_MODE=timeout
+TIMEOUT_COUNT_BEFORE=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+TIMEOUT_PROMPT=$(echo "{\"request_id\":\"timeout-001\",\"team_id\":\"$TIMEOUT_TEAM_ID\",\"role\":\"impl\",\"text\":\"timeout test\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
+assert_ok "$TIMEOUT_PROMPT" '.status == "unknown_outcome" and .data.delivery_status == "unknown"' "prompt timeout returns unknown_outcome, not failed"
+TIMEOUT_COUNT_AFTER=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+if [ "$TIMEOUT_COUNT_AFTER" -eq $((TIMEOUT_COUNT_BEFORE + 1)) ]; then
+  echo "PASS: timeout prompt invokes external send once"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: timeout prompt invocation count before=$TIMEOUT_COUNT_BEFORE after=$TIMEOUT_COUNT_AFTER"
+  FAIL=$((FAIL + 1))
+fi
+TIMEOUT_COUNT_BEFORE2=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+TIMEOUT_RETRY=$(echo "{\"request_id\":\"timeout-001\",\"team_id\":\"$TIMEOUT_TEAM_ID\",\"role\":\"impl\",\"text\":\"timeout test\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
+TIMEOUT_COUNT_AFTER2=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+assert_ok "$TIMEOUT_RETRY" '.status == "unknown_outcome" and .data.delivery_status == "unknown"' "prompt timeout retry returns unknown_outcome, not re-sent"
+if [ "$TIMEOUT_COUNT_AFTER2" -eq "$TIMEOUT_COUNT_BEFORE2" ]; then
+  echo "PASS: timeout retry does not re-send external prompt"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: timeout retry re-sent external prompt"
+  FAIL=$((FAIL + 1))
+fi
+export FAKE_PROMPT_MODE=ok
+
+echo "--- Regression: Fix 1b - kickoff prompt timeout persists unknown, no rollback ---"
+cleanup_fake_state
+export FAKE_PROMPT_MODE=timeout
+KICKOFF_TIMEOUT=$(echo '{"request_id":"kickoff-timeout","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+assert_ok "$KICKOFF_TIMEOUT" '.status == "unknown_outcome" and .data.phase == "kickoff.prompt"' "kickoff prompt timeout returns unknown_outcome, not failed"
+KICKOFF_TIMEOUT_ID=$(jq -r '.data.team_id // ""' <<< "$KICKOFF_TIMEOUT")
+KICKOFF_MANIFEST=$(echo "{\"team_id\":\"$KICKOFF_TIMEOUT_ID\"}" | bash "$HERDR_SCRIPT" team.get)
+assert_ok "$KICKOFF_MANIFEST" '.status == "ok" and .data.members[0].status == "active"' "unknown kickoff persists panes (no dangerous rollback)"
+KICKOFF_RETRY=$(echo '{"request_id":"kickoff-timeout","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+assert_ok "$KICKOFF_RETRY" '.status == "unknown_outcome"' "unknown kickoff retry blocked, not replayed"
+export FAKE_PROMPT_MODE=ok
+
+echo "--- Regression: Fix 2 - close unknown then pane_not_found converges to closed ---"
+cleanup_fake_state
+PANENF_TEAM=$(echo '{"request_id":"panenf-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+PANENF_TEAM_ID=$(jq -r '.data.team_id // ""' <<< "$PANENF_TEAM")
+export FAKE_CLOSE_MODE=unknown
+PANENF_UNKNOWN=$(echo "{\"team_id\":\"$PANENF_TEAM_ID\",\"role\":\"impl\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close)
+assert_ok "$PANENF_UNKNOWN" '.status == "unknown_outcome"' "first close returns unknown_outcome"
+export FAKE_CLOSE_MODE=not_found
+PANENF_RETRY=$(echo "{\"team_id\":\"$PANENF_TEAM_ID\",\"role\":\"impl\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close)
+assert_ok "$PANENF_RETRY" '.status == "ok" and .data.closed == true and .data.outcome == "ok"' "close retry with pane_not_found converges to closed with outcome normalized to ok"
+PANENF_MANIFEST=$(echo "{\"team_id\":\"$PANENF_TEAM_ID\"}" | bash "$HERDR_SCRIPT" team.get)
+assert_ok "$PANENF_MANIFEST" '.data.members[] | select(.role == "impl") | .status == "closed"' "manifest shows member as closed after not_found convergence"
+unset FAKE_CLOSE_MODE
+
+echo "--- Regression: Fix 2b - team.stop pane_not_found convergence ---"
+cleanup_fake_state
+TSNF_TEAM=$(echo '{"request_id":"tsnf-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+TSNF_TEAM_ID=$(jq -r '.data.team_id // ""' <<< "$TSNF_TEAM")
+TSNF_PANE=$(echo "{\"team_id\":\"$TSNF_TEAM_ID\"}" | bash "$HERDR_SCRIPT" team.get | jq -r '.data.members[0].pane_id // ""')
+MANIFEST_PATH="$TEST_STATE_HOME/herdr-skill/teams/${TSNF_TEAM_ID}.json"
+jq -c --arg role impl '.members = [.members[] | if .role == $role then .status = "close-unknown" else . end]' "$MANIFEST_PATH" > "$MANIFEST_PATH.fix" && mv "$MANIFEST_PATH.fix" "$MANIFEST_PATH"
+export FAKE_CLOSE_MODE=not_found
+TSNF_STOP=$(echo "{\"team_id\":\"$TSNF_TEAM_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop 2>&1 || true)
+assert_ok "$TSNF_STOP" '.status == "ok"' "team.stop with pane_not_found converges to ok"
+unset FAKE_CLOSE_MODE
+
+echo "--- Regression: Fix 3 - member.wait unknown status returns unknown_outcome ---"
+cleanup_fake_state
+WAITSTAT_TEAM=$(echo '{"request_id":"waitstat-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+WAITSTAT_TEAM_ID=$(jq -r '.data.team_id // ""' <<< "$WAITSTAT_TEAM")
+export FAKE_WAIT_MODE=unknown_status
+WAITSTAT_UNKNOWN=$(echo "{\"team_id\":\"$WAITSTAT_TEAM_ID\",\"role\":\"impl\",\"timeout\":1000}" | bash "$HERDR_SCRIPT" member.wait)
+assert_ok "$WAITSTAT_UNKNOWN" '.status == "unknown_outcome" and .data.agent_status == "unknown"' "unknown_status envelope returns unknown_outcome, not completed"
+assert_single_json "$WAITSTAT_UNKNOWN" "unknown_status wait returns one JSON envelope"
+export FAKE_WAIT_MODE=missing_status
+WAITSTAT_MISSING=$(echo "{\"team_id\":\"$WAITSTAT_TEAM_ID\",\"role\":\"impl\",\"timeout\":1000}" | bash "$HERDR_SCRIPT" member.wait)
+assert_ok "$WAITSTAT_MISSING" '.status == "unknown_outcome" and .data.agent_status == "unknown"' "missing_status envelope returns unknown_outcome, not completed"
+assert_single_json "$WAITSTAT_MISSING" "missing_status wait returns one JSON envelope"
+unset FAKE_WAIT_MODE
+
+echo "--- Regression: Fix 3b - empty string status no longer classified as completed ---"
+cleanup_fake_state
+EMPTYSTAT_TEAM=$(echo '{"request_id":"emptystat-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+EMPTYSTAT_TEAM_ID=$(jq -r '.data.team_id // ""' <<< "$EMPTYSTAT_TEAM")
+export FAKE_WAIT_MODE=missing_status
+EMPTYSTAT_RESULT=$(echo "{\"team_id\":\"$EMPTYSTAT_TEAM_ID\",\"role\":\"impl\",\"timeout\":1000}" | bash "$HERDR_SCRIPT" member.wait)
+assert_ok "$EMPTYSTAT_RESULT" '.status == "unknown_outcome"' "missing status is not classified as completed"
+unset FAKE_WAIT_MODE
+
+echo "--- Regression: Fix 1c - result.type fallback removed (codex-review-2) ---"
+cleanup_fake_state
+TYPEOK_TEAM=$(echo '{"request_id":"typeok-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+TYPEOK_TEAM_ID=$(jq -r '.data.team_id // ""' <<< "$TYPEOK_TEAM")
+export FAKE_WAIT_MODE=type_ok
+TYPEOK_RESULT=$(echo "{\"team_id\":\"$TYPEOK_TEAM_ID\",\"role\":\"impl\",\"timeout\":1000}" | bash "$HERDR_SCRIPT" member.wait)
+assert_ok "$TYPEOK_RESULT" '.status == "unknown_outcome" and .data.agent_status == "unknown"' "result.type=ok without agent.status is unknown_outcome"
+assert_single_json "$TYPEOK_RESULT" "result.type=ok returns one JSON envelope"
+export FAKE_WAIT_MODE=type_completed
+TYPECOMP_RESULT=$(echo "{\"team_id\":\"$TYPEOK_TEAM_ID\",\"role\":\"impl\",\"timeout\":1000}" | bash "$HERDR_SCRIPT" member.wait)
+assert_ok "$TYPECOMP_RESULT" '.status == "unknown_outcome" and .data.agent_status == "unknown"' "result.type=completed without result.status is unknown_outcome"
+assert_single_json "$TYPECOMP_RESULT" "result.type=completed returns one JSON envelope"
+unset FAKE_WAIT_MODE
+
+echo "--- Regression: Fix 2c - pane_not_found outcome normalization consistency ---"
+cleanup_fake_state
+PANECONSIST_TEAM=$(echo '{"request_id":"paneconsist-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+PANECONSIST_TEAM_ID=$(jq -r '.data.team_id // ""' <<< "$PANECONSIST_TEAM")
+export FAKE_CLOSE_MODE=unknown
+echo "{\"team_id\":\"$PANECONSIST_TEAM_ID\",\"role\":\"impl\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close >/dev/null
+export FAKE_CLOSE_MODE=not_found
+PANECONSIST_RETRY=$(echo "{\"team_id\":\"$PANECONSIST_TEAM_ID\",\"role\":\"impl\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close)
+assert_ok "$PANECONSIST_RETRY" '.status == "ok" and .data.closed == true and .data.outcome == "ok"' "member.close outcome normalized to ok when closed==true"
+unset FAKE_CLOSE_MODE
+# Verify team.stop also produces consistent outcome for pane_not_found
+PANECONSIST_TEAM2=$(echo '{"request_id":"paneconsist2-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+PANECONSIST_TEAM2_ID=$(jq -r '.data.team_id // ""' <<< "$PANECONSIST_TEAM2")
+MANIFEST_PATH2="$TEST_STATE_HOME/herdr-skill/teams/${PANECONSIST_TEAM2_ID}.json"
+jq -c '.members[0].status = "close-unknown"' "$MANIFEST_PATH2" > "$MANIFEST_PATH2.fix" && mv "$MANIFEST_PATH2.fix" "$MANIFEST_PATH2"
+export FAKE_CLOSE_MODE=not_found
+PANECONSIST_STOP=$(echo "{\"team_id\":\"$PANECONSIST_TEAM2_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop 2>&1 || true)
+assert_ok "$PANECONSIST_STOP" '.status == "ok" and (.data.stopped_members | index("impl") != null)' "team.stop result outcome normalized for pane_not_found"
+unset FAKE_CLOSE_MODE
+
 echo ""
 echo "=== Results ==="
 echo "Passed: $PASS"

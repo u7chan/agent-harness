@@ -46,13 +46,13 @@ herdr_cli_wait_state() {
   fi
 
   local status
-  status="$(jq -r '.result.agent.status // .result.status // .result.type // empty' 2>/dev/null <<< "$raw" || true)"
+  status="$(jq -r '.result.agent.status // .result.status // empty' 2>/dev/null <<< "$raw" || true)"
   status="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
   case "$status" in
     waiting|running|busy|in_progress|in-progress) echo "waiting" ;;
     failed|error|cancelled|canceled) echo "failed" ;;
-    completed|complete|done|ok|idle|succeeded|success|"") echo "completed" ;;
-    *) echo "completed" ;;
+    completed|complete|done|ok|idle|succeeded|success) echo "completed" ;;
+    *) echo "unknown" ;;
   esac
 }
 

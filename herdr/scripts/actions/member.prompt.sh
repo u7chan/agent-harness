@@ -174,6 +174,8 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
   result="$(herdr_cli_safe_call_timeout "$timeout" herdr agent prompt "$agent_name" "$prompt_text" --wait --timeout "$timeout")"
   prompt_status="$(herdr_cli_outcome "$result")"
 
+  local prompt_err
+  prompt_err="$(herdr_cli_error_code "$result" | tr '[:upper:]' '[:lower:]')"
   case "$prompt_status" in
     ok)
       manifest="$(jq -c --arg role "$role" --arg request_id "$request_id" --argjson was_deferred "$is_deferred" '
@@ -190,16 +192,28 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
       envelope_ok "member.prompt" "$target" "$data"
       ;;
     failed)
-      manifest="$(jq -c --arg role "$role" --arg request_id "$request_id" --argjson was_deferred "$is_deferred" '
-        .prompt_history[$role][$request_id].status = "failed"
-        | .prompt_history[$role][$request_id].updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
-        | if $was_deferred then .activation_outcomes[$role] = "failed" else . end
-      ' <<< "$manifest")"
-      herdr_manifest_write "$team_id" "$manifest"
-      member_prompt_release_lock
-      data="$(jq -c '.delivery_status = "failed"' <<< "$data")"
-      envelope_fail "member.prompt" "PROMPT_FAILED" "Failed to send prompt to role '$role'" true "$target" "$data"
-      return 1
+      if [[ "$prompt_err" == *timeout* ]] || [[ "$prompt_err" == *timed*out* ]] || [[ "$prompt_err" == *deadline* ]]; then
+        manifest="$(jq -c --arg role "$role" --arg request_id "$request_id" --argjson was_deferred "$is_deferred" '
+          .prompt_history[$role][$request_id].status = "unknown"
+          | .prompt_history[$role][$request_id].updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+          | if $was_deferred then .activation_outcomes[$role] = "unknown" else . end
+        ' <<< "$manifest")"
+        herdr_manifest_write "$team_id" "$manifest"
+        member_prompt_release_lock
+        data="$(jq -c '.delivery_status = "unknown"' <<< "$data")"
+        envelope_unknown_outcome "member.prompt" "$target" "$data"
+      else
+        manifest="$(jq -c --arg role "$role" --arg request_id "$request_id" --argjson was_deferred "$is_deferred" '
+          .prompt_history[$role][$request_id].status = "failed"
+          | .prompt_history[$role][$request_id].updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+          | if $was_deferred then .activation_outcomes[$role] = "failed" else . end
+        ' <<< "$manifest")"
+        herdr_manifest_write "$team_id" "$manifest"
+        member_prompt_release_lock
+        data="$(jq -c '.delivery_status = "failed"' <<< "$data")"
+        envelope_fail "member.prompt" "PROMPT_FAILED" "Failed to send prompt to role '$role'" true "$target" "$data"
+        return 1
+      fi
       ;;
     *)
       manifest="$(jq -c --arg role "$role" --arg request_id "$request_id" --argjson was_deferred "$is_deferred" '
