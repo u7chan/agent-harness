@@ -105,19 +105,23 @@ envelope_fail() {
   local code="$2"
   local message="$3"
   local retryable="${4:-false}"
+  local target_json="${5:-null}"
+  local data_json="${6:-null}"
 
   jq -nc \
     --arg action "$action" \
     --arg code "$code" \
     --arg message "$message" \
     --argjson retryable "$retryable" \
+    --argjson target "$target_json" \
+    --argjson data "$data_json" \
     '{
       schema_version: 1,
       status: "failed",
       action: $action,
       actor: "user",
-      target: null,
-      data: null,
+      target: $target,
+      data: $data,
       error: {
         code: $code,
         message: $message,

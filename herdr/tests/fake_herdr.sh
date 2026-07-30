@@ -21,23 +21,65 @@ _pane_next_id() {
 }
 
 _pane_current() {
-  cat <<'EOF'
-{"id":"cli:pane:current","result":{"pane":{"pane_id":"pane-1","workspace_id":"ws-fake-001","tab_id":"tab-1","agent":"opencode","agent_status":"running","cols":160}}}
+  local workspace_id="${FAKE_WORKSPACE_ID:-ws-fake-001}"
+  case "${FAKE_PANE_CURRENT_MODE:-ok}" in
+    fail)
+      echo '{"id":"cli:pane:current","error":{"code":"PANE_CURRENT_FAILED","message":"simulated failure"}}'
+      return 0
+      ;;
+    unknown)
+      echo 'not-json'
+      return 0
+      ;;
+  esac
+  cat <<EOF
+{"id":"cli:pane:current","result":{"pane":{"pane_id":"pane-1","workspace_id":"$workspace_id","tab_id":"tab-1","agent":"opencode","agent_status":"running","cols":160}}}
 EOF
 }
 
 _pane_split() {
+  local sleep_seconds="${FAKE_SPLIT_SLEEP:-0}"
+  if [ "$sleep_seconds" != "0" ]; then
+    sleep "$sleep_seconds"
+  fi
+  case "${FAKE_SPLIT_MODE:-ok}" in
+    fail)
+      echo '{"id":"cli:pane:split","error":{"code":"PANE_SPLIT_FAILED","message":"simulated split failure"}}'
+      return 0
+      ;;
+    unknown)
+      echo '{}'
+      return 0
+      ;;
+  esac
   local pid
   pid="$(_pane_next_id)"
+  local workspace_id="${FAKE_WORKSPACE_ID:-ws-fake-001}"
   cat <<EOF
-{"id":"cli:pane:split","result":{"pane":{"pane_id":"$pid","workspace_id":"ws-fake-001","tab_id":"tab-1","agent_status":"unknown"}}}
+{"id":"cli:pane:split","result":{"pane":{"pane_id":"$pid","workspace_id":"$workspace_id","tab_id":"tab-1","agent_status":"unknown"}}}
 EOF
 }
 
 _pane_get() {
   local pid="${1:-unknown}"
+  local workspace_id="${FAKE_WORKSPACE_ID:-ws-fake-001}"
+  [ "${FAKE_PANE_GET_SLEEP:-0}" = "0" ] || sleep "$FAKE_PANE_GET_SLEEP"
+  local busy_count="${FAKE_PANE_GET_BUSY_COUNT:-0}"
+  if [ "$busy_count" -gt 0 ] 2>/dev/null; then
+    local state_file="$FAKE_STATE/${pid}.pane_get_count"
+    local count=0
+    [ ! -f "$state_file" ] || count="$(cat "$state_file")"
+    count=$((count + 1))
+    echo "$count" > "$state_file"
+    if [ "$count" -le "$busy_count" ]; then
+      cat <<EOF
+{"id":"cli:pane:get","result":{"pane":{"pane_id":"$pid","workspace_id":"$workspace_id","agent_status":"agent_pane_busy"}}}
+EOF
+      return 0
+    fi
+  fi
   cat <<EOF
-{"id":"cli:pane:get","result":{"pane":{"pane_id":"$pid","workspace_id":"ws-fake-001","tab_id":"tab-1","agent_status":"unknown"}}}
+{"id":"cli:pane:get","result":{"pane":{"pane_id":"$pid","workspace_id":"$workspace_id","tab_id":"tab-1","agent_status":"unknown"}}}
 EOF
 }
 
@@ -45,12 +87,25 @@ _agent_start() {
   local name="$1"
   local kind="$2"
   local mode="${FAKE_AGENT_START_MODE:-ok}"
+  [ "${FAKE_AGENT_START_SLEEP:-0}" = "0" ] || sleep "$FAKE_AGENT_START_SLEEP"
   case "$mode" in
     fail)
       echo '{"id":"cli:agent:start","error":{"code":"AGENT_START_FAILED","message":"simulated failure"}}'
       ;;
     unknown)
       echo '{}'
+      ;;
+    busy-once)
+      local busy_file="$FAKE_STATE/.agent_start_busy_once"
+      if [ ! -f "$busy_file" ]; then
+        touch "$busy_file"
+        echo '{"id":"cli:agent:start","error":{"code":"agent_pane_busy","message":"simulated transient busy"}}'
+      else
+        echo "${kind} ${name}" >> "$FAKE_STATE/started_agents.log"
+        cat <<EOF
+{"id":"cli:agent:start","result":{"agent":{"name":"$name","kind":"$kind","status":"running"}}}
+EOF
+      fi
       ;;
     *)
       echo "${kind} ${name}" >> "$FAKE_STATE/started_agents.log"
@@ -83,6 +138,8 @@ _agent_prompt() {
   local target="$1"
   local text="$2"
   local mode="${FAKE_PROMPT_MODE:-ok}"
+  [ "${FAKE_PROMPT_SLEEP:-0}" = "0" ] || sleep "$FAKE_PROMPT_SLEEP"
+  printf '%s\n' "$target" >> "$FAKE_STATE/prompt_invocations.log"
   case "$mode" in
     fail)
       echo '{"id":"cli:agent:prompt","error":{"code":"PROMPT_FAILED","message":"simulated prompt failure"}}'
@@ -101,13 +158,37 @@ EOF
 
 _agent_wait() {
   local target="$1"
-  cat <<EOF
+  case "${FAKE_WAIT_MODE:-ok}" in
+    timeout)
+      echo '{"id":"cli:agent:wait","error":{"code":"WAIT_TIMEOUT","message":"simulated timeout"}}'
+      ;;
+    fail)
+      echo '{"id":"cli:agent:wait","error":{"code":"WAIT_FAILED","message":"simulated failure"}}'
+      ;;
+    empty)
+      return 0
+      ;;
+    malformed|unknown)
+      echo 'not-json'
+      ;;
+    *) cat <<EOF
 {"id":"cli:agent:wait","result":{"agent":{"name":"$target","status":"completed"}}}
 EOF
+      ;;
+  esac
 }
 
 _agent_read() {
   local target="$1"
+  case "${FAKE_READ_MODE:-ok}" in
+    fail)
+      echo '{"id":"cli:agent:read","error":{"code":"READ_FAILED","message":"simulated failure"}}'
+      return 0
+      ;;
+    unknown)
+      return 1
+      ;;
+  esac
   if [ -f "$FAKE_STATE/${target}.last_prompt" ]; then
     echo "Fake output from $target"
   else
@@ -122,6 +203,14 @@ _agent_list() {
 _pane_close() {
   local pid="$1"
   local mode="${FAKE_CLOSE_MODE:-ok}"
+  printf '%s\n' "$pid" >> "$FAKE_STATE/close_invocations.log"
+  if [ "$mode" = "mixed" ]; then
+    case "$pid" in
+      *-1) mode="ok" ;;
+      *-2) mode="fail" ;;
+      *) mode="unknown" ;;
+    esac
+  fi
   case "$mode" in
     fail)
       echo '{"id":"cli:pane:close","error":{"code":"CLOSE_FAILED","message":"simulated close failure"}}'
@@ -148,6 +237,15 @@ main() {
         current) _pane_current ;;
         split) _pane_split ;;
         get) _pane_get "${1:-}" ;;
+        list)
+          local pane_count=0
+          [ ! -f "$FAKE_STATE/.pane_counter" ] || pane_count="$(cat "$FAKE_STATE/.pane_counter")"
+          local panes='[]' pane_index
+          for ((pane_index = 1; pane_index <= pane_count; pane_index++)); do
+            panes="$(jq -c --arg id "fake-pane-$pane_index" '. + [{pane_id:$id}]' <<< "$panes")"
+          done
+          jq -nc --argjson panes "$panes" '{id:"cli:pane:list",result:{panes:$panes}}'
+          ;;
         close) _pane_close "${1:-}" ;;
         label) _pane_label "${1:-}" "${2:-}" ;;
         *) echo '{"id":"cli:pane:error","error":{"code":"UNKNOWN_COMMAND","message":"unknown pane command"}}' ;;
@@ -162,6 +260,7 @@ main() {
             case "$1" in
               --kind) kind="$2"; shift 2 ;;
               --pane) pane="$2"; shift 2 ;;
+              --timeout) shift 2 ;;
               *) name="$1"; shift ;;
             esac
           done

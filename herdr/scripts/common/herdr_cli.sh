@@ -22,6 +22,40 @@ herdr_cli_outcome() {
   echo "unknown"
 }
 
+herdr_cli_error_code() {
+  local raw="$1"
+  jq -r '.error.code // empty' 2>/dev/null <<< "$raw" || true
+}
+
+herdr_cli_wait_state() {
+  local raw="$1"
+  local outcome
+  outcome="$(herdr_cli_outcome "$raw")"
+  if [ "$outcome" = "unknown" ]; then
+    echo "unknown"
+    return 0
+  fi
+  if [ "$outcome" = "failed" ]; then
+    local code
+    code="$(herdr_cli_error_code "$raw" | tr '[:upper:]' '[:lower:]')"
+    case "$code" in
+      *timeout*|*timed*out*|*deadline*) echo "waiting" ;;
+      *) echo "failed" ;;
+    esac
+    return 0
+  fi
+
+  local status
+  status="$(jq -r '.result.agent.status // .result.status // .result.type // empty' 2>/dev/null <<< "$raw" || true)"
+  status="$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')"
+  case "$status" in
+    waiting|running|busy|in_progress|in-progress) echo "waiting" ;;
+    failed|error|cancelled|canceled) echo "failed" ;;
+    completed|complete|done|ok|idle|succeeded|success|"") echo "completed" ;;
+    *) echo "completed" ;;
+  esac
+}
+
 herdr_cli_result_ok() {
   local raw="$1"
   [ "$(herdr_cli_outcome "$raw")" = "ok" ]
@@ -44,21 +78,45 @@ herdr_cli_extract_field() {
 }
 
 herdr_cli_safe_call() {
-  local result
-  result="$("$@" 2>/dev/null | jq -c '.' 2>/dev/null || echo '')"
-  if [ -z "$result" ]; then
-    echo '{}'
+  herdr_cli_safe_call_timeout 0 "$@"
+}
+
+herdr_cli_safe_call_timeout() {
+  local timeout_ms="$1"
+  shift
+  local raw="" rc=0
+  if [ "$timeout_ms" -gt 0 ] 2>/dev/null; then
+    local timeout_seconds
+    timeout_seconds="$(awk -v ms="$timeout_ms" 'BEGIN { printf "%.3f", ms / 1000 }')"
+    if raw="$(timeout --kill-after=1s "${timeout_seconds}s" "$@" 2>/dev/null)"; then
+      rc=0
+    else
+      rc=$?
+    fi
   else
-    echo "$result"
+    if raw="$("$@" 2>/dev/null)"; then
+      rc=0
+    else
+      rc=$?
+    fi
   fi
+  if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+    echo '{}'
+    return 0
+  fi
+  if ! jq -e -s 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1 <<< "$raw"; then
+    echo '{}'
+    return 0
+  fi
+  jq -c -s '.[0]' <<< "$raw"
 }
 
 herdr_cli_timeout_remaining() {
-  local deadline_epoch="$1"
+  local deadline_ms="$1"
   local now
-  now="$(date +%s)"
-  local remaining_ms=$(( (deadline_epoch - now) * 1000 ))
-  if [ "$remaining_ms" -lt 1000 ]; then
+  now="$(herdr_cli_now_ms)"
+  local remaining_ms=$((deadline_ms - now))
+  if [ "$remaining_ms" -le 0 ]; then
     echo 0
   else
     echo "$remaining_ms"
@@ -66,15 +124,35 @@ herdr_cli_timeout_remaining() {
 }
 
 herdr_cli_deadline_expired() {
-  local deadline_epoch="$1"
+  local deadline_ms="$1"
   local now
-  now="$(date +%s)"
-  [ "$now" -ge "$deadline_epoch" ]
+  now="$(herdr_cli_now_ms)"
+  [ "$now" -ge "$deadline_ms" ]
 }
 
 herdr_cli_deadline_from_timeout() {
   local timeout_ms="$1"
-  local deadline
-  deadline=$(($(date +%s) + timeout_ms / 1000 + 1))
-  echo "$deadline"
+  echo $(( $(herdr_cli_now_ms) + timeout_ms ))
+}
+
+herdr_cli_now_ms() {
+  local epoch_ns
+  epoch_ns="$(date +%s%N 2>/dev/null || true)"
+  if [[ "$epoch_ns" =~ ^[0-9]{10,19}$ ]]; then
+    echo $((10#$epoch_ns / 1000000))
+  else
+    echo $(( $(date +%s) * 1000 ))
+  fi
+}
+
+herdr_cli_call_before_deadline() {
+  local deadline_ms="$1"
+  shift
+  local remaining
+  remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
+  if [ "$remaining" -le 0 ]; then
+    echo '{}'
+    return 0
+  fi
+  herdr_cli_safe_call_timeout "$remaining" "$@"
 }

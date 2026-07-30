@@ -6,118 +6,97 @@ source "$SCRIPT_DIR/../common/envelope.sh"
 source "$SCRIPT_DIR/../common/manifest.sh"
 source "$SCRIPT_DIR/../common/herdr_cli.sh"
 
+MEMBER_CLOSE_LOCK_FILE=""
+MEMBER_CLOSE_PROCESS_ID="$BASHPID"
+MEMBER_CLOSE_LOCK_TOKEN="member-close-${BASHPID}-${RANDOM}-${RANDOM}"
+member_close_release_lock() {
+  [ "$BASH_SUBSHELL" -eq 0 ] || return 0
+  [ "$BASHPID" = "$MEMBER_CLOSE_PROCESS_ID" ] || return 0
+  if [ -n "$MEMBER_CLOSE_LOCK_FILE" ]; then
+    herdr_manifest_unlock "$MEMBER_CLOSE_LOCK_FILE" "$MEMBER_CLOSE_LOCK_TOKEN" || true
+    MEMBER_CLOSE_LOCK_FILE=""
+  fi
+}
 main() {
-  local input
+  local input team_id role target
   input="$(herdr_read_input "$1")"
-  local team_id role
-  team_id="$(echo "$input" | jq -r '.team_id // ""')"
-  role="$(echo "$input" | jq -r '.role // ""')"
-
-  if [ -z "$team_id" ]; then
-    envelope_fail "member.close" "MISSING_REQUIRED_FIELD" "Required field 'team_id' is missing" false
-    exit 1
-  fi
-  if [ -z "$role" ]; then
-    envelope_fail "member.close" "MISSING_REQUIRED_FIELD" "Required field 'role' is missing" false
-    exit 1
-  fi
+  team_id="$(jq -r '.team_id // ""' <<< "$input")"
+  role="$(jq -r '.role // ""' <<< "$input")"
+  target="$(jq -nc --arg team_id "$team_id" --arg role "$role" '{type:"member",team_id:$team_id,role:$role}')"
 
   if ! herdr_manifest_exists "$team_id"; then
-    envelope_already_applied "member.close" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" '{"team_id":"'"$team_id"'","role":"'"$role"'","closed":true}'
-    exit 0
+    envelope_already_applied "member.close" "$target" "$(jq -nc --arg team_id "$team_id" --arg role "$role" '{team_id:$team_id,role:$role,closed:true}')"
+    return 0
   fi
-
-  local lock_file=""
-  lock_file="$(herdr_manifest_lock "$team_id" 30)" || {
-    envelope_fail "member.close" "LOCK_FAILED" "Could not acquire lock for team_id: $team_id" true
-    exit 1
-  }
-
-  local manifest
-  manifest="$(herdr_manifest_read "$team_id")"
-
-  local workspace_id
-  workspace_id="$(herdr_get_workspace_id)"
-  local bound_workspace
-  bound_workspace="$(echo "$manifest" | jq -r '.workspace_id // ""')"
-
-  if [ "$bound_workspace" != "$workspace_id" ]; then
-    herdr_manifest_unlock "$lock_file"
-    envelope_fail "member.close" "WORKSPACE_MISMATCH" "Team '$team_id' is bound to workspace '$bound_workspace', current is '$workspace_id'" false
-    exit 1
-  fi
-
-  local member
-  member="$(echo "$manifest" | jq -c --arg role "$role" '.members[] | select(.role == $role)')"
-
-  if [ -z "$member" ] || [ "$member" = "null" ]; then
-    herdr_manifest_unlock "$lock_file"
-    envelope_already_applied "member.close" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" '{"team_id":"'"$team_id"'","role":"'"$role"'","closed":true}'
-    exit 0
-  fi
-
-  local current_status
-  current_status="$(echo "$member" | jq -r '.status // "active"')"
-
-  if [ "$current_status" = "closed" ]; then
-    herdr_manifest_unlock "$lock_file"
-    envelope_already_applied "member.close" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" '{"team_id":"'"$team_id"'","role":"'"$role"'","closed":true}'
-    exit 0
-  fi
-
-  local pane_id agent_name
-  pane_id="$(echo "$member" | jq -r '.pane_id // ""')"
-  agent_name="$(echo "$member" | jq -r '.agent_name // ""')"
-
-  local close_result close_outcome
-  if [ -n "$pane_id" ] && [ "$pane_id" != "null" ]; then
-    close_result="$(herdr pane close "$pane_id" 2>/dev/null | jq -c '.' 2>/dev/null || echo '{}')"
-    close_outcome="$(herdr_cli_outcome "$close_result")"
+  if herdr_manifest_lock "$team_id" 30 "$MEMBER_CLOSE_LOCK_TOKEN"; then
+    MEMBER_CLOSE_LOCK_FILE="$HERDR_MANIFEST_LOCK_FILE"
   else
-    close_outcome="ok"
+    envelope_fail "member.close" "LOCK_FAILED" "Could not acquire lock for team_id: $team_id" true "$target"
+    return 1
   fi
 
-  if [ "$close_outcome" = "failed" ]; then
-    herdr_manifest_unlock "$lock_file"
-    envelope_fail "member.close" "CLOSE_FAILED" "Failed to close pane for role '$role'. Manifest preserved for retry." true
-    exit 1
-  elif [ "$close_outcome" = "unknown" ]; then
-    local updated_manifest
-    updated_manifest="$(echo "$manifest" | jq -c --arg role "$role" '
-      .members = [.members[] | if .role == $role then . + {status: "close-unknown"} else . end]
-    ')"
-    herdr_manifest_write "$team_id" "$updated_manifest"
-    herdr_manifest_unlock "$lock_file"
-    envelope_unknown_outcome "member.close" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" "$(jq -nc --arg team_id "$team_id" --arg role "$role" '{team_id: $team_id, role: $role, closed: false}')"
-    exit 0
+  local manifest workspace_id bound_workspace member
+  manifest="$(herdr_manifest_read "$team_id")"
+  workspace_id="$(herdr_get_workspace_id)"
+  bound_workspace="$(jq -r '.workspace_id // ""' <<< "$manifest")"
+  if [ "$bound_workspace" != "$workspace_id" ]; then
+    member_close_release_lock
+    envelope_fail "member.close" "WORKSPACE_MISMATCH" "Team '$team_id' is bound to workspace '$bound_workspace', current is '$workspace_id'" false "$target"
+    return 1
+  fi
+  member="$(jq -c --arg role "$role" '.members[] | select(.role == $role)' <<< "$manifest")"
+  if [ -z "$member" ]; then
+    member_close_release_lock
+    envelope_already_applied "member.close" "$target" "$(jq -nc --arg team_id "$team_id" --arg role "$role" '{team_id:$team_id,role:$role,closed:true}')"
+    return 0
   fi
 
-  local updated_manifest
-  updated_manifest="$(echo "$manifest" | jq -c --arg role "$role" '
-    .members = [.members[] | if .role == $role then . + {status: "closed"} else . end]
-  ')"
-
-  local remaining_active
-  remaining_active="$(echo "$updated_manifest" | jq -r '[.members[] | select(.status != "closed")] | length')"
-
-  if [ "$remaining_active" -eq 0 ]; then
-    updated_manifest="$(echo "$updated_manifest" | jq -c '.status = "stopped"')"
+  local member_status pane_id close_outcome
+  member_status="$(jq -r '.status // "active"' <<< "$member")"
+  pane_id="$(jq -r '.pane_id // ""' <<< "$member")"
+  if [ "$member_status" = "closed" ]; then
+    member_close_release_lock
+    envelope_already_applied "member.close" "$target" "$(jq -nc --arg team_id "$team_id" --arg role "$role" '{team_id:$team_id,role:$role,closed:true}')"
+    return 0
   fi
 
-  herdr_manifest_write "$team_id" "$updated_manifest"
-  herdr_manifest_unlock "$lock_file"
+  if [ -z "$pane_id" ]; then
+    if [ "$member_status" = "pending" ]; then
+      close_outcome="ok"
+    else
+      close_outcome="unknown"
+    fi
+  else
+    local close_result
+    close_result="$(herdr_cli_safe_call_timeout 30000 herdr pane close "$pane_id")"
+    close_outcome="$(herdr_cli_outcome "$close_result")"
+  fi
+
+  local new_status
+  case "$close_outcome" in
+    ok) new_status="closed" ;;
+    failed) new_status="close-failed" ;;
+    *) new_status="close-unknown" ;;
+  esac
+  manifest="$(jq -c --arg role "$role" --arg status "$new_status" '.members = [.members[] | if .role == $role then .status = $status else . end]' <<< "$manifest")"
+  if jq -e '[.members[] | select((.status // "active") != "closed")] | length == 0' >/dev/null <<< "$manifest"; then
+    manifest="$(jq -c '.status = "stopped"' <<< "$manifest")"
+  fi
+  herdr_manifest_write "$team_id" "$manifest"
+  member_close_release_lock
 
   local data
-  data="$(jq -nc \
-    --arg team_id "$team_id" \
-    --arg role "$role" \
-    '{
-      team_id: $team_id,
-      role: $role,
-      closed: true
-    }')"
-
-  envelope_ok "member.close" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" "$data"
+  data="$(jq -nc --arg team_id "$team_id" --arg role "$role" --arg pane_id "$pane_id" --arg outcome "$close_outcome" '{team_id:$team_id,role:$role,pane_id:(if $pane_id == "" then null else $pane_id end),closed:($outcome == "ok"),outcome:$outcome}')"
+  case "$close_outcome" in
+    ok) envelope_ok "member.close" "$target" "$data" ;;
+    unknown)
+      envelope_unknown_outcome "member.close" "$target" "$data"
+      ;;
+    *)
+      envelope_fail "member.close" "CLOSE_FAILED" "Pane close explicitly failed; manifest preserved for retry" true "$target" "$data"
+      return 1
+      ;;
+  esac
 }
 
 main "$@"

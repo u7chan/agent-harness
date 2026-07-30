@@ -23,10 +23,9 @@ main() {
     exit 1
   fi
 
-  if [ "$timeout" -gt 60000 ] 2>/dev/null; then
-    timeout=60000
-  elif [ "$timeout" -lt 1000 ] 2>/dev/null; then
-    timeout=60000
+  if ! [[ "$timeout" =~ ^[0-9]+$ ]] || [ "$timeout" -lt 1000 ] || [ "$timeout" -gt 60000 ]; then
+    envelope_fail "member.wait" "INVALID_TIMEOUT" "timeout must be an integer from 1000 to 60000 milliseconds" false
+    exit 1
   fi
 
   if ! herdr_manifest_exists "$team_id"; then
@@ -63,11 +62,18 @@ main() {
     exit 1
   fi
 
-  local result
-  result="$(herdr agent wait "$agent_name" --timeout "$timeout" 2>/dev/null | jq -c '.' 2>/dev/null || echo '{"status":"waiting"}')"
+  local result outer_timeout
+  outer_timeout=$((timeout + 1000))
+  result="$(herdr_cli_safe_call_timeout "$outer_timeout" herdr agent wait "$agent_name" --timeout "$timeout")"
 
-  local agent_status
-  agent_status="$(echo "$result" | jq -r '.status // "waiting"')"
+  local wait_state agent_status
+  wait_state="$(herdr_cli_wait_state "$result")"
+  case "$wait_state" in
+    completed) agent_status="$(jq -r '.result.agent.status // .result.status // "completed"' <<< "$result")" ;;
+    waiting) agent_status="waiting" ;;
+    failed) agent_status="failed" ;;
+    *) agent_status="unknown" ;;
+  esac
 
   local data
   data="$(jq -nc \
@@ -82,12 +88,16 @@ main() {
       agent_status: $agent_status
     }')"
 
-  if [ "$agent_status" = "completed" ] || [ "$agent_status" = "ok" ]; then
+  if [ "$wait_state" = "completed" ]; then
     envelope_ok "member.wait" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" "$data"
-  elif [ "$agent_status" = "waiting" ]; then
+  elif [ "$wait_state" = "waiting" ]; then
     envelope_waiting "member.wait" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" "$data"
+  elif [ "$wait_state" = "unknown" ]; then
+    envelope_unknown_outcome "member.wait" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" "$data"
   else
-    envelope_fail "member.wait" "WAIT_FAILED" "Agent wait returned: $agent_status" true
+    envelope_fail "member.wait" "WAIT_FAILED" "Agent wait returned an explicit failure" true \
+      "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" "$data"
+    exit 1
   fi
 }
 

@@ -52,6 +52,25 @@ assert_ok() {
   fi
 }
 
+assert_single_json() {
+  local result="$1"
+  local name="$2"
+  if jq -e -s 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1 <<< "$result"; then
+    echo "PASS: $name"
+    PASS=$((PASS + 1))
+  else
+    echo "FAIL: $name"
+    echo "  got: $result"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+test_now_ms() {
+  local epoch_ns
+  epoch_ns="$(date +%s%N)"
+  echo $((10#$epoch_ns / 1000000))
+}
+
 run_herdr() {
   local result
   result="$(bash "$HERDR_SCRIPT" "$@" 2>&1)" || true
@@ -187,15 +206,32 @@ fi
 # --- Concurrent team.start idempotency (same request_id) ---
 echo "--- Concurrent Idempotency ---"
 CONCURRENT_REQ="conc-$(date +%s)"
-R1=$(echo "{\"request_id\":\"$CONCURRENT_REQ\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start)
-R2=$(echo "{\"request_id\":\"$CONCURRENT_REQ\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start)
-OK_COUNT=$(echo -e "$R1\n$R2" | jq -r '.status' | grep -c 'ok' 2>/dev/null || echo 0)
-ALREADY_COUNT=$(echo -e "$R1\n$R2" | jq -r '.status' | grep -c 'already_applied' 2>/dev/null || echo 0)
+CONCURRENT_PANES_BEFORE=$(cat "$FAKE_STATE_DIR/.pane_counter")
+R1_FILE="$TEST_STATE_HOME/concurrent-start-1.json"
+R2_FILE="$TEST_STATE_HOME/concurrent-start-2.json"
+export FAKE_SPLIT_SLEEP=0.2
+(echo "{\"request_id\":\"$CONCURRENT_REQ\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start > "$R1_FILE") & R1_PID=$!
+(echo "{\"request_id\":\"$CONCURRENT_REQ\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start > "$R2_FILE") & R2_PID=$!
+wait "$R1_PID" || true
+wait "$R2_PID" || true
+unset FAKE_SPLIT_SLEEP
+CONCURRENT_PANES_AFTER=$(cat "$FAKE_STATE_DIR/.pane_counter")
+R1="$(<"$R1_FILE")"
+R2="$(<"$R2_FILE")"
+OK_COUNT=$(jq -s '[.[] | select(.status == "ok")] | length' "$R1_FILE" "$R2_FILE")
+ALREADY_COUNT=$(jq -s '[.[] | select(.status == "already_applied")] | length' "$R1_FILE" "$R2_FILE")
 if [ "$OK_COUNT" -eq 1 ] && [ "$ALREADY_COUNT" -eq 1 ]; then
   echo "PASS: concurrent same request_id produces one ok + one already_applied"
   PASS=$((PASS + 1))
 else
   echo "FAIL: concurrent same request_id: ok=$OK_COUNT already=$ALREADY_COUNT"
+  FAIL=$((FAIL + 1))
+fi
+if [ $((CONCURRENT_PANES_AFTER - CONCURRENT_PANES_BEFORE)) -eq 3 ]; then
+  echo "PASS: concurrent team.start creates one team's three panes"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: concurrent team.start created $((CONCURRENT_PANES_AFTER - CONCURRENT_PANES_BEFORE)) panes"
   FAIL=$((FAIL + 1))
 fi
 
@@ -204,15 +240,32 @@ echo "--- Concurrent Prompt Idempotency ---"
 CONCURRENT_MSG_ID="conc-msg-$(date +%s)"
 CONC_TEAM=$(echo "{\"request_id\":\"conc-team-$(date +%s)\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start)
 CONC_TEAM_ID=$(echo "$CONC_TEAM" | jq -r '.data.team_id')
-P1=$(echo "{\"request_id\":\"$CONCURRENT_MSG_ID\",\"team_id\":\"$CONC_TEAM_ID\",\"role\":\"impl\",\"text\":\"Concurrent test\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
-P2=$(echo "{\"request_id\":\"$CONCURRENT_MSG_ID\",\"team_id\":\"$CONC_TEAM_ID\",\"role\":\"impl\",\"text\":\"Concurrent test\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
-P_OK=$(echo -e "$P1\n$P2" | jq -r '.status' | grep -c 'ok' 2>/dev/null || echo 0)
-P_ALREADY=$(echo -e "$P1\n$P2" | jq -r '.status' | grep -c 'already_applied' 2>/dev/null || echo 0)
+P1_FILE="$TEST_STATE_HOME/concurrent-prompt-1.json"
+P2_FILE="$TEST_STATE_HOME/concurrent-prompt-2.json"
+PROMPT_COUNT_BEFORE=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+export FAKE_PROMPT_SLEEP=0.2
+(echo "{\"request_id\":\"$CONCURRENT_MSG_ID\",\"team_id\":\"$CONC_TEAM_ID\",\"role\":\"impl\",\"text\":\"Concurrent test\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt > "$P1_FILE") & P1_PID=$!
+(echo "{\"request_id\":\"$CONCURRENT_MSG_ID\",\"team_id\":\"$CONC_TEAM_ID\",\"role\":\"impl\",\"text\":\"Concurrent test\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt > "$P2_FILE") & P2_PID=$!
+wait "$P1_PID" || true
+wait "$P2_PID" || true
+unset FAKE_PROMPT_SLEEP
+P1="$(<"$P1_FILE")"
+P2="$(<"$P2_FILE")"
+P_OK=$(jq -s '[.[] | select(.status == "ok")] | length' "$P1_FILE" "$P2_FILE")
+P_ALREADY=$(jq -s '[.[] | select(.status == "already_applied")] | length' "$P1_FILE" "$P2_FILE")
+PROMPT_COUNT_AFTER=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
 if [ "$P_OK" -eq 1 ] && [ "$P_ALREADY" -eq 1 ]; then
   echo "PASS: concurrent member.prompt same request_id produces one ok + one already_applied"
   PASS=$((PASS + 1))
 else
   echo "FAIL: concurrent member.prompt same request_id: ok=$P_OK already=$P_ALREADY"
+  FAIL=$((FAIL + 1))
+fi
+if [ $((PROMPT_COUNT_AFTER - PROMPT_COUNT_BEFORE)) -eq 1 ]; then
+  echo "PASS: concurrent member.prompt invokes external prompt exactly once"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: concurrent member.prompt external invocation count changed by $((PROMPT_COUNT_AFTER - PROMPT_COUNT_BEFORE))"
   FAIL=$((FAIL + 1))
 fi
 
@@ -341,7 +394,7 @@ fi
 echo "--- Agent Start Failure ---"
 cleanup_fake_state
 export FAKE_AGENT_START_MODE=fail
-FAIL_START=$(echo '{"request_id":"fail-start-001","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1)
+FAIL_START=$(echo '{"request_id":"fail-start-001","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
 assert_ok "$FAIL_START" '.status == "failed" and .error.code == "AGENT_START_FAILED"' "team.start fails with AGENT_START_FAILED"
 export FAKE_AGENT_START_MODE=ok
 
@@ -351,9 +404,324 @@ cleanup_fake_state
 FAIL_PROMPT_TEAM=$(echo '{"request_id":"fail-prompt-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
 FAIL_PROMPT_TEAM_ID=$(echo "$FAIL_PROMPT_TEAM" | jq -r '.data.team_id')
 export FAKE_PROMPT_MODE=fail
-FAIL_PROMPT_RESULT=$(echo "{\"request_id\":\"fail-prompt-001\",\"team_id\":\"$FAIL_PROMPT_TEAM_ID\",\"role\":\"impl\",\"text\":\"test\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt 2>&1)
+FAIL_PROMPT_RESULT=$(echo "{\"request_id\":\"fail-prompt-001\",\"team_id\":\"$FAIL_PROMPT_TEAM_ID\",\"role\":\"impl\",\"text\":\"test\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt 2>&1 || true)
 assert_ok "$FAIL_PROMPT_RESULT" '.status == "failed"' "member.prompt fails with PROMPT_FAILED"
 export FAKE_PROMPT_MODE=ok
+
+# --- Temp ownership and cleanup safety ---
+echo "--- Temp Cleanup Safety ---"
+TEMP_COMMON="$HERDR_DIR/scripts/common/temp.sh"
+EXTERNAL_TEMP_ROOT="$TEST_STATE_HOME/external-temp"
+mkdir -p "$EXTERNAL_TEMP_ROOT"
+touch "$EXTERNAL_TEMP_ROOT/sentinel"
+TEMP_RESULT=$(HERDR_TEMP_DIR="$EXTERNAL_TEMP_ROOT" bash "$HERDR_SCRIPT" actions.list)
+assert_ok "$TEMP_RESULT" '.status == "ok"' "dispatcher works with external temp root"
+if [ -f "$EXTERNAL_TEMP_ROOT/sentinel" ] && [ "$(find "$EXTERNAL_TEMP_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'herdr-skill-*' | wc -l)" -eq 0 ]; then
+  echo "PASS: external temp sentinel preserved and invocation child cleaned"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: external temp root was modified unsafely"
+  FAIL=$((FAIL + 1))
+fi
+
+OWNED_TEMP=$(bash -c 'source "$1"; herdr_temp_create_owned_dir "$2" "herdr-live-state-"' _ "$TEMP_COMMON" "$EXTERNAL_TEMP_ROOT")
+bash -c 'source "$1"; herdr_temp_remove_owned_dir "$2" "$3" "herdr-live-state-"' _ "$TEMP_COMMON" "$EXTERNAL_TEMP_ROOT" "$OWNED_TEMP"
+if [ ! -e "$OWNED_TEMP" ]; then
+  echo "PASS: self-created owned temp directory is removed"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: self-created owned temp directory remains"
+  FAIL=$((FAIL + 1))
+fi
+
+UNOWNED_TEMP="$EXTERNAL_TEMP_ROOT/herdr-live-state-ABC123"
+mkdir -p "$UNOWNED_TEMP"
+touch "$UNOWNED_TEMP/sentinel"
+if bash -c 'source "$1"; herdr_temp_remove_owned_dir "$2" "$3" "herdr-live-state-"' _ "$TEMP_COMMON" "$EXTERNAL_TEMP_ROOT" "$UNOWNED_TEMP" 2>/dev/null; then
+  echo "FAIL: cleanup accepted an unowned directory"
+  FAIL=$((FAIL + 1))
+elif [ -f "$UNOWNED_TEMP/sentinel" ]; then
+  echo "PASS: cleanup ownership guard preserves unowned directory"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: cleanup ownership guard removed unowned sentinel"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Identifier, config, workspace, and timeout validation regressions ---
+echo "--- Strict Validation Regressions ---"
+assert_ok "$(echo '{"team_id":"../../escape"}' | bash "$HERDR_SCRIPT" team.get 2>&1 || true)" '.status == "failed" and .error.code == "INVALID_IDENTIFIER"' "team_id path traversal rejected"
+assert_ok "$(echo '{"request_id":"../escape","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)" '.status == "failed" and .error.code == "INVALID_IDENTIFIER"' "request_id path traversal rejected"
+assert_ok "$(echo '{"request_id":"float-timeout","timeout":5000.5,"grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)" '.status == "failed" and .error.code == "INVALID_TIMEOUT"' "fractional timeout returns structured failure"
+
+STRICT_CONFIG_DIR="$TEST_STATE_HOME/strict-config"
+mkdir -p "$STRICT_CONFIG_DIR"
+printf '%s\n' '{"schema_version":"1","members":[{"role":"impl"}]}' > "$STRICT_CONFIG_DIR/team.json"
+assert_ok "$(echo "{\"request_id\":\"strict-schema\",\"config_path\":\"$STRICT_CONFIG_DIR/team.json\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)" '.status == "failed" and .error.code == "CONFIG_ERROR"' "string schema_version rejected"
+printf '%s\n' '{"schema_version":1,"members":{}}' > "$STRICT_CONFIG_DIR/team.json"
+assert_ok "$(echo "{\"request_id\":\"strict-members-object\",\"config_path\":\"$STRICT_CONFIG_DIR/team.json\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)" '.status == "failed" and .error.code == "CONFIG_ERROR"' "object members rejected"
+printf '%s\n' '{"schema_version":1,"members":[]}' > "$STRICT_CONFIG_DIR/team.json"
+assert_ok "$(echo "{\"request_id\":\"strict-empty-members\",\"config_path\":\"$STRICT_CONFIG_DIR/team.json\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)" '.status == "failed" and .error.code == "CONFIG_ERROR"' "empty members rejected without fallback"
+printf '%s\n' '{"schema_version":1,"members":[{"role":"impl","kind":false}]}' > "$STRICT_CONFIG_DIR/team.json"
+assert_ok "$(echo "{\"request_id\":\"strict-kind-bool\",\"config_path\":\"$STRICT_CONFIG_DIR/team.json\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)" '.status == "failed" and .error.code == "CONFIG_ERROR"' "boolean member fields rejected"
+printf '%s\n' '{"schema_version":1,"members":[{"role":"bad\nrole","kind":"opencode","prompt_file":"prompt.md"}]}' > "$STRICT_CONFIG_DIR/team.json"
+assert_ok "$(echo "{\"request_id\":\"strict-newline-role\",\"config_path\":\"$STRICT_CONFIG_DIR/team.json\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)" '.status == "failed" and .error.code == "CONFIG_ERROR"' "newline in role rejected"
+printf '%s\n' '{"schema_version":1,"members":[{"role":"bad\u0000role","kind":"opencode","prompt_file":"prompt.md"}]}' > "$STRICT_CONFIG_DIR/team.json"
+assert_ok "$(echo "{\"request_id\":\"strict-nul-role\",\"config_path\":\"$STRICT_CONFIG_DIR/team.json\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)" '.status == "failed" and .error.code == "CONFIG_ERROR"' "NUL in role rejected"
+printf '%s\n' '{"schema_version":1,"members":[{"role":"bad\"role","kind":"opencode","prompt_file":"prompt.md"}]}' > "$STRICT_CONFIG_DIR/team.json"
+printf '%s\n' 'custom prompt' > "$STRICT_CONFIG_DIR/prompt.md"
+QUOTE_RESULT=$(echo "{\"request_id\":\"strict-quote-role\",\"config_path\":\"$STRICT_CONFIG_DIR/team.json\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
+assert_ok "$QUOTE_RESULT" '.status == "failed" and .error.code == "CONFIG_ERROR"' "quoted custom role rejected before envelope construction"
+assert_single_json "$QUOTE_RESULT" "quoted custom role returns one JSON envelope"
+MISSING_CONFIG_RESULT=$(echo "{\"request_id\":\"missing-config\",\"config_path\":\"$STRICT_CONFIG_DIR/missing.json\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
+assert_ok "$MISSING_CONFIG_RESULT" '.status == "failed" and .error.code == "CONFIG_ERROR"' "missing explicit config returns CONFIG_ERROR"
+if bash -c 'source "$1"; herdr_manifest_lock missing-config 0.2 cleanup-check; herdr_manifest_unlock "$HERDR_MANIFEST_LOCK_FILE" cleanup-check' _ "$HERDR_DIR/scripts/common/manifest.sh"; then
+  echo "PASS: config failure releases request lock"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: config failure left request lock"
+  FAIL=$((FAIL + 1))
+fi
+
+cleanup_fake_state
+export FAKE_WORKSPACE_ID=ws-one
+WS1=$(echo '{"request_id":"cross-workspace-request","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+export FAKE_WORKSPACE_ID=ws-two
+WS2=$(echo '{"request_id":"cross-workspace-request","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+assert_ok "$WS2" '.status == "ok"' "same request_id in another workspace is not deduplicated"
+if [ "$(jq -r '.data.team_id' <<< "$WS1")" != "$(jq -r '.data.team_id' <<< "$WS2")" ]; then
+  echo "PASS: cross-workspace request creates distinct teams"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: cross-workspace request reused team"
+  FAIL=$((FAIL + 1))
+fi
+export FAKE_WORKSPACE_ID=ws-fake-001
+
+# --- Lock elapsed time and millisecond conversion ---
+echo "--- Lock Timing ---"
+cleanup_fake_state
+MANIFEST_COMMON="$HERDR_DIR/scripts/common/manifest.sh"
+LOCK_SIGNAL="$TEST_STATE_HOME/lock-holder-ready"
+bash -c 'source "$1"; herdr_manifest_lock timing-lock 1 timing-owner-one; touch "$2"; sleep 4' _ "$MANIFEST_COMMON" "$LOCK_SIGNAL" & LOCK_HOLDER_PID=$!
+while [ ! -f "$LOCK_SIGNAL" ]; do sleep 0.05; done
+LOCK_START=$(test_now_ms)
+LOCK_RC=0
+bash -c 'source "$1"; herdr_manifest_lock timing-lock 2 timing-owner-two; echo "$HERDR_MANIFEST_LOCK_FILE"' _ "$MANIFEST_COMMON" >/dev/null 2>&1 || LOCK_RC=$?
+LOCK_END=$(test_now_ms)
+wait "$LOCK_HOLDER_PID" || true
+LOCK_ELAPSED=$((LOCK_END - LOCK_START))
+if [ "$LOCK_RC" -ne 0 ] && [ "$LOCK_ELAPSED" -ge 1800 ] && [ "$LOCK_ELAPSED" -le 3200 ]; then
+  echo "PASS: lock timeout 2 seconds elapses accurately (${LOCK_ELAPSED}ms)"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: lock timeout elapsed=${LOCK_ELAPSED}ms rc=$LOCK_RC"
+  FAIL=$((FAIL + 1))
+fi
+CLI_NOW=$(bash -c 'source "$1"; herdr_cli_now_ms' _ "$HERDR_DIR/scripts/common/herdr_cli.sh")
+if [[ "$CLI_NOW" =~ ^[0-9]{13}$ ]]; then
+  echo "PASS: nanosecond date output is converted to 13-digit milliseconds"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: millisecond conversion returned '$CLI_NOW'"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Deadline wrapping for every blocking team.start CLI ---
+echo "--- Blocking CLI Deadlines ---"
+for BLOCK_KIND in split pane_get agent_start prompt; do
+  cleanup_fake_state
+  unset FAKE_SPLIT_SLEEP FAKE_PANE_GET_SLEEP FAKE_AGENT_START_SLEEP FAKE_PROMPT_SLEEP
+  case "$BLOCK_KIND" in
+    split) export FAKE_SPLIT_SLEEP=7 ;;
+    pane_get) export FAKE_PANE_GET_SLEEP=7 ;;
+    agent_start) export FAKE_AGENT_START_SLEEP=7 ;;
+    prompt) export FAKE_PROMPT_SLEEP=7 ;;
+  esac
+  BLOCK_START=$(test_now_ms)
+  BLOCK_RESULT=$(echo "{\"request_id\":\"block-$BLOCK_KIND\",\"timeout\":5000,\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
+  BLOCK_END=$(test_now_ms)
+  BLOCK_ELAPSED=$((BLOCK_END - BLOCK_START))
+  if [ "$BLOCK_ELAPSED" -ge 4300 ] && [ "$BLOCK_ELAPSED" -le 6500 ]; then
+    echo "PASS: $BLOCK_KIND obeys overall deadline (${BLOCK_ELAPSED}ms)"
+    PASS=$((PASS + 1))
+  else
+    echo "FAIL: $BLOCK_KIND deadline elapsed=${BLOCK_ELAPSED}ms"
+    FAIL=$((FAIL + 1))
+  fi
+  assert_single_json "$BLOCK_RESULT" "$BLOCK_KIND deadline returns one JSON envelope"
+done
+unset FAKE_SPLIT_SLEEP FAKE_PANE_GET_SLEEP FAKE_AGENT_START_SLEEP FAKE_PROMPT_SLEEP
+
+# --- Ready retry, rollback output, and unknown start persistence ---
+echo "--- Start Outcome Regressions ---"
+cleanup_fake_state
+export FAKE_PANE_CURRENT_MODE=fail
+CURRENT_FAILURE=$(echo '{"request_id":"current-failure","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
+assert_ok "$CURRENT_FAILURE" '.status == "failed" and .error.code == "HERDR_ERROR"' "pane.current explicit failure is structured"
+assert_single_json "$CURRENT_FAILURE" "pane.current failure returns one JSON envelope"
+unset FAKE_PANE_CURRENT_MODE
+
+cleanup_fake_state
+export FAKE_SPLIT_MODE=fail
+SPLIT_FAILURE=$(echo '{"request_id":"split-failure","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
+assert_ok "$SPLIT_FAILURE" '.status == "failed" and .error.code == "PANE_CREATE_FAILED" and .data.cleanup_complete == true' "pane.split explicit failure is structured"
+assert_single_json "$SPLIT_FAILURE" "pane.split failure returns one JSON envelope"
+unset FAKE_SPLIT_MODE
+
+cleanup_fake_state
+export FAKE_AGENT_START_MODE=busy-once
+BUSY_RESULT=$(echo '{"request_id":"busy-retry","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+assert_ok "$BUSY_RESULT" '.status == "ok"' "agent_pane_busy is retried before deadline"
+export FAKE_AGENT_START_MODE=ok
+
+cleanup_fake_state
+export FAKE_PROMPT_MODE=fail
+KICKOFF_FAILURE=$(echo '{"request_id":"kickoff-failure","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
+assert_ok "$KICKOFF_FAILURE" '.status == "failed" and .error.code == "PROMPT_FAILED" and .data.cleanup_complete == true' "kickoff explicit failure rolls back"
+assert_single_json "$KICKOFF_FAILURE" "kickoff failure returns one JSON envelope"
+export FAKE_PROMPT_MODE=ok
+
+cleanup_fake_state
+export FAKE_AGENT_START_MODE=fail
+ROLLBACK_RESULT=$(echo '{"request_id":"rollback-single-json","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)
+assert_ok "$ROLLBACK_RESULT" '.status == "failed" and .error.code == "AGENT_START_FAILED" and .data.cleanup_complete == true' "known start failure rolls back panes"
+assert_single_json "$ROLLBACK_RESULT" "rollback close output is suppressed to one JSON envelope"
+export FAKE_AGENT_START_MODE=ok
+
+cleanup_fake_state
+export FAKE_PROMPT_MODE=unknown
+START_UNKNOWN=$(echo '{"request_id":"unknown-pane-persist","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+START_UNKNOWN_ID=$(jq -r '.data.team_id' <<< "$START_UNKNOWN")
+START_UNKNOWN_MANIFEST=$(echo "{\"team_id\":\"$START_UNKNOWN_ID\"}" | bash "$HERDR_SCRIPT" team.get)
+assert_ok "$START_UNKNOWN_MANIFEST" '.data.members[0].pane_id != null and .data.members[0].status == "active"' "unknown kickoff persists known pane_id"
+assert_ok "$(echo '{"request_id":"unknown-pane-persist","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)" '.status == "unknown_outcome"' "unknown start duplicate is not retried"
+export FAKE_PROMPT_MODE=ok
+assert_ok "$(echo "{\"team_id\":\"$START_UNKNOWN_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop)" '.status == "ok"' "unknown start can be cleaned by persisted pane ids"
+
+# --- Deferred prompt delivery state machine ---
+echo "--- Prompt State Machine ---"
+cleanup_fake_state
+STATE_TEAM=$(echo '{"request_id":"state-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+STATE_TEAM_ID=$(jq -r '.data.team_id' <<< "$STATE_TEAM")
+export FAKE_PROMPT_MODE=fail
+PROMPT_FAILED=$(echo "{\"request_id\":\"retry-failed\",\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"review\",\"text\":\"retry me\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt 2>&1 || true)
+assert_ok "$PROMPT_FAILED" '.status == "failed" and .data.delivery_status == "failed"' "known prompt failure is recorded as failed"
+FAILED_MANIFEST=$(echo "{\"team_id\":\"$STATE_TEAM_ID\"}" | bash "$HERDR_SCRIPT" team.get)
+assert_ok "$FAILED_MANIFEST" '.data.prompt_history.review["retry-failed"].status == "failed" and (.data.deferred | index("review") != null)' "known failure retains deferred activation"
+export FAKE_PROMPT_MODE=ok
+assert_ok "$(echo "{\"request_id\":\"retry-failed\",\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"review\",\"text\":\"retry me\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)" '.status == "ok" and .data.prompt_sent == true' "failed prompt can retry with same request_id"
+
+export FAKE_PROMPT_MODE=unknown
+UNKNOWN_COUNT_BEFORE=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+PROMPT_UNKNOWN=$(echo "{\"request_id\":\"retry-unknown\",\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"pr-fix\",\"text\":\"unknown me\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
+UNKNOWN_COUNT_AFTER_FIRST=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+PROMPT_UNKNOWN_RETRY=$(echo "{\"request_id\":\"retry-unknown\",\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"pr-fix\",\"text\":\"unknown me\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
+PROMPT_UNKNOWN_NEW=$(echo "{\"request_id\":\"retry-unknown-new\",\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"pr-fix\",\"text\":\"unknown new\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
+UNKNOWN_COUNT_FINAL=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+assert_ok "$PROMPT_UNKNOWN" '.status == "unknown_outcome" and .data.delivery_status == "unknown"' "unknown prompt is recorded as unknown"
+assert_ok "$PROMPT_UNKNOWN_RETRY" '.status == "unknown_outcome" and .data.delivery_status == "unknown"' "unknown duplicate is not reported as applied"
+assert_ok "$PROMPT_UNKNOWN_NEW" '.status == "unknown_outcome" and .data.activation_unknown == true' "new request is blocked while deferred activation is unknown"
+if [ "$UNKNOWN_COUNT_AFTER_FIRST" -eq $((UNKNOWN_COUNT_BEFORE + 1)) ] && [ "$UNKNOWN_COUNT_FINAL" -eq "$UNKNOWN_COUNT_AFTER_FIRST" ]; then
+  echo "PASS: unknown prompt attempts are never automatically resent"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: unknown prompt invocation counts before=$UNKNOWN_COUNT_BEFORE first=$UNKNOWN_COUNT_AFTER_FIRST final=$UNKNOWN_COUNT_FINAL"
+  FAIL=$((FAIL + 1))
+fi
+export FAKE_PROMPT_MODE=ok
+
+# Simulate a crash after in_flight persistence and ensure duplicate does not send.
+STATE_MANIFEST_PATH="$TEST_STATE_HOME/herdr-skill/teams/${STATE_TEAM_ID}.json"
+jq -c '.prompt_history.impl["crash-window"] = {status:"in_flight",was_deferred:false}' "$STATE_MANIFEST_PATH" > "$STATE_MANIFEST_PATH.crash"
+mv "$STATE_MANIFEST_PATH.crash" "$STATE_MANIFEST_PATH"
+CRASH_COUNT_BEFORE=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+CRASH_RESULT=$(echo "{\"request_id\":\"crash-window\",\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"impl\",\"text\":\"must not send\",\"grant\":\"write\"}" | bash "$HERDR_SCRIPT" member.prompt)
+CRASH_COUNT_AFTER=$(wc -l < "$FAKE_STATE_DIR/prompt_invocations.log")
+assert_ok "$CRASH_RESULT" '.status == "unknown_outcome" and .data.delivery_status == "in_flight"' "in_flight crash window returns unknown_outcome"
+if [ "$CRASH_COUNT_BEFORE" -eq "$CRASH_COUNT_AFTER" ]; then
+  echo "PASS: in_flight crash window suppresses duplicate external send"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: crash-window retry sent external prompt"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Wait/read real-envelope classification ---
+echo "--- Wait and Read Envelope Classification ---"
+for WAIT_MODE in ok timeout fail empty malformed; do
+  export FAKE_WAIT_MODE="$WAIT_MODE"
+  WAIT_RESULT=$(echo "{\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"impl\",\"timeout\":1000}" | bash "$HERDR_SCRIPT" member.wait 2>&1 || true)
+  case "$WAIT_MODE" in
+    ok) WAIT_CHECK='.status == "ok" and .data.agent_status == "completed"' ;;
+    timeout) WAIT_CHECK='.status == "waiting"' ;;
+    fail) WAIT_CHECK='.status == "failed" and .error.code == "WAIT_FAILED"' ;;
+    *) WAIT_CHECK='.status == "unknown_outcome" and .data.agent_status == "unknown"' ;;
+  esac
+  assert_ok "$WAIT_RESULT" "$WAIT_CHECK" "member.wait classifies $WAIT_MODE envelope"
+  assert_single_json "$WAIT_RESULT" "member.wait $WAIT_MODE returns one JSON envelope"
+done
+unset FAKE_WAIT_MODE
+
+export FAKE_READ_MODE=fail
+assert_ok "$(echo "{\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"impl\"}" | bash "$HERDR_SCRIPT" member.read 2>&1 || true)" '.status == "failed" and .error.code == "READ_FAILED"' "member.read explicit failure is not ok"
+export FAKE_READ_MODE=unknown
+assert_ok "$(echo "{\"team_id\":\"$STATE_TEAM_ID\",\"role\":\"impl\"}" | bash "$HERDR_SCRIPT" member.read 2>&1 || true)" '.status == "unknown_outcome"' "member.read transport failure is unknown"
+unset FAKE_READ_MODE
+
+# --- Partial close retry and final manifest cleanup ---
+echo "--- Close Retry Regressions ---"
+cleanup_fake_state
+MEMBER_RETRY_TEAM=$(echo '{"request_id":"member-close-retry-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+MEMBER_RETRY_ID=$(jq -r '.data.team_id' <<< "$MEMBER_RETRY_TEAM")
+export FAKE_CLOSE_MODE=fail
+MEMBER_CLOSE_FAILED=$(echo "{\"team_id\":\"$MEMBER_RETRY_ID\",\"role\":\"impl\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close 2>&1 || true)
+assert_ok "$MEMBER_CLOSE_FAILED" '.status == "failed" and .data.outcome == "failed"' "member.close records explicit failure"
+export FAKE_CLOSE_MODE=ok
+assert_ok "$(echo "{\"team_id\":\"$MEMBER_RETRY_ID\",\"role\":\"impl\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close)" '.status == "ok" and .data.closed == true' "member.close retries explicit failure"
+export FAKE_CLOSE_MODE=unknown
+MEMBER_CLOSE_UNKNOWN=$(echo "{\"team_id\":\"$MEMBER_RETRY_ID\",\"role\":\"review\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close)
+assert_ok "$MEMBER_CLOSE_UNKNOWN" '.status == "unknown_outcome" and .data.outcome == "unknown"' "member.close records unknown outcome"
+export FAKE_CLOSE_MODE=ok
+assert_ok "$(echo "{\"team_id\":\"$MEMBER_RETRY_ID\",\"role\":\"review\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close)" '.status == "ok" and .data.closed == true' "member.close retries unknown outcome"
+echo "{\"team_id\":\"$MEMBER_RETRY_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop >/dev/null
+unset FAKE_CLOSE_MODE
+
+cleanup_fake_state
+CLOSE_TEAM=$(echo '{"request_id":"close-mixed-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+CLOSE_TEAM_ID=$(jq -r '.data.team_id' <<< "$CLOSE_TEAM")
+export FAKE_CLOSE_MODE=mixed
+MIXED_STOP=$(echo "{\"team_id\":\"$CLOSE_TEAM_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop 2>&1 || true)
+assert_ok "$MIXED_STOP" '.status == "unknown_outcome" and (.data.stopped_members | index("impl") != null) and (.data.failed_members | length == 1) and (.data.unknown_members | length == 1)' "team.stop distinguishes closed, failed, and unknown members"
+PANE1_CLOSE_COUNT_BEFORE=$(grep -c '^fake-pane-1$' "$FAKE_STATE_DIR/close_invocations.log" || true)
+export FAKE_CLOSE_MODE=ok
+RETRY_STOP=$(echo "{\"team_id\":\"$CLOSE_TEAM_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop)
+PANE1_CLOSE_COUNT_AFTER=$(grep -c '^fake-pane-1$' "$FAKE_STATE_DIR/close_invocations.log" || true)
+assert_ok "$RETRY_STOP" '.status == "ok"' "team.stop retries failed and unknown members"
+if [ "$PANE1_CLOSE_COUNT_BEFORE" -eq 1 ] && [ "$PANE1_CLOSE_COUNT_AFTER" -eq 1 ]; then
+  echo "PASS: confirmed closed member is not closed again"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: confirmed closed member was retried"
+  FAIL=$((FAIL + 1))
+fi
+unset FAKE_CLOSE_MODE
+
+cleanup_fake_state
+ALL_CLOSED_TEAM=$(echo '{"request_id":"all-closed-team","grant":"write"}' | bash "$HERDR_SCRIPT" team.start)
+ALL_CLOSED_ID=$(jq -r '.data.team_id' <<< "$ALL_CLOSED_TEAM")
+for CLOSE_ROLE in impl review pr-fix; do
+  echo "{\"team_id\":\"$ALL_CLOSED_ID\",\"role\":\"$CLOSE_ROLE\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" member.close >/dev/null
+done
+ALL_CLOSED_STOP=$(echo "{\"team_id\":\"$ALL_CLOSED_ID\",\"grant\":\"sensitive-write\"}" | bash "$HERDR_SCRIPT" team.stop)
+assert_ok "$ALL_CLOSED_STOP" '.status == "already_applied" and .data.manifest_removed == true' "team.stop removes manifest after all member.close calls"
+if [ ! -f "$TEST_STATE_HOME/herdr-skill/teams/${ALL_CLOSED_ID}.json" ]; then
+  echo "PASS: all-closed team manifest is gone"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: all-closed team manifest remains"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 echo "=== Results ==="

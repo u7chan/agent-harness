@@ -3,20 +3,52 @@ set -euo pipefail
 
 CONFIG_ALLOWED_TOP_FIELDS='["schema_version","members"]'
 CONFIG_ALLOWED_MEMBER_FIELDS='["role","kind","activation","prompt_file"]'
-CONFIG_VALID_ACTIVATIONS='["immediate","deferred"]'
+
+herdr_config_realpath_file() {
+  local path="$1"
+  realpath -e -- "$path" 2>/dev/null || readlink -f -- "$path" 2>/dev/null
+}
+
+herdr_config_validate_raw_file() {
+  local config_path="$1"
+
+  jq -e --argjson top_allowed "$CONFIG_ALLOWED_TOP_FIELDS" \
+    --argjson member_allowed "$CONFIG_ALLOWED_MEMBER_FIELDS" '
+    def safe_name:
+      type == "string"
+      and length > 0
+      and length <= 128
+      and test("^[A-Za-z0-9][A-Za-z0-9._-]*$");
+    def no_control:
+      type == "string" and (test("[\\u0000-\\u001F\\u007F]") | not);
+    type == "object"
+    and ((keys - $top_allowed) | length == 0)
+    and has("schema_version")
+    and (.schema_version | type == "number" and . == 1)
+    and has("members")
+    and (.members | type == "array" and length > 0)
+    and all(.members[];
+      type == "object"
+      and ((keys - $member_allowed) | length == 0)
+      and has("role")
+      and (.role | safe_name)
+      and ((has("kind") | not) or (.kind | safe_name))
+      and ((has("activation") | not) or (.activation | type == "string" and (. == "immediate" or . == "deferred")))
+      and ((has("prompt_file") | not) or .prompt_file == null or (.prompt_file | no_control and length > 0))
+    )
+    and (([.members[].role] | unique | length) == (.members | length))
+  ' "$config_path" >/dev/null 2>&1
+}
 
 herdr_config_resolve() {
   local explicit_path="${1:-}"
   local fallback_kind="${2:-}"
-
   local config_path=""
 
   if [ -n "$explicit_path" ]; then
-    if [ -f "$explicit_path" ]; then
-      config_path="$(cd "$(dirname "$explicit_path")" && pwd)/$(basename "$explicit_path")"
-    else
+    config_path="$(herdr_config_realpath_file "$explicit_path" || true)"
+    if [ -z "$config_path" ] || [ ! -f "$config_path" ]; then
       echo "config: explicit config_path not found: $explicit_path" >&2
-      echo '{}'
       return 1
     fi
   else
@@ -26,266 +58,188 @@ herdr_config_resolve() {
     if [ -n "$git_root" ]; then
       local dir="$PWD"
       while true; do
-        if [ -f "$dir/.herdr/team.json" ]; then
-          config_path="$(cd "$dir" && pwd)/.herdr/team.json"
+        if [ -e "$dir/.herdr/team.json" ]; then
+          config_path="$(herdr_config_realpath_file "$dir/.herdr/team.json" || true)"
           break
         fi
         [ "$dir" = "/" ] && break
-        [ -n "$git_root" ] && [ "$dir" = "$git_root" ] && break
+        [ "$dir" = "$git_root" ] && break
         dir="$(dirname "$dir")"
       done
     fi
 
     if [ -z "$config_path" ]; then
       local global_config="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/team.json"
-      if [ -f "$global_config" ]; then
-        config_path="$global_config"
+      if [ -e "$global_config" ]; then
+        config_path="$(herdr_config_realpath_file "$global_config" || true)"
       fi
     fi
 
     if [ -z "$config_path" ]; then
       local script_dir
       script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-      local bundled_config="$script_dir/team.json"
-      if [ -f "$bundled_config" ]; then
-        config_path="$bundled_config"
-      fi
+      config_path="$(herdr_config_realpath_file "$script_dir/team.json" || true)"
     fi
   fi
 
   if [ -z "$config_path" ] || [ ! -f "$config_path" ]; then
-    if [ -z "$fallback_kind" ]; then
-      echo '{}'
-      return 0
-    fi
-    herdr_config_default "$fallback_kind"
-    return 0
-  fi
-
-  if ! jq empty "$config_path" 2>/dev/null; then
-    echo '{}' >&2
-    echo '{}'
+    echo "config: no readable config file found" >&2
     return 1
   fi
 
-  local schema_version
-  schema_version="$(jq -r '.schema_version // 0' "$config_path")"
-
-  if [ "$schema_version" != "1" ]; then
-    echo "config: unsupported schema_version=$schema_version" >&2
-    echo '{}'
+  if [ ! -s "$config_path" ] || ! jq empty "$config_path" 2>/dev/null; then
+    echo "config: config file is empty or invalid JSON: $config_path" >&2
     return 1
   fi
 
-  local members_count
-  members_count="$(jq -r '.members | length // 0' "$config_path")"
+  if ! herdr_config_validate_raw_file "$config_path"; then
+    echo "config: schema validation failed: $config_path" >&2
+    return 1
+  fi
 
-  if [ "$members_count" -eq 0 ]; then
-    if [ -z "$fallback_kind" ]; then
-      echo '{}'
-      return 0
-    fi
-    herdr_config_default "$fallback_kind"
-    return 0
+  if [[ ! "$fallback_kind" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+    echo "config: invalid fallback agent kind" >&2
+    return 1
   fi
 
   local config_dir
   config_dir="$(dirname "$config_path")"
 
-  local validated
-  validated="$(jq -c \
+  jq -c \
     --arg config_dir "$config_dir" \
-    --arg fallback_kind "$fallback_kind" \
-    '
+    --arg config_path "$config_path" \
+    --arg fallback_kind "$fallback_kind" '
     . + {
       _config_dir: $config_dir,
-      _config_path: input_filename,
+      _config_path: $config_path,
       members: [.members[] | . + {
         kind: (.kind // $fallback_kind),
         activation: (.activation // (if .role == "impl" then "immediate" else "deferred" end)),
         prompt_file: (.prompt_file // null)
       }]
     }
-    ' "$config_path")"
-
-  echo "$validated"
+  ' "$config_path"
 }
 
 herdr_config_validate_members() {
   local config_json="$1"
 
-  local errors=""
-
-  local top_unknown
-  top_unknown="$(echo "$config_json" | jq -r --argjson allowed "$CONFIG_ALLOWED_TOP_FIELDS" '
-    [keys[] | select(. != "schema_version" and . != "members" and . != "_config_dir" and . != "_config_path")] | join(", ")
-  ')"
-  if [ -n "$top_unknown" ] && [ "$top_unknown" != "null" ]; then
-    errors="${errors}top-level unknown fields: $top_unknown\n"
+  if ! jq -e '
+    type == "object"
+    and (.schema_version | type == "number" and . == 1)
+    and (._config_dir | type == "string" and length > 0)
+    and (._config_path | type == "string" and length > 0)
+    and (.members | type == "array" and length > 0)
+    and all(.members[];
+      type == "object"
+      and (.role | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"))
+      and (.kind | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"))
+      and (.activation | type == "string" and (. == "immediate" or . == "deferred"))
+      and (.prompt_file == null or (.prompt_file | type == "string" and length > 0))
+    )
+    and (([.members[].role] | unique | length) == (.members | length))
+  ' <<< "$config_json" >/dev/null 2>&1; then
+    echo "config: normalized config validation failed" >&2
+    return 1
   fi
 
   local config_dir
-  config_dir="$(echo "$config_json" | jq -r '._config_dir // ""')"
-
-  local role kind activation prompt_file
-  local seen_roles=()
-  local seen
-
-  local count
-  count="$(echo "$config_json" | jq -r '.members | length')"
-  local i
-  for i in $(seq 0 $((count - 1))); do
-    role="$(echo "$config_json" | jq -r ".members[$i].role // \"\"")"
-    kind="$(echo "$config_json" | jq -r ".members[$i].kind // \"\"")"
-    activation="$(echo "$config_json" | jq -r ".members[$i].activation // \"\"")"
-    prompt_file="$(echo "$config_json" | jq -r ".members[$i].prompt_file // \"\"")"
-
-    if [ -z "$role" ]; then
-      errors="${errors}member[$i]: role is required\n"
-      continue
-    fi
-
-    local member_unknown
-    member_unknown="$(echo "$config_json" | jq -r --argjson allowed "$CONFIG_ALLOWED_MEMBER_FIELDS" --arg i "$i" '
-      [.members[$i|tonumber] | keys[] | select(. as $k | $allowed | index($k) | not)] | join(", ")
-    ')"
-    if [ -n "$member_unknown" ] && [ "$member_unknown" != "null" ] && [ "$member_unknown" != "" ]; then
-      errors="${errors}member[$i] ($role): unknown fields: $member_unknown\n"
-    fi
-
-    for seen in "${seen_roles[@]}"; do
-      if [ "$seen" = "$role" ]; then
-        errors="${errors}member[$i] ($role): duplicate role\n"
-      fi
-    done
-    seen_roles+=("$role")
-
-    local kind_type
-    kind_type="$(echo "$config_json" | jq -r ".members[$i].kind | type")"
-    if [ "$kind_type" != "string" ]; then
-      errors="${errors}member[$i] ($role): kind must be string, got $kind_type\n"
-    elif [ -z "$kind" ]; then
-      errors="${errors}member[$i] ($role): kind is required\n"
-    fi
-
-    if [ "$activation" != "immediate" ] && [ "$activation" != "deferred" ]; then
-      errors="${errors}member[$i] ($role): activation must be immediate or deferred, got '$activation'\n"
-    fi
-
-    if [ -n "$prompt_file" ] && [ "$prompt_file" != "null" ]; then
-      local pf_type
-      pf_type="$(echo "$config_json" | jq -r ".members[$i].prompt_file | type")"
-      if [ "$pf_type" != "string" ]; then
-        errors="${errors}member[$i] ($role): prompt_file must be string, got $pf_type\n"
-      elif [[ "$prompt_file" =~ ^/ ]] || [[ "$prompt_file" =~ \.\./ ]]; then
-        errors="${errors}member[$i] ($role): prompt_file must be relative and cannot contain '..' or absolute paths (got '$prompt_file')\n"
-      elif [ -n "$config_dir" ] && [ "$config_dir" != "null" ]; then
-        local resolved="$config_dir/$prompt_file"
-        if [ ! -f "$resolved" ]; then
-          errors="${errors}member[$i] ($role): prompt_file '$prompt_file' not found relative to config dir\n"
-        else
-          local real_prompt
-          real_prompt="$(realpath "$resolved" 2>/dev/null || readlink -f "$resolved" 2>/dev/null || echo "")"
-          local real_config
-          real_config="$(realpath "$config_dir" 2>/dev/null || readlink -f "$config_dir" 2>/dev/null || echo "")"
-          if [ -n "$real_prompt" ] && [ -n "$real_config" ]; then
-            if [[ "$real_prompt" != "$real_config"/* ]]; then
-              errors="${errors}member[$i] ($role): prompt_file resolves outside config directory ($real_prompt not under $real_config)\n"
-            fi
-          fi
-        fi
-      fi
-    fi
-
-    local is_custom_role=true
-    case "$role" in
-      impl|review|pr-fix) is_custom_role=false ;;
-    esac
-
-    if [ "$is_custom_role" = true ]; then
-      if [ -z "$prompt_file" ] || [ "$prompt_file" = "null" ]; then
-        errors="${errors}member[$i] ($role): custom role requires prompt_file\n"
-      fi
-    fi
-  done
-
-  if [ -n "$errors" ]; then
-    echo -e "$errors" >&2
+  config_dir="$(jq -r '._config_dir' <<< "$config_json")"
+  local real_config
+  real_config="$(realpath -e -- "$config_dir" 2>/dev/null || readlink -f -- "$config_dir" 2>/dev/null || true)"
+  if [ -z "$real_config" ] || [ ! -d "$real_config" ]; then
+    echo "config: config directory cannot be canonicalized" >&2
     return 1
   fi
-  return 0
+
+  local count i
+  count="$(jq -r '.members | length' <<< "$config_json")"
+  for ((i = 0; i < count; i++)); do
+    local role prompt_file
+    role="$(jq -r ".members[$i].role" <<< "$config_json")"
+    prompt_file="$(jq -r ".members[$i].prompt_file // empty" <<< "$config_json")"
+
+    case "$role" in
+      impl|review|pr-fix) ;;
+      *)
+        if [ -z "$prompt_file" ]; then
+          echo "config: member[$i] ($role): custom role requires prompt_file" >&2
+          return 1
+        fi
+        ;;
+    esac
+
+    if [ -n "$prompt_file" ]; then
+      if [[ "$prompt_file" = /* ]]; then
+        echo "config: member[$i] ($role): prompt_file must be relative" >&2
+        return 1
+      fi
+      local resolved real_prompt
+      resolved="$real_config/$prompt_file"
+      real_prompt="$(realpath -e -- "$resolved" 2>/dev/null || readlink -f -- "$resolved" 2>/dev/null || true)"
+      if [ -z "$real_prompt" ] || [ ! -f "$real_prompt" ]; then
+        echo "config: member[$i] ($role): prompt_file not found" >&2
+        return 1
+      fi
+      case "$real_prompt" in
+        "$real_config"/*) ;;
+        *)
+          echo "config: member[$i] ($role): prompt_file resolves outside config directory" >&2
+          return 1
+          ;;
+      esac
+    fi
+  done
 }
 
 herdr_config_default() {
   local kind="${1:-opencode}"
-
   local script_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-
-  jq -nc \
-    --arg kind "$kind" \
-    --arg config_dir "$script_dir" \
-    '{
-      schema_version: 1,
-      _config_dir: $config_dir,
-      _config_path: "bundled-default",
-      members: [
-        {role: "impl", kind: $kind, activation: "immediate"},
-        {role: "review", kind: $kind, activation: "deferred"},
-        {role: "pr-fix", kind: $kind, activation: "deferred"}
-      ]
-    }'
+  herdr_config_resolve "$script_dir/team.json" "$kind"
 }
 
 herdr_config_resolve_prompt() {
   local config_json="$1"
   local role="$2"
-
   local config_dir
-  config_dir="$(echo "$config_json" | jq -r '._config_dir // ""')"
+  config_dir="$(jq -r '._config_dir // ""' <<< "$config_json")"
   local script_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
   local prompt_file
-  prompt_file="$(echo "$config_json" | jq -r --arg role "$role" '
-    [.members[] | select(.role == $role) | .prompt_file // empty] | first // ""
-  ')"
-
-  if [ -n "$prompt_file" ] && [ "$prompt_file" != "null" ]; then
-    local resolved="$config_dir/$prompt_file"
-    if [ -f "$resolved" ]; then
-      cat "$resolved"
-      return 0
-    fi
+  prompt_file="$(jq -r --arg role "$role" '[.members[] | select(.role == $role) | .prompt_file // empty] | first // ""' <<< "$config_json")"
+  if [ -n "$prompt_file" ]; then
+    local resolved
+    resolved="$(realpath -e -- "$config_dir/$prompt_file" 2>/dev/null || readlink -f -- "$config_dir/$prompt_file" 2>/dev/null || true)"
+    case "$resolved" in
+      "$config_dir"/*)
+        [ -f "$resolved" ] && { command cat "$resolved"; return 0; }
+        ;;
+    esac
   fi
 
   local bundled="$script_dir/prompts/${role}.md"
   if [ -f "$bundled" ]; then
-    cat "$bundled"
+    command cat "$bundled"
     return 0
   fi
-
   return 1
 }
 
 herdr_config_snapshot_prompts() {
   local config_json="$1"
-
   local result="{}"
-  local count
-  count="$(echo "$config_json" | jq -r '.members | length')"
-  local i
-  for i in $(seq 0 $((count - 1))); do
-    local role
-    role="$(echo "$config_json" | jq -r ".members[$i].role")"
-    if [ -z "$role" ] || [ "$role" = "null" ]; then
-      continue
-    fi
-    local prompt_content
-    prompt_content="$(herdr_config_resolve_prompt "$config_json" "$role" 2>/dev/null || echo "")"
-    if [ -n "$prompt_content" ]; then
-      result="$(echo "$result" | jq -c --arg role "$role" --arg content "$prompt_content" '. + {($role): $content}')"
-    fi
+  local count i
+  count="$(jq -r '.members | length' <<< "$config_json")"
+  for ((i = 0; i < count; i++)); do
+    local role prompt_content
+    role="$(jq -r ".members[$i].role" <<< "$config_json")"
+    prompt_content="$(herdr_config_resolve_prompt "$config_json" "$role")" || {
+      echo "config: no prompt could be resolved for role '$role'" >&2
+      return 1
+    }
+    result="$(jq -c --arg role "$role" --arg content "$prompt_content" '. + {($role): $content}' <<< "$result")"
   done
   echo "$result"
 }

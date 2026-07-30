@@ -11,11 +11,20 @@ source "$COMMON_DIR/envelope.sh"
 source "$COMMON_DIR/config.sh"
 source "$COMMON_DIR/manifest.sh"
 source "$COMMON_DIR/herdr_cli.sh"
+source "$COMMON_DIR/temp.sh"
 
-if [ -z "${HERDR_TEMP_DIR:-}" ]; then
-  export HERDR_TEMP_DIR="$(mktemp -d /tmp/herdr-skill-XXXXXX)"
-fi
-trap 'rm -rf "$HERDR_TEMP_DIR"' EXIT
+HERDR_TEMP_ROOT="${HERDR_TEMP_DIR:-/tmp}"
+mkdir -p -- "$HERDR_TEMP_ROOT"
+HERDR_TEMP_ROOT="$(realpath -e -- "$HERDR_TEMP_ROOT")"
+HERDR_INVOCATION_DIR="$(herdr_temp_create_owned_dir "$HERDR_TEMP_ROOT" "herdr-skill-")"
+HERDR_DISPATCH_PROCESS_ID="$BASHPID"
+
+cleanup_invocation_dir() {
+  [ "$BASH_SUBSHELL" -eq 0 ] || return 0
+  [ "$BASHPID" = "$HERDR_DISPATCH_PROCESS_ID" ] || return 0
+  herdr_temp_remove_owned_dir "$HERDR_TEMP_ROOT" "$HERDR_INVOCATION_DIR" "herdr-skill-" || true
+}
+trap cleanup_invocation_dir EXIT
 
 command -v jq >/dev/null || {
   envelope_fail "unknown" "MISSING_DEPENDENCY" "jq is required" false
@@ -88,8 +97,12 @@ validate_input() {
         local actual_type
         actual_type="$(echo "$input_json" | jq -r --arg f "$field" '.[$f] | type' 2>/dev/null || true)"
 
-        if [ "$actual_type" != "$type" ] && [ "$actual_type" != "null" ]; then
+        if [ "$actual_type" != "$type" ]; then
           envelope_fail "$action_name" "TYPE_MISMATCH" "Field '$field' must be of type '$type', got '$actual_type'" false
+          return 1
+        fi
+        if { [ "$field" = "team_id" ] || [ "$field" = "request_id" ]; } && ! herdr_manifest_validate_id "$value"; then
+          envelope_fail "$action_name" "INVALID_IDENTIFIER" "Field '$field' contains unsafe characters or is too long" false
           return 1
         fi
       fi
@@ -163,9 +176,17 @@ validate_input_file() {
     if [ "$field_present" = "true" ]; then
       local actual_type
       actual_type="$(jq -r --arg f "$field" '.[$f] | type' "$request_file")"
-      if [ "$actual_type" != "$type" ] && [ "$actual_type" != "null" ]; then
+      if [ "$actual_type" != "$type" ]; then
         envelope_fail "$action_name" "TYPE_MISMATCH" "Field '$field' must be of type '$type', got '$actual_type'" false
         return 1
+      fi
+      if { [ "$field" = "team_id" ] || [ "$field" = "request_id" ]; }; then
+        local identifier_value
+        identifier_value="$(jq -r --arg f "$field" '.[$f]' "$request_file")"
+        if ! herdr_manifest_validate_id "$identifier_value"; then
+          envelope_fail "$action_name" "INVALID_IDENTIFIER" "Field '$field' contains unsafe characters or is too long" false
+          return 1
+        fi
       fi
     fi
   done <<< "$entries"
@@ -188,7 +209,7 @@ main() {
   shift
 
   if [[ "$action_name" == member.* ]] || [[ "$action_name" == team.start ]] || [[ "$action_name" == team.stop ]]; then
-    local request_file="$HERDR_TEMP_DIR/request.json"
+    local request_file="$HERDR_INVOCATION_DIR/request.json"
     if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
       cp "$1" "$request_file"
     elif [ ! -t 0 ]; then
@@ -197,8 +218,8 @@ main() {
 
     if [ ! -f "$request_file" ] || [ ! -s "$request_file" ]; then
       request_file="/dev/null"
-      echo '{}' > "$HERDR_TEMP_DIR/request.json"
-      request_file="$HERDR_TEMP_DIR/request.json"
+      echo '{}' > "$HERDR_INVOCATION_DIR/request.json"
+      request_file="$HERDR_INVOCATION_DIR/request.json"
     fi
 
     if ! jq empty "$request_file" 2>/dev/null; then

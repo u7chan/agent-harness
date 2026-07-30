@@ -57,8 +57,28 @@ main() {
     exit 1
   fi
 
-  local result
-  result="$(herdr agent read "$agent_name" --source recent-unwrapped --lines "$lines" 2>/dev/null || echo '')"
+  local result read_rc=0
+  if result="$(timeout --kill-after=1s 30s herdr agent read "$agent_name" --source recent-unwrapped --lines "$lines" 2>/dev/null)"; then
+    read_rc=0
+  else
+    read_rc=$?
+  fi
+
+  local target
+  target="$(jq -nc --arg team_id "$team_id" --arg role "$role" '{type:"member",team_id:$team_id,role:$role}')"
+  if [ "$read_rc" -eq 124 ] || [ "$read_rc" -eq 137 ]; then
+    envelope_unknown_outcome "member.read" "$target" "$(jq -nc --arg team_id "$team_id" --arg role "$role" '{team_id:$team_id,role:$role,output:null}')"
+    exit 0
+  fi
+  if [ "$read_rc" -ne 0 ]; then
+    envelope_unknown_outcome "member.read" "$target" "$(jq -nc --arg team_id "$team_id" --arg role "$role" --argjson exit_code "$read_rc" '{team_id:$team_id,role:$role,output:null,exit_code:$exit_code}')"
+    exit 0
+  fi
+  if jq -e 'type == "object" and .error != null' >/dev/null 2>&1 <<< "$result"; then
+    envelope_fail "member.read" "READ_FAILED" "Herdr returned an explicit read failure" true "$target" \
+      "$(jq -nc --arg team_id "$team_id" --arg role "$role" '{team_id:$team_id,role:$role,output:null}')"
+    exit 1
+  fi
 
   local output_text
   if [ -z "$result" ]; then
@@ -80,7 +100,7 @@ main() {
       output: $output
     }')"
 
-  envelope_ok "member.read" "{\"type\":\"member\",\"team_id\":\"$team_id\",\"role\":\"$role\"}" "$data"
+  envelope_ok "member.read" "$target" "$data"
 }
 
 main "$@"
