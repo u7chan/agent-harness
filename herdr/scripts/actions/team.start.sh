@@ -406,6 +406,9 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
 
       manifest="$(jq -c --arg role "$role" '.start_prompt = {role: $role, status: "in_flight"}' <<< "$manifest")"
       herdr_manifest_write "$team_id" "$manifest"
+
+      sleep 0.2
+
       local remaining prompt_result prompt_outcome
       remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
       if [ "$remaining" -le 0 ]; then
