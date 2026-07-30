@@ -33,6 +33,7 @@ herdr_agent_prepare_before_deadline() {
   local agent_name="$3"
   local member_kind="$4"
 
+  local empty_retries=0
   while ! herdr_cli_deadline_expired "$deadline_ms"; do
     local pane_info pane_outcome agent_status
     pane_info="$(herdr_cli_call_before_deadline "$deadline_ms" herdr pane get "$pane_id")"
@@ -58,10 +59,22 @@ herdr_agent_prepare_before_deadline() {
     remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
     [ "$remaining" -gt 0 ] || break
     if [ "$agent_status" = "unknown" ]; then
-      result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent start "$agent_name" --kind "$member_kind" --pane "$pane_id" --timeout "$remaining")"
+      result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent start "$agent_name" --kind "$member_kind" --pane "$pane_id")"
     else
       result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent rename "$pane_id" "$agent_name")"
     fi
+
+    if [ "$result" = "{}" ]; then
+      empty_retries=$((empty_retries + 1))
+      if [ "$empty_retries" -gt 5 ]; then
+        break
+      fi
+      local delay
+      delay="$(awk -v n="$empty_retries" 'BEGIN { printf "%.1f", 0.1 * 2 ^ (n - 1) }')"
+      sleep "$delay"
+      continue
+    fi
+    empty_retries=0
 
     error_code="$(herdr_cli_error_code "$result" | tr '[:upper:]' '[:lower:]')"
     case "$error_code" in
@@ -356,6 +369,8 @@ main() {
     manifest="$(jq -c --argjson i "$i" --arg pane_id "$pane_id" '.members[$i].pane_id = $pane_id | .members[$i].status = "pane-created"' <<< "$manifest")"
     herdr_manifest_write "$team_id" "$manifest"
 
+    sleep 0.2
+
     local agent_result agent_outcome
     agent_result="$(herdr_agent_prepare_before_deadline "$deadline_ms" "$pane_id" "$agent_name" "$member_kind")"
     agent_outcome="$(herdr_cli_outcome "$agent_result")"
@@ -391,12 +406,15 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
 
       manifest="$(jq -c --arg role "$role" '.start_prompt = {role: $role, status: "in_flight"}' <<< "$manifest")"
       herdr_manifest_write "$team_id" "$manifest"
+
+      sleep 0.2
+
       local remaining prompt_result prompt_outcome
       remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
       if [ "$remaining" -le 0 ]; then
         prompt_result='{}'
       else
-        prompt_result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent prompt "$agent_name" "$prompt_text" --wait --timeout "$remaining")"
+        prompt_result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent prompt "$agent_name" "$prompt_text" --wait)"
       fi
       prompt_outcome="$(herdr_cli_outcome "$prompt_result")"
       if [ "$prompt_outcome" = "failed" ]; then
