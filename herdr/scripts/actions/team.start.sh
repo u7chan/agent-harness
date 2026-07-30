@@ -33,6 +33,7 @@ herdr_agent_prepare_before_deadline() {
   local agent_name="$3"
   local member_kind="$4"
 
+  local empty_retries=0
   while ! herdr_cli_deadline_expired "$deadline_ms"; do
     local pane_info pane_outcome agent_status
     pane_info="$(herdr_cli_call_before_deadline "$deadline_ms" herdr pane get "$pane_id")"
@@ -64,9 +65,16 @@ herdr_agent_prepare_before_deadline() {
     fi
 
     if [ "$result" = "{}" ]; then
-      sleep 0.1
+      empty_retries=$((empty_retries + 1))
+      if [ "$empty_retries" -gt 5 ]; then
+        break
+      fi
+      local delay
+      delay="$(awk -v n="$empty_retries" 'BEGIN { printf "%.1f", 0.1 * 2 ^ (n - 1) }')"
+      sleep "$delay"
       continue
     fi
+    empty_retries=0
 
     error_code="$(herdr_cli_error_code "$result" | tr '[:upper:]' '[:lower:]')"
     case "$error_code" in
@@ -403,7 +411,7 @@ $(jq -r 'to_entries | map("\(.key): \(.value)") | join("\n")' <<< "$kickoff_cont
       if [ "$remaining" -le 0 ]; then
         prompt_result='{}'
       else
-        prompt_result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent prompt "$agent_name" "$prompt_text" --wait --timeout "$remaining")"
+        prompt_result="$(herdr_cli_safe_call_timeout "$remaining" herdr agent prompt "$agent_name" "$prompt_text" --wait)"
       fi
       prompt_outcome="$(herdr_cli_outcome "$prompt_result")"
       if [ "$prompt_outcome" = "failed" ]; then
