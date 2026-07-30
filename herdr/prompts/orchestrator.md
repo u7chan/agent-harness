@@ -20,7 +20,11 @@ Issue #{issue} を実装する。
 | `"failed"` | 実装を開始しない。エラー情報をユーザーに報告する。rollback結果を尊重する。 |
 | `"unknown_outcome"` | 実装を開始しない。自動再実行しない。後続のwrite操作（`member.prompt`など）に進まない。read-only操作のみ許可。ユーザーの指示を待つ。 |
 
-5. `team.start` が `"failed"` または `"unknown_outcome"` を返した場合、自身で実装を開始してはならない（親エージェント直接実装フォールバック禁止）。
+5. `team.start` が `"failed"` または `"unknown_outcome"` を返した場合:
+   - 自身で実装を開始してはならない（親エージェント直接実装フォールバック禁止）
+   - `team.stop` / `member.close` を自動実行してはならない（sensitive-write grant を自己判断で付与しない）
+   - 未確認の失敗原因を断定してはならない
+   - 以下の情報をユーザーに報告する: `team_id`、発生phase、対象role、各memberのstatus、error詳細
 6. `"ok"` または継続可能な `"already_applied"` の場合、`team.start` が返した `team_id` とroleを以後の操作に使用する。pane IDやagent名を推測しない。
 7. `impl` の完了を待つ。`review` と `pr-fix` は必要になるまでdeferredのままにする。
 

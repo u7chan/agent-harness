@@ -850,6 +850,99 @@ PANECONSIST_STOP=$(echo "{\"team_id\":\"$PANECONSIST_TEAM2_ID\",\"grant\":\"sens
 assert_ok "$PANECONSIST_STOP" '.status == "ok" and (.data.stopped_members | index("impl") != null)' "team.stop result outcome normalized for pane_not_found"
 unset FAKE_CLOSE_MODE
 
+# --- Regression: Prompt safe-stop contracts (Issue #46) ---
+echo "--- Prompt Safe-Stop Contracts ---"
+ORCHESTRATOR_MD="$HERDR_DIR/prompts/orchestrator.md"
+SKILL_MD="$HERDR_DIR/SKILL.md"
+
+# orchestrator.md: status branching table exists
+if grep -q '| `"ok"`' "$ORCHESTRATOR_MD" && \
+   grep -q '| `"already_applied"`' "$ORCHESTRATOR_MD" && \
+   grep -q '| `"failed"`' "$ORCHESTRATOR_MD" && \
+   grep -q '| `"unknown_outcome"`' "$ORCHESTRATOR_MD"; then
+  echo "PASS: orchestrator.md has all four status branches"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: orchestrator.md missing one or more status branches"
+  FAIL=$((FAIL + 1))
+fi
+
+# orchestrator.md: failed/unknown_outcome prohibits parent-agent implementation fallback
+if grep -q '親エージェント直接実装フォールバック禁止' "$ORCHESTRATOR_MD"; then
+  echo "PASS: orchestrator.md prohibits parent-agent direct-implementation fallback"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: orchestrator.md missing parent-agent fallback prohibition"
+  FAIL=$((FAIL + 1))
+fi
+
+# orchestrator.md: prohibits auto-execution of team.stop/member.close on failure/unknown
+if grep -q 'team.stop.*member.close.*自動実行してはならない' "$ORCHESTRATOR_MD" && \
+   grep -q 'sensitive-write.*自己判断で付与しない' "$ORCHESTRATOR_MD"; then
+  echo "PASS: orchestrator.md prohibits auto cleanup and sensitive-write self-grant on failure"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: orchestrator.md missing cleanup prohibition or sensitive-write self-grant prohibition"
+  FAIL=$((FAIL + 1))
+fi
+
+# orchestrator.md: prohibits diagnosing unconfirmed failure causes
+if grep -q '未確認の失敗原因を断定してはならない' "$ORCHESTRATOR_MD"; then
+  echo "PASS: orchestrator.md prohibits diagnosing unconfirmed failure causes"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: orchestrator.md missing unconfirmed cause diagnosis prohibition"
+  FAIL=$((FAIL + 1))
+fi
+
+# orchestrator.md: requires reporting team_id, phase, role, member status on failure
+if grep -q 'team_id.*phase.*role.*member.*status' "$ORCHESTRATOR_MD" || \
+   grep -q '以下の情報をユーザーに報告する.*team_id.*phase.*role.*status' "$ORCHESTRATOR_MD"; then
+  echo "PASS: orchestrator.md requires reporting team_id, phase, role, member status"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: orchestrator.md missing reporting contract for team_id/phase/role/status"
+  FAIL=$((FAIL + 1))
+fi
+
+# SKILL.md: has Safe-stop section
+if grep -q 'Safe-stop on team.start' "$SKILL_MD"; then
+  echo "PASS: SKILL.md has Safe-stop on team.start section"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: SKILL.md missing Safe-stop on team.start section"
+  FAIL=$((FAIL + 1))
+fi
+
+# SKILL.md: same cleanup prohibition
+if grep -q 'team.stop.*member.close.*自動実行してはならない' "$SKILL_MD" && \
+   grep -q 'sensitive-write.*自己判断で付与しない' "$SKILL_MD"; then
+  echo "PASS: SKILL.md prohibits auto cleanup and sensitive-write self-grant"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: SKILL.md missing cleanup prohibition"
+  FAIL=$((FAIL + 1))
+fi
+
+# SKILL.md: prohibits diagnosing unconfirmed failure causes
+if grep -q '未確認の失敗原因を断定してはならない' "$SKILL_MD"; then
+  echo "PASS: SKILL.md prohibits diagnosing unconfirmed failure causes"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: SKILL.md missing unconfirmed cause diagnosis prohibition"
+  FAIL=$((FAIL + 1))
+fi
+
+# SKILL.md: requires reporting contract
+if grep -q 'team_id.*phase.*role.*member.*status' "$SKILL_MD" || \
+   grep -q '以下の情報をユーザーに報告する.*team_id.*phase.*role.*status' "$SKILL_MD"; then
+  echo "PASS: SKILL.md requires reporting team_id, phase, role, member status"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: SKILL.md missing reporting contract"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results ==="
 echo "Passed: $PASS"

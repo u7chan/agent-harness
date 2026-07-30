@@ -103,7 +103,11 @@ If `team.start` fails partway through, created panes are automatically closed. S
 | `"failed"` | 実装を開始しない。エラー情報をユーザーに報告する。rollback結果を尊重する。 |
 | `"unknown_outcome"` | 実装を開始しない。自動再実行しない。後続のwrite操作に進まない。read-only操作のみ許可。ユーザーの指示を待つ。 |
 
-`"failed"` または `"unknown_outcome"` の場合、オーケストレーターが親エージェントとして直接実装にフォールバックしてはならない。
+`"failed"` または `"unknown_outcome"` の場合:
+- オーケストレーターが親エージェントとして直接実装にフォールバックしてはならない
+- `team.stop` / `member.close` を自動実行してはならない（sensitive-write grant を自己判断で付与しない）
+- 未確認の失敗原因を断定してはならない
+- 以下の情報をユーザーに報告する: `team_id`、発生phase、対象role、各memberのstatus、error詳細
 
 ### Idempotency
 
