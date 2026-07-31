@@ -6,15 +6,19 @@ source "$SCRIPT_DIR_LAYOUT_APPLY/herdr_cli.sh"
 
 herdr_layout_apply_persist() {
   local team_id="$1" status="$2" refs="$3" steps="$4" created_panes="$5"
-  [ -n "$team_id" ] || return 0
-  declare -F herdr_manifest_read >/dev/null 2>&1 || return 0
-  declare -F herdr_manifest_write >/dev/null 2>&1 || return 0
+  [ -n "$team_id" ] || { echo '{"status":"ok","persisted":false}'; return 0; }
+  declare -F herdr_manifest_read >/dev/null 2>&1 || { echo '{"status":"ok","persisted":false}'; return 0; }
+  declare -F herdr_manifest_write >/dev/null 2>&1 || { echo '{"status":"ok","persisted":false}'; return 0; }
   local manifest
   manifest="$(herdr_manifest_read "$team_id" 2>/dev/null || echo '{}')"
-  [ "$manifest" != "{}" ] || return 0
+  [ "$manifest" != "{}" ] || { echo '{"status":"ok","persisted":false}'; return 0; }
   manifest="$(jq -c --arg status "$status" --argjson refs "$refs" --argjson steps "$steps" --argjson created "$created_panes" \
     '.layout.status = $status | .layout.refs = $refs | .layout.steps = $steps | .layout.created_panes = $created' <<< "$manifest")"
-  herdr_manifest_write "$team_id" "$manifest" || true
+  if herdr_manifest_write "$team_id" "$manifest"; then
+    echo '{"status":"ok","persisted":true}'
+  else
+    echo '{"status":"failed","persisted":false}'
+  fi
 }
 
 herdr_layout_snapshot_normalize() {
@@ -103,6 +107,7 @@ herdr_layout_validate_split() {
     --arg target_id "$target_id" --arg response_id "$response_id" \
     --arg direction "$direction" --argjson expected "$expected" '
     def geom($p): {x:$p.x,y:$p.y,cols:$p.cols,rows:$p.rows};
+    def pane_key($p): {pane_id:$p.pane_id, x:$p.x, y:$p.y, cols:$p.cols, rows:$p.rows};
     def close_enough($a; $b):
       (($a.x - $b.x) | fabs) <= 1
       and (($a.y - $b.y) | fabs) <= 1
@@ -113,8 +118,8 @@ herdr_layout_validate_split() {
     | ($before | map(select(.pane_id == $target_id)) | first) as $target_before
     | ($after | map(select(.pane_id == $target_id)) | first) as $target_after
     | ($after | map(select(.pane_id == $response_id)) | first) as $created_after
-    | ($before | map(select(.pane_id != $target_id)) | map(geom(.)) | sort_by(.x,.y,.cols,.rows)) as $before_other
-    | ($after | map(select(.pane_id != $target_id and .pane_id != $response_id)) | map(geom(.)) | sort_by(.x,.y,.cols,.rows)) as $after_other
+    | ($before | map(select(.pane_id != $target_id)) | map(pane_key(.)) | sort_by(.pane_id)) as $before_other
+    | ($after | map(select(.pane_id != $target_id and .pane_id != $response_id)) | map(pane_key(.)) | sort_by(.pane_id)) as $after_other
     | ($after_ids | length) == (($before_ids | length) + 1)
     and (($before_ids - $after_ids) | length) == 0
     and (($after_ids - $before_ids) | length) == 1
@@ -184,7 +189,7 @@ herdr_layout_apply() {
     if [ "$before_status" != "ok" ]; then
       jq -nc --arg status "$before_status" --arg phase "before.split" --argjson steps "$steps" \
         --argjson refs "$refs" --argjson created "$created_panes" \
-        '{status:"unknown",phase:$phase,transport_status:$status,steps:$steps,refs:$refs,created_panes:$created}'
+        '{status:"failed",code:"SNAPSHOT_FAILED",phase:$phase,transport_status:$status,steps:$steps,refs:$refs,created_panes:$created}'
       return 0
     fi
 
@@ -193,9 +198,14 @@ herdr_layout_apply() {
       --arg target_pane_id "$target_id" --argjson before "$(jq -c '.panes' <<< "$before_result")" \
       --argjson expected "$expected" \
       '{sequence:$sequence,status:"in_flight",target_pane_id:$target_pane_id,created_pane_id:null,recovered_from_unknown:false,before:$before,after:null,expected:$expected}')"
-    local planned_steps
+    local planned_steps persist_result
     planned_steps="$(jq -c --argjson step "$planned_step" '. + [$step]' <<< "$steps")"
-    herdr_layout_apply_persist "$team_id" applying "$refs" "$planned_steps" "$created_panes"
+    persist_result="$(herdr_layout_apply_persist "$team_id" applying "$refs" "$planned_steps" "$created_panes")"
+    if [ "$(jq -r '.status' <<< "$persist_result")" != "ok" ]; then
+      jq -nc --argjson steps "$steps" --argjson refs "$refs" --argjson created "$created_panes" \
+        '{status:"failed",code:"MANIFEST_PERSIST_FAILED",message:"manifest write-ahead persist failed before pane split",steps:$steps,refs:$refs,created_panes:$created}'
+      return 0
+    fi
 
     split_result="$(herdr_cli_pane_split_before_deadline "$deadline_ms" "$target_id" "$direction" "$ratio")"
     split_outcome="$(herdr_cli_outcome "$split_result")"
@@ -206,7 +216,7 @@ herdr_layout_apply() {
         --arg target_pane_id "$target_id" --argjson before "$(jq -c '.panes' <<< "$before_result")" \
         --argjson expected "$expected" '{sequence:$sequence,status:$status,target_pane_id:$target_pane_id,created_pane_id:null,recovered_from_unknown:false,before:$before,after:null,expected:$expected}')"
       steps="$(jq -c --argjson step "$failed_step" '. + [$step]' <<< "$steps")"
-      herdr_layout_apply_persist "$team_id" failed "$refs" "$steps" "$created_panes"
+      herdr_layout_apply_persist "$team_id" failed "$refs" "$steps" "$created_panes" >/dev/null || true
       jq -nc --arg herdr_error "$(herdr_cli_error_code "$split_result")" --argjson steps "$steps" \
         --argjson refs "$refs" --argjson created "$created_panes" \
         '{status:"failed",code:"PANE_CREATE_FAILED",herdr_error:$herdr_error,message:"pane split returned an explicit failure",steps:$steps,refs:$refs,created_panes:$created}'
@@ -254,7 +264,13 @@ herdr_layout_apply() {
       --arg created_ref "$created_ref" --arg response_id "$response_id" \
       '.[$retained_ref] = $target_id | .[$created_ref] = $response_id' <<< "$refs")"
     created_panes="$(jq -c --arg pane_id "$response_id" '. + [$pane_id]' <<< "$created_panes")"
-    herdr_layout_apply_persist "$team_id" applying "$refs" "$steps" "$created_panes"
+    persist_result="$(herdr_layout_apply_persist "$team_id" applying "$refs" "$steps" "$created_panes")"
+    if [ "$(jq -r '.status' <<< "$persist_result")" != "ok" ]; then
+      jq -nc --arg phase "persist.after.split" --argjson steps "$steps" \
+        --argjson refs "$refs" --argjson created "$created_panes" \
+        '{status:"unknown",phase:$phase,steps:$steps,refs:$refs,created_panes:$created}'
+      return 0
+    fi
   done
 
   local binding member_ref source_ref source_id

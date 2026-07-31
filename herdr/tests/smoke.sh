@@ -48,8 +48,16 @@ assert_equal() {
   fi
 }
 
+TEST_ORIGIN_KIND="opencode"
+
 run_herdr() {
   bash "$HERDR_SCRIPT" "$@" 2>&1 || true
+}
+
+mk_start_input() {
+  local req_id="$1" cfg="$2"
+  jq -nc --arg request_id "$req_id" --arg config_path "$cfg" --arg origin_kind "$TEST_ORIGIN_KIND" --arg grant "write" \
+    '{request_id:$request_id,config_path:$config_path,origin_kind:$origin_kind,grant:$grant}'
 }
 
 echo "=== Herdr Grid Smoke Tests ==="
@@ -65,7 +73,7 @@ assert_ok "$(printf '%s\n' '{"member_count":3,"max_cols":3,"target_cols":100,"ta
 
 echo "--- Config and Normal Apply ---"
 cleanup_state
-TEAM_RESULT="$(printf '%s\n' '{"request_id":"smoke-grid-001","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
+TEAM_RESULT="$(mk_start_input smoke-grid-001 herdr/team.json | run_herdr team.start)"
 assert_ok "$TEAM_RESULT" '.status == "ok" and .data.layout.status == "applied" and (.data.members | length) == 3' "team.start applies Grid before agents"
 TEAM_ID="$(jq -r '.data.team_id // empty' <<< "$TEAM_RESULT")"
 MANIFEST="$(printf '%s\n' "{\"team_id\":\"$TEAM_ID\"}" | run_herdr team.get)"
@@ -80,7 +88,7 @@ mkdir -p "$GRID_CONFIG_DIR"
 printf '%s\n' 'extra role' > "$GRID_CONFIG_DIR/extra.md"
 printf '%s\n' '{"schema_version":2,"layout":{"max_cols":3},"members":[{"role":"impl"},{"role":"review"},{"role":"pr-fix"},{"role":"extra-a","prompt_file":"extra.md"},{"role":"extra-b","prompt_file":"extra.md"}]}' > "$GRID_CONFIG_DIR/team.json"
 cleanup_state
-FIVE_RESULT="$(printf '%s\n' "{\"request_id\":\"smoke-grid-five\",\"config_path\":\"$GRID_CONFIG_DIR/team.json\",\"grant\":\"write\"}" | run_herdr team.start)"
+FIVE_RESULT="$(mk_start_input smoke-grid-five "$GRID_CONFIG_DIR/team.json" | run_herdr team.start)"
 assert_ok "$FIVE_RESULT" '.status == "ok" and .data.layout.resolved_cols == 3 and (.data.members | length) == 5' "five-member Grid starts successfully"
 assert_equal "$(jq -s '[.[] | select(.command == "pane.split")] | length' "$FAKE_STATE_DIR/commands.jsonl")" "5" "five-member Grid uses five deterministic splits"
 
@@ -88,21 +96,21 @@ echo "--- v2 Config Rejection ---"
 V1_CONFIG="$TEST_STATE_HOME/v1-team.json"
 printf '%s\n' '{"schema_version":1,"members":[{"role":"impl"}]}' > "$V1_CONFIG"
 cleanup_state
-V1_RESULT="$(printf '%s\n' "{\"request_id\":\"smoke-v1-reject\",\"config_path\":\"$V1_CONFIG\",\"grant\":\"write\"}" | run_herdr team.start)"
+V1_RESULT="$(mk_start_input smoke-v1-reject "$V1_CONFIG" | run_herdr team.start)"
 assert_ok "$V1_RESULT" '.status == "failed" and .error.code == "CONFIG_ERROR"' "schema_version 1 is rejected"
 assert_equal "$(if [ -f "$FAKE_STATE_DIR/commands.jsonl" ]; then jq -s '[.[] | select(.command == "pane.split")] | length' "$FAKE_STATE_DIR/commands.jsonl"; else echo 0; fi)" "0" "invalid config does not split panes"
 
 echo "--- Infeasible Layout ---"
 cleanup_state
 export FAKE_TERMINAL_COLS=100
-INFEASIBLE="$(printf '%s\n' '{"request_id":"smoke-infeasible","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
+INFEASIBLE="$(mk_start_input smoke-infeasible herdr/team.json | run_herdr team.start)"
 assert_ok "$INFEASIBLE" '.status == "failed" and .error.code == "LAYOUT_NOT_FEASIBLE" and .data.plan.error.code == "LAYOUT_NOT_FEASIBLE"' "infeasible Grid returns structured failure"
 assert_equal "$(if [ -f "$FAKE_STATE_DIR/commands.jsonl" ]; then jq -s '[.[] | select(.command == "pane.split")] | length' "$FAKE_STATE_DIR/commands.jsonl"; else echo 0; fi)" "0" "infeasible Grid never calls pane split"
 
 echo "--- Unknown Recovery and Safe Stop ---"
 cleanup_state
 export FAKE_SPLIT_MODE=unknown
-RECOVERED="$(printf '%s\n' '{"request_id":"smoke-recover","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
+RECOVERED="$(mk_start_input smoke-recover herdr/team.json | run_herdr team.start)"
 assert_ok "$RECOVERED" '.status == "ok" and .data.layout.status == "applied"' "missing split response is recovered from read-only snapshots"
 RECOVERED_ID="$(jq -r '.data.team_id' <<< "$RECOVERED")"
 RECOVERED_MANIFEST="$(printf '%s\n' "{\"team_id\":\"$RECOVERED_ID\"}" | run_herdr team.get)"
@@ -110,7 +118,7 @@ assert_ok "$RECOVERED_MANIFEST" 'all(.data.layout.steps[]; .recovered_from_unkno
 
 cleanup_state
 export FAKE_SPLIT_MODE=no-op-unknown
-STOPPED="$(printf '%s\n' '{"request_id":"smoke-safe-stop","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
+STOPPED="$(mk_start_input smoke-safe-stop herdr/team.json | run_herdr team.start)"
 assert_ok "$STOPPED" '.status == "unknown_outcome" and .data.cleanup_complete == false' "ambiguous split stops safely"
 STOPPED_ID="$(jq -r '.data.team_id' <<< "$STOPPED")"
 assert_equal "$(if [ -f "$FAKE_STATE_DIR/commands.jsonl" ]; then jq -s '[.[] | select(.command == "agent.start")] | length' "$FAKE_STATE_DIR/commands.jsonl"; else echo 0; fi)" "0" "unknown outcome does not start agents"
@@ -119,18 +127,18 @@ assert_ok "$(printf '%s\n' "{\"team_id\":\"$STOPPED_ID\"}" | run_herdr team.get)
 
 cleanup_state
 export FAKE_SPLIT_MODE=extra
-CONFLICT="$(printf '%s\n' '{"request_id":"smoke-conflict-extra","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
+CONFLICT="$(mk_start_input smoke-conflict-extra herdr/team.json | run_herdr team.start)"
 assert_ok "$CONFLICT" '.status == "unknown_outcome" and .data.cleanup_complete == false' "multiple new panes are not auto-recovered"
 
 cleanup_state
 export FAKE_SPLIT_MODE=other-change
-CONFLICT_OTHER="$(printf '%s\n' '{"request_id":"smoke-conflict-other","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
+CONFLICT_OTHER="$(mk_start_input smoke-conflict-other herdr/team.json | run_herdr team.start)"
 assert_ok "$CONFLICT_OTHER" '.status == "unknown_outcome" and .data.cleanup_complete == false' "unrelated pane change is not auto-recovered"
 
 echo "--- Known Failure Rollback ---"
 cleanup_state
 export FAKE_AGENT_START_MODE=fail
-ROLLBACK="$(printf '%s\n' '{"request_id":"smoke-rollback","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
+ROLLBACK="$(mk_start_input smoke-rollback herdr/team.json | run_herdr team.start)"
 assert_ok "$ROLLBACK" '.status == "failed" and .error.code == "AGENT_START_FAILED" and .data.cleanup_complete == true' "known agent failure rolls back created panes"
 assert_equal "$(if [ -f "$FAKE_STATE_DIR/close_invocations.log" ]; then wc -l < "$FAKE_STATE_DIR/close_invocations.log"; else echo 0; fi)" "3" "rollback closes only created member panes"
 
@@ -138,8 +146,39 @@ echo "--- Capability and Catalog Regression ---"
 cleanup_state
 assert_ok "$(run_herdr actions.list)" '.status == "ok" and (.data | type == "array")' "actions.list remains available"
 unset HERDR_ENV
-assert_ok "$(printf '%s\n' '{"request_id":"smoke-no-env","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)" '.status == "failed" and .error.code == "HERDR_CAPABILITY_MISSING"' "team.start requires Herdr environment identity"
+assert_ok "$(printf '%s\n' '{"request_id":"smoke-no-env","config_path":"herdr/team.json","origin_kind":"opencode","grant":"write"}' | run_herdr team.start)" '.status == "failed" and .error.code == "HERDR_CAPABILITY_MISSING"' "team.start requires Herdr environment identity"
 export HERDR_ENV=1
+
+echo "--- Single and Dual Member Grids ---"
+ONE_MEMBER_CONFIG="$(mktemp /tmp/herdr-one-member-XXXXXX.json)"
+printf '%s\n' '{"schema_version":2,"layout":{"max_cols":3},"members":[{"role":"impl"}]}' > "$ONE_MEMBER_CONFIG"
+cleanup_state
+ONE_RESULT="$(mk_start_input smoke-grid-one "$ONE_MEMBER_CONFIG" | run_herdr team.start)"
+assert_ok "$ONE_RESULT" '.status == "ok" and .data.layout.status == "applied" and (.data.members | length) == 1' "single-member Grid starts successfully"
+assert_equal "$(jq -s '[.[] | select(.command == "pane.split")] | length' "$FAKE_STATE_DIR/commands.jsonl")" "1" "single-member uses one split (orch only)"
+assert_ok "$(printf '%s\n' "{\"team_id\":\"$(jq -r '.data.team_id' <<< "$ONE_RESULT")\"}" | run_herdr team.get)" '([.data.members[] | .status] | all(. == "active" or . == "pane-created"))' "single-member binds and activates"
+rm -f "$ONE_MEMBER_CONFIG"
+
+TWO_MEMBER_CONFIG="$(mktemp /tmp/herdr-two-member-XXXXXX.json)"
+printf '%s\n' '{"schema_version":2,"layout":{"max_cols":2},"members":[{"role":"impl"},{"role":"review"}]}' > "$TWO_MEMBER_CONFIG"
+cleanup_state
+TWO_RESULT="$(mk_start_input smoke-grid-two "$TWO_MEMBER_CONFIG" | run_herdr team.start)"
+assert_ok "$TWO_RESULT" '.status == "ok" and .data.layout.status == "applied" and (.data.members | length) == 2' "dual-member Grid starts successfully"
+assert_equal "$(jq -s '[.[] | select(.command == "pane.split")] | length' "$FAKE_STATE_DIR/commands.jsonl")" "2" "dual-member uses two splits (orch + one column)"
+rm -f "$TWO_MEMBER_CONFIG"
+
+echo "--- Origin Kind Validation ---"
+cleanup_state
+NO_ORIGIN="$(printf '%s\n' '{"request_id":"smoke-no-origin","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
+assert_ok "$NO_ORIGIN" '.status == "failed" and .error.code == "INVALID_ORIGIN_KIND"' "missing origin_kind is rejected"
+
+echo "--- LAYOUT_NOT_FEASIBLE Duplicate Retry ---"
+cleanup_state
+export FAKE_TERMINAL_COLS=100
+RETRY1="$(mk_start_input smoke-dupe-infeasible herdr/team.json | run_herdr team.start)"
+assert_ok "$RETRY1" '.status == "failed" and .error.code == "LAYOUT_NOT_FEASIBLE"' "first infeasible fails cleanly"
+RETRY2="$(mk_start_input smoke-dupe-infeasible herdr/team.json | run_herdr team.start)"
+assert_ok "$RETRY2" '.status == "already_applied"' "infeasible duplicate returns already_applied"
 
 echo ""
 echo "Passed: $PASS"

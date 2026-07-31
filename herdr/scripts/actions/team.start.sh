@@ -212,7 +212,7 @@ main() {
     dup_data="$(jq -c '{team_id,start_outcome:(.start_outcome // null),members:[.members[] | {role,kind,activation,agent_name,pane_id,status}],layout:(.layout // null)}' <<< "$duplicate")"
     herdr_team_release_lock
     case "$dup_status" in
-      active|stopped) envelope_already_applied "team.start" "$(jq -nc --arg team_id "$existing_duplicate" '{type:"team",team_id:$team_id}')" "$dup_data" ;;
+      active|stopped|start-failed) envelope_already_applied "team.start" "$(jq -nc --arg team_id "$existing_duplicate" '{type:"team",team_id:$team_id}')" "$dup_data" ;;
       *) envelope_unknown_outcome "team.start" "$(jq -nc --arg team_id "$existing_duplicate" '{type:"team",team_id:$team_id}')" "$dup_data" ;;
     esac
     return 0
@@ -224,9 +224,12 @@ main() {
     return 1
   fi
 
-  local detected_kind kind
-  detected_kind="${HERDR_AGENT_KIND:-opencode}"
-  kind="${origin_kind:-$detected_kind}"
+  if [ -z "$origin_kind" ] || [[ ! "$origin_kind" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+    herdr_team_release_lock
+    envelope_fail "team.start" "INVALID_ORIGIN_KIND" "origin_kind is required and must be a valid agent kind name" false
+    return 1
+  fi
+  local kind="$origin_kind"
   local config_json
   if ! config_json="$(herdr_config_resolve "$config_path" "$kind" 2>/dev/null)" || ! herdr_config_validate_members "$config_json" 2>/dev/null; then
     herdr_team_release_lock
@@ -259,12 +262,14 @@ main() {
     return 1
   fi
 
-  local member_count max_cols target_cols target_rows plan team_id team_short_id members_json deferred_json saved_config_json manifest
+  local member_count max_cols target_cols target_rows target_x target_y plan team_id team_short_id members_json deferred_json saved_config_json manifest
   member_count="$(jq -r '.members | length' <<< "$config_json")"
   max_cols="$(jq -r '.layout.max_cols' <<< "$config_json")"
   target_cols="$(jq -r '.cols' <<< "$root_pane")"
   target_rows="$(jq -r '.rows' <<< "$root_pane")"
-  plan="$(herdr_layout_plan_generate "$(jq -nc --argjson member_count "$member_count" --argjson max_cols "$max_cols" --argjson target_cols "$target_cols" --argjson target_rows "$target_rows" '{member_count:$member_count,max_cols:$max_cols,target_cols:$target_cols,target_rows:$target_rows}')")"
+  target_x="$(jq -r '.x // 0' <<< "$root_pane")"
+  target_y="$(jq -r '.y // 0' <<< "$root_pane")"
+  plan="$(herdr_layout_plan_generate "$(jq -nc --argjson member_count "$member_count" --argjson max_cols "$max_cols" --argjson target_cols "$target_cols" --argjson target_rows "$target_rows" --argjson target_x "$target_x" --argjson target_y "$target_y" '{member_count:$member_count,max_cols:$max_cols,target_cols:$target_cols,target_rows:$target_rows,target_x:$target_x,target_y:$target_y}')")"
 
   team_id="$(herdr_team_generate_id)"
   team_short_id="${team_id: -8}"

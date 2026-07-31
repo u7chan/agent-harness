@@ -10,14 +10,19 @@ herdr_layout_plan_round_ratio() {
   awk -v n="$numerator" -v d="$denominator" 'BEGIN { if (d == 0) exit 1; printf "%.6f", n / d }'
 }
 
+HERDR_LAYOUT_PLAN_OFFSET_X=0
+HERDR_LAYOUT_PLAN_OFFSET_Y=0
+
+herdr_layout_plan_offset_x() { echo $(($1 + HERDR_LAYOUT_PLAN_OFFSET_X)); }
+herdr_layout_plan_offset_y() { echo $(($1 + HERDR_LAYOUT_PLAN_OFFSET_Y)); }
+
 herdr_layout_plan_add_geometry() {
-  local ref="$1"
-  local x="$2"
-  local y="$3"
-  local cols="$4"
-  local rows="$5"
+  local ref="$1" x="${2:-0}" y="${3:-0}" cols="$4" rows="$5"
+  local ox oy
+  ox="$(herdr_layout_plan_offset_x "$x")"
+  oy="$(herdr_layout_plan_offset_y "$y")"
   HERDR_LAYOUT_PLAN_GEOMETRY="$(jq -c \
-    --arg ref "$ref" --argjson x "$x" --argjson y "$y" \
+    --arg ref "$ref" --argjson x "$ox" --argjson y "$oy" \
     --argjson cols "$cols" --argjson rows "$rows" \
     '. + {($ref): {x:$x,y:$y,cols:$cols,rows:$rows}}' \
     <<< "$HERDR_LAYOUT_PLAN_GEOMETRY")"
@@ -42,14 +47,22 @@ herdr_layout_plan_add_split() {
   local created_cols="${16}"
   local created_rows="${17}"
 
+  local otx oty orx ory ocx ocy
+  otx="$(herdr_layout_plan_offset_x "$target_x")"
+  oty="$(herdr_layout_plan_offset_y "$target_y")"
+  orx="$(herdr_layout_plan_offset_x "$retained_x")"
+  ory="$(herdr_layout_plan_offset_y "$retained_y")"
+  ocx="$(herdr_layout_plan_offset_x "$created_x")"
+  ocy="$(herdr_layout_plan_offset_y "$created_y")"
+
   local sequence=$(( $(jq -r 'length' <<< "$HERDR_LAYOUT_PLAN_SPLITS") + 1 ))
   local expected
   expected="$(jq -nc \
-    --argjson target_x "$target_x" --argjson target_y "$target_y" \
+    --argjson target_x "$otx" --argjson target_y "$oty" \
     --argjson target_cols "$target_cols" --argjson target_rows "$target_rows" \
-    --argjson retained_x "$retained_x" --argjson retained_y "$retained_y" \
+    --argjson retained_x "$orx" --argjson retained_y "$ory" \
     --argjson retained_cols "$retained_cols" --argjson retained_rows "$retained_rows" \
-    --argjson created_x "$created_x" --argjson created_y "$created_y" \
+    --argjson created_x "$ocx" --argjson created_y "$ocy" \
     --argjson created_cols "$created_cols" --argjson created_rows "$created_rows" \
     '{target:{x:$target_x,y:$target_y,cols:$target_cols,rows:$target_rows},retained:{x:$retained_x,y:$retained_y,cols:$retained_cols,rows:$retained_rows},created:{x:$created_x,y:$created_y,cols:$created_cols,rows:$created_rows}}')"
   HERDR_LAYOUT_PLAN_SPLITS="$(jq -c \
@@ -80,6 +93,11 @@ herdr_layout_plan_generate() {
   max_cols="$(jq -r '.max_cols' <<< "$input")"
   target_cols="$(jq -r '.target_cols' <<< "$input")"
   target_rows="$(jq -r '.target_rows' <<< "$input")"
+  local target_x target_y
+  target_x="$(jq -r '.target_x // 0' <<< "$input")"
+  target_y="$(jq -r '.target_y // 0' <<< "$input")"
+  HERDR_LAYOUT_PLAN_OFFSET_X="$target_x"
+  HERDR_LAYOUT_PLAN_OFFSET_Y="$target_y"
 
   local sqrt_cols=1
   while [ $((sqrt_cols * sqrt_cols)) -lt "$member_count" ]; do
@@ -209,7 +227,12 @@ herdr_layout_plan_generate() {
     for ((prior = 0; prior < r_idx; prior++)); do
       row_y=$((row_y + row_heights[prior] + 1))
     done
-    local row_ref="row-$r_idx"
+    local row_ref
+    if [ "$resolved_rows" -eq 1 ]; then
+      row_ref="member-root"
+    else
+      row_ref="row-$r_idx"
+    fi
     local row_target_cols="$member_region_cols"
     local row_current_ref="$row_ref"
     local row_current_x="$row_x"
