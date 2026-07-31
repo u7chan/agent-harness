@@ -235,3 +235,15 @@ herdr_cli_pane_split_before_deadline() {
   herdr_cli_call_before_deadline "$deadline_ms" herdr pane split --pane "$pane_id" \
     --direction "$direction" --ratio "$ratio" --cwd "$PWD" --no-focus
 }
+
+herdr_cli_detect_agent_kind() {
+  local pane_id="$1"
+  local pane_info agent_kind
+  pane_info="$(herdr_cli_safe_call_timeout 3000 herdr pane get "$pane_id")"
+  if [ "$(herdr_cli_outcome "$pane_info")" = "ok" ]; then
+    agent_kind="$(jq -r '.result.pane.agent_kind // empty' <<< "$pane_info")"
+    printf '%s\n' "${agent_kind:-}"
+  else
+    echo ""
+  fi
+}

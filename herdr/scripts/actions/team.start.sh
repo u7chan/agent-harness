@@ -224,6 +224,9 @@ main() {
     return 1
   fi
 
+  if [ -z "$origin_kind" ]; then
+    origin_kind="$(herdr_cli_detect_agent_kind "$root_pane_id")"
+  fi
   if [ -z "$origin_kind" ] || [[ ! "$origin_kind" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
     herdr_team_release_lock
     envelope_fail "team.start" "INVALID_ORIGIN_KIND" "origin_kind is required and must be a valid agent kind name" false

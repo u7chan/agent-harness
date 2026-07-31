@@ -26,7 +26,7 @@ trap cleanup EXIT
 cleanup_state() {
   rm -rf "$FAKE_STATE_DIR" "$TEST_STATE_HOME/herdr-skill/teams"
   mkdir -p "$FAKE_STATE_DIR"
-  unset FAKE_SPLIT_MODE FAKE_LIST_MODE FAKE_LAYOUT_MODE FAKE_AGENT_START_MODE FAKE_CLOSE_MODE
+  unset FAKE_SPLIT_MODE FAKE_LIST_MODE FAKE_LAYOUT_MODE FAKE_AGENT_START_MODE FAKE_CLOSE_MODE FAKE_AGENT_KIND FAKE_PANE_GET_BUSY_COUNT
   export FAKE_TERMINAL_COLS=240 FAKE_TERMINAL_ROWS=40
 }
 
@@ -55,9 +55,14 @@ run_herdr() {
 }
 
 mk_start_input() {
-  local req_id="$1" cfg="$2"
-  jq -nc --arg request_id "$req_id" --arg config_path "$cfg" --arg origin_kind "$TEST_ORIGIN_KIND" --arg grant "write" \
-    '{request_id:$request_id,config_path:$config_path,origin_kind:$origin_kind,grant:$grant}'
+  local req_id="$1" cfg="$2" kind="${3:-$TEST_ORIGIN_KIND}"
+  if [ -z "$kind" ]; then
+    jq -nc --arg request_id "$req_id" --arg config_path "$cfg" --arg grant "write" \
+      '{request_id:$request_id,config_path:$config_path,grant:$grant}'
+  else
+    jq -nc --arg request_id "$req_id" --arg config_path "$cfg" --arg origin_kind "$kind" --arg grant "write" \
+      '{request_id:$request_id,config_path:$config_path,origin_kind:$origin_kind,grant:$grant}'
+  fi
 }
 
 echo "=== Herdr Grid Smoke Tests ==="
@@ -135,6 +140,11 @@ export FAKE_SPLIT_MODE=other-change
 CONFLICT_OTHER="$(mk_start_input smoke-conflict-other herdr/team.json | run_herdr team.start)"
 assert_ok "$CONFLICT_OTHER" '.status == "unknown_outcome" and .data.cleanup_complete == false' "unrelated pane change is not auto-recovered"
 
+cleanup_state
+export FAKE_SPLIT_MODE=topo-change
+TOPO_CHANGE="$(mk_start_input smoke-topo-change herdr/team.json | run_herdr team.start)"
+assert_ok "$TOPO_CHANGE" '.status == "unknown_outcome"' "topology change on non-target pane is detected"
+
 echo "--- Known Failure Rollback ---"
 cleanup_state
 export FAKE_AGENT_START_MODE=fail
@@ -167,10 +177,24 @@ assert_ok "$TWO_RESULT" '.status == "ok" and .data.layout.status == "applied" an
 assert_equal "$(jq -s '[.[] | select(.command == "pane.split")] | length' "$FAKE_STATE_DIR/commands.jsonl")" "2" "dual-member uses two splits (orch + one column)"
 rm -f "$TWO_MEMBER_CONFIG"
 
-echo "--- Origin Kind Validation ---"
+echo "--- Origin Kind Auto-Detection ---"
+cleanup_state
+NO_ORIGIN_INPUT="$(mk_start_input smoke-autodetect herdr/team.json "")"
+AUTODETECT="$(run_herdr team.start <<< "$NO_ORIGIN_INPUT")"
+assert_ok "$AUTODETECT" '.status == "ok" and .data.layout.status == "applied"' "origin_kind auto-detected from root pane agent_kind"
+
+cleanup_state
+echo "--- Detection Logic Unit Test ---"
+export FAKE_AGENT_KIND=""
+source "$HERDR_DIR/scripts/common/herdr_cli.sh"
+DETECT_RESULT="$(herdr_cli_detect_agent_kind pane-1)"
+assert_equal "$DETECT_RESULT" "" "detect returns empty when pane has no agent_kind"
+unset FAKE_AGENT_KIND
+
+echo "--- Missing Origin Kind (No Env) ---"
 cleanup_state
 NO_ORIGIN="$(printf '%s\n' '{"request_id":"smoke-no-origin","config_path":"herdr/team.json","grant":"write"}' | run_herdr team.start)"
-assert_ok "$NO_ORIGIN" '.status == "failed" and .error.code == "INVALID_ORIGIN_KIND"' "missing origin_kind is rejected"
+assert_ok "$NO_ORIGIN" '.status == "ok" and .data.layout.status == "applied"' "missing origin_kind works via auto-detection"
 
 echo "--- LAYOUT_NOT_FEASIBLE Duplicate Retry ---"
 cleanup_state
@@ -179,6 +203,15 @@ RETRY1="$(mk_start_input smoke-dupe-infeasible herdr/team.json | run_herdr team.
 assert_ok "$RETRY1" '.status == "failed" and .error.code == "LAYOUT_NOT_FEASIBLE"' "first infeasible fails cleanly"
 RETRY2="$(mk_start_input smoke-dupe-infeasible herdr/team.json | run_herdr team.start)"
 assert_ok "$RETRY2" '.status == "already_applied"' "infeasible duplicate returns already_applied"
+
+echo "--- Manifest Persist Failure ---"
+cleanup_state
+PLAN="$(printf '%s\n' '{"member_count":3,"max_cols":3,"target_cols":240,"target_rows":40}' | bash "$HERDR_DIR/scripts/common/layout_plan.sh")"
+APPLY_INPUT="$(jq -nc --arg team_id "nonexistent-team-99999" --argjson plan "$(jq -c '.' <<< "$PLAN")" \
+    --arg root_pane_id "pane-1" --arg workspace_id "ws-fake-001" --argjson timeout_ms 30000 \
+    '{team_id:$team_id,plan:$plan,root_pane_id:$root_pane_id,workspace_id:$workspace_id,timeout_ms:$timeout_ms}')"
+APPLY_RESULT="$(printf '%s\n' "$APPLY_INPUT" | bash "$HERDR_DIR/scripts/common/layout_apply.sh")"
+assert_ok "$APPLY_RESULT" '.status == "failed" and .code == "MANIFEST_PERSIST_FAILED"' "missing manifest triggers MANIFEST_PERSIST_FAILED"
 
 echo ""
 echo "Passed: $PASS"

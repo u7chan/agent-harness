@@ -107,7 +107,7 @@ herdr_layout_validate_split() {
     --arg target_id "$target_id" --arg response_id "$response_id" \
     --arg direction "$direction" --argjson expected "$expected" '
     def geom($p): {x:$p.x,y:$p.y,cols:$p.cols,rows:$p.rows};
-    def pane_key($p): {pane_id:$p.pane_id, x:$p.x, y:$p.y, cols:$p.cols, rows:$p.rows};
+    def pane_key($p): {pane_id:$p.pane_id, x:$p.x, y:$p.y, cols:$p.cols, rows:$p.rows, split_direction:$p.split_direction, split_ratio:$p.split_ratio};
     def close_enough($a; $b):
       (($a.x - $b.x) | fabs) <= 1
       and (($a.y - $b.y) | fabs) <= 1
@@ -201,9 +201,9 @@ herdr_layout_apply() {
     local planned_steps persist_result
     planned_steps="$(jq -c --argjson step "$planned_step" '. + [$step]' <<< "$steps")"
     persist_result="$(herdr_layout_apply_persist "$team_id" applying "$refs" "$planned_steps" "$created_panes")"
-    if [ "$(jq -r '.status' <<< "$persist_result")" != "ok" ]; then
+    if [ "$(jq -r '.status' <<< "$persist_result")" != "ok" ] || [ "$(jq -r '.persisted' <<< "$persist_result")" != "true" ]; then
       jq -nc --argjson steps "$steps" --argjson refs "$refs" --argjson created "$created_panes" \
-        '{status:"failed",code:"MANIFEST_PERSIST_FAILED",message:"manifest write-ahead persist failed before pane split",steps:$steps,refs:$refs,created_panes:$created}'
+        '{status:"failed",code:"MANIFEST_PERSIST_FAILED",message:"manifest write-ahead persist returned persisted=false before pane split",steps:$steps,refs:$refs,created_panes:$created}'
       return 0
     fi
 
@@ -265,7 +265,7 @@ herdr_layout_apply() {
       '.[$retained_ref] = $target_id | .[$created_ref] = $response_id' <<< "$refs")"
     created_panes="$(jq -c --arg pane_id "$response_id" '. + [$pane_id]' <<< "$created_panes")"
     persist_result="$(herdr_layout_apply_persist "$team_id" applying "$refs" "$steps" "$created_panes")"
-    if [ "$(jq -r '.status' <<< "$persist_result")" != "ok" ]; then
+    if [ "$(jq -r '.status' <<< "$persist_result")" != "ok" ] || [ "$(jq -r '.persisted' <<< "$persist_result")" != "true" ]; then
       jq -nc --arg phase "persist.after.split" --argjson steps "$steps" \
         --argjson refs "$refs" --argjson created "$created_panes" \
         '{status:"unknown",phase:$phase,steps:$steps,refs:$refs,created_panes:$created}'

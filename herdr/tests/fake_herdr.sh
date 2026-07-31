@@ -16,8 +16,8 @@ _state_init() {
   if [ ! -s "$STATE_FILE" ]; then
     jq -nc \
       --arg root "$(_root_id)" --arg workspace "$(_workspace_id)" --arg tab "$(_tab_id)" \
-      --argjson cols "$(_terminal_cols)" --argjson rows "$(_terminal_rows)" \
-      '{workspace_id:$workspace,tab_id:$tab,next_id:2,panes:[{pane_id:$root,workspace_id:$workspace,tab_id:$tab,x:0,y:0,cols:$cols,rows:$rows,agent_status:"running"}]}' \
+      --argjson cols "$(_terminal_cols)" --argjson rows "$(_terminal_rows)" --arg agent_kind "${FAKE_AGENT_KIND-opencode}" \
+      '{workspace_id:$workspace,tab_id:$tab,next_id:2,panes:[{pane_id:$root,workspace_id:$workspace,tab_id:$tab,x:0,y:0,cols:$cols,rows:$rows,agent_status:"running",agent_kind:$agent_kind}]}' \
       > "$STATE_FILE"
   fi
 }
@@ -131,29 +131,40 @@ _pane_split() {
     retained="$(_round_split_size "$ratio" "$((old_cols - 1))")"
     created=$((old_cols - retained - 1))
     new_x=$((old_x + retained + 1)); new_y="$old_y"; new_cols="$created"; new_rows="$old_rows"
-    jq --arg id "$target" --argjson cols "$retained" '.panes = [.panes[] | if .pane_id == $id then .cols = $cols else . end]' "$STATE_FILE" > "$STATE_FILE.tmp"
+    jq --arg id "$target" --argjson cols "$retained" --arg direction "$direction" --arg ratio "$ratio" \
+      '.panes = [.panes[] | if .pane_id == $id then .cols = $cols | .split_direction = $direction | .split_ratio = $ratio else . end]' \
+      "$STATE_FILE" > "$STATE_FILE.tmp"
   else
     retained="$(_round_split_size "$ratio" "$((old_rows - 1))")"
     created=$((old_rows - retained - 1))
     new_x="$old_x"; new_y=$((old_y + retained + 1)); new_cols="$old_cols"; new_rows="$created"
-    jq --arg id "$target" --argjson rows "$retained" '.panes = [.panes[] | if .pane_id == $id then .rows = $rows else . end]' "$STATE_FILE" > "$STATE_FILE.tmp"
+    jq --arg id "$target" --argjson rows "$retained" --arg direction "$direction" --arg ratio "$ratio" \
+      '.panes = [.panes[] | if .pane_id == $id then .rows = $rows | .split_direction = $direction | .split_ratio = $ratio else . end]' \
+      "$STATE_FILE" > "$STATE_FILE.tmp"
   fi
-  jq --arg id "$new_id" --arg workspace "$(_workspace_id)" --arg tab "$(_tab_id)" \
+  jq --arg id "$new_id" --arg workspace "$(_workspace_id)" --arg tab "$(_tab_id)" --arg agent_kind "${FAKE_AGENT_KIND-opencode}" \
     --argjson x "$new_x" --argjson y "$new_y" --argjson cols "$new_cols" --argjson rows "$new_rows" \
-    '.panes += [{pane_id:$id,workspace_id:$workspace,tab_id:$tab,x:$x,y:$y,cols:$cols,rows:$rows,agent_status:"unknown"}]' \
+    '.panes += [{pane_id:$id,workspace_id:$workspace,tab_id:$tab,x:$x,y:$y,cols:$cols,rows:$rows,agent_status:"unknown",agent_kind:$agent_kind}]' \
     "$STATE_FILE.tmp" > "$STATE_FILE"
   rm -f "$STATE_FILE.tmp"
 
   if [[ "${FAKE_SPLIT_MODE:-ok}" = "extra" || "${FAKE_SPLIT_MODE:-ok}" = "conflict-extra" || "${FAKE_SPLIT_MODE:-ok}" = "concurrent-extra" ]]; then
     local extra_id
     extra_id="$(_next_pane_id)"
-    jq --arg id "$extra_id" --arg workspace "$(_workspace_id)" --arg tab "$(_tab_id)" \
-      '.panes += [{pane_id:$id,workspace_id:$workspace,tab_id:$tab,x:0,y:0,cols:1,rows:1,agent_status:"unknown"}]' \
+    jq --arg id "$extra_id" --arg workspace "$(_workspace_id)" --arg tab "$(_tab_id)" --arg agent_kind "${FAKE_AGENT_KIND-opencode}" \
+      '.panes += [{pane_id:$id,workspace_id:$workspace,tab_id:$tab,x:0,y:0,cols:1,rows:1,agent_status:"unknown",agent_kind:$agent_kind}]' \
       "$STATE_FILE" > "$STATE_FILE.tmp"
     mv -f "$STATE_FILE.tmp" "$STATE_FILE"
   elif [[ "${FAKE_SPLIT_MODE:-ok}" = "other-change" || "${FAKE_SPLIT_MODE:-ok}" = "conflict-other" || "${FAKE_SPLIT_MODE:-ok}" = "concurrent-other" ]]; then
     jq --arg id "$(_root_id)" '.panes = [.panes[] | if .pane_id == $id then .x = .x + 1 else . end]' "$STATE_FILE" > "$STATE_FILE.tmp"
     mv -f "$STATE_FILE.tmp" "$STATE_FILE"
+  elif [[ "${FAKE_SPLIT_MODE:-ok}" = "topo-change" ]]; then
+    local other_id
+    other_id="$(jq -r --arg id "$target" '.panes[] | select(.pane_id != $id) | .pane_id' "$STATE_FILE" | head -1)"
+    if [ -n "$other_id" ]; then
+      jq --arg id "$other_id" --arg direction "topo-change" '.panes = [.panes[] | if .pane_id == $id then .split_direction = $direction else . end]' "$STATE_FILE" > "$STATE_FILE.tmp"
+      mv -f "$STATE_FILE.tmp" "$STATE_FILE"
+    fi
   fi
 
   case "${FAKE_SPLIT_MODE:-ok}" in
