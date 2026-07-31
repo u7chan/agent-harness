@@ -73,7 +73,10 @@ Example `.herdr/team.json`:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "layout": {
+    "max_cols": 3
+  },
   "members": [
     {"role": "impl", "kind": "opencode", "activation": "immediate"},
     {"role": "review", "kind": "codex", "activation": "deferred"},
@@ -81,6 +84,8 @@ Example `.herdr/team.json`:
   ]
 }
 ```
+
+`schema_version: 2` and `layout.max_cols` are required. `max_cols` is an integer from 1 to 3; unknown fields, the v1 schema, and stack layout settings are rejected.
 
 When kind is omitted, the origin agent kind is inherited. When activation is omitted, `impl` defaults to `immediate` and all others to `deferred`.
 
@@ -90,7 +95,7 @@ Agents are named `<kind>-<role>-<short-team-id>`. Pane display names are `<role>
 
 ### Rollback on failure
 
-If `team.start` fails partway through, created panes are automatically closed. Set `keep_on_failure: true` to preserve them for debugging.
+If `team.start` fails after a confirmed write, confirmed created panes are closed in reverse order. Set `keep_on_failure: true` to preserve them for debugging. A layout with an unknown outcome is retained and is never automatically closed or retried.
 
 ### Safe-stop on team.start
 
@@ -121,7 +126,7 @@ Team manifests are bound to the `workspace_id` that created them. Operations fro
 
 ### Timeouts
 
-- `team.start`: default 30s, max 300s; one deadline covers pane split/get and agent start/rename. Kickoff prompt has a dedicated minimum 10s timeout, decoupled from the overall deadline.
+- `team.start`: default 30s, max 300s; one deadline covers capability checks, layout snapshots, pane split/get, and agent start/rename. Kickoff prompt has a dedicated minimum 10s timeout, decoupled from the overall deadline.
 - `member.prompt`: default 30s, max 300s
 - `member.wait`: default 60s, max 60s (returns `waiting` on timeout, not an error)
 
@@ -147,6 +152,14 @@ Standard role prompts are bundled in `herdr/prompts/`:
 
 Each role returns a structured JSON report in its final response.
 
+## Grid Layout
+
+`team.start` reads the current pane identity from `HERDR_PANE_ID`, `HERDR_TAB_ID`, and `HERDR_WORKSPACE_ID`. It plans the entire Grid before issuing a split. The orchestrator remains on the left at a preferred 25% width (with a 48-column minimum); members occupy the right side with at most three columns, 60 columns per member, and 12 rows per member.
+
+The planner is deterministic and has no Herdr, manifest, time, or random dependencies. It assigns logical refs such as `orch`, `member-root`, `row-0`, and `member-0` before applying them to real pane IDs. Every split uses an explicit `--pane`, `--direction`, `--ratio`, `--cwd`, and `--no-focus`.
+
+Before and after each split, `pane list` and `pane layout --pane` snapshots are normalized and compared. The response pane ID must match the one new pane, the target pane must be retained, all unrelated pane rectangles must remain unchanged, and measured rectangles must be within one cell of the plan. A missing or malformed response is recovered only when read-only snapshots prove exactly one matching new pane; otherwise `team.start` returns `unknown_outcome` and stops.
+
 ## Low-Level Operations
 
 ### Preflight
@@ -158,16 +171,32 @@ command -v herdr >/dev/null || exit 1
 
 ### Delegate to a new agent
 
-#### 1. Split pane
+#### 1. Inspect the current pane
 
 ```bash
-herdr pane split --current --direction right --cwd "$PWD" --no-focus
-# read .result.pane.pane_id
+test "${HERDR_ENV:-}" = 1
+pane_id="$HERDR_PANE_ID"
+workspace_id="$HERDR_WORKSPACE_ID"
+herdr pane layout --pane "$pane_id"
+herdr pane list --workspace "$workspace_id"
 ```
 
-Use `down` when the caller pane is already narrow.
+`team.start` uses these read-only commands to build and validate the Grid plan. It does not infer the target from focus.
 
-#### 2. Agent detection
+Before applying any split, the CLI surface is checked with `herdr --version`, `herdr pane layout --help`, `herdr pane split --help`, and `herdr agent start --help`. Herdr `0.7.5` or later is required. Missing commands or options return `HERDR_CAPABILITY_MISSING` before a split is attempted.
+
+#### 2. Apply a planned split
+
+```bash
+herdr pane split --pane "$target_pane_id" \
+  --direction right \
+  --ratio 0.5 \
+  --cwd "$PWD" \
+  --no-focus
+# read .result.pane.pane_id as the newly created pane
+```
+
+#### 3. Agent detection
 
 ```bash
 herdr pane get <pane-id>
@@ -188,7 +217,7 @@ herdr agent start <name> --kind <kind> --pane <pane-id>
 
 Kind: `codex`, `opencode`, `claude`, etc. See `herdr agent start --help` for supported kinds.
 
-#### 3. Send prompt
+#### 4. Send prompt
 
 ```bash
 herdr agent prompt <target> "<text>" --wait --timeout 30000
@@ -196,13 +225,13 @@ herdr agent prompt <target> "<text>" --wait --timeout 30000
 
 Target = agent name or pane ID. Prefer agent name when known.
 
-#### 4. Wait
+#### 5. Wait
 
 ```bash
 herdr agent wait <target> --timeout 1800000
 ```
 
-#### 5. Read output
+#### 6. Read output
 
 ```bash
 herdr agent read <target> --source recent-unwrapped --lines 200

@@ -1,5 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "layout": {
+    "max_cols": 3
+  },
   "members": [
     {
       "role": "impl",

@@ -9,7 +9,7 @@ set +e
 set +o pipefail
 set -u
 
-if [ "${HERDR_ENV:-}" != "1" ]; then
+if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_PANE_ID:-}" ] || [ -z "${HERDR_TAB_ID:-}" ] || [ -z "${HERDR_WORKSPACE_ID:-}" ]; then
   echo "SKIP: HERDR_ENV is not set to 1 (not in a Herdr environment)"
   exit 0
 fi
@@ -32,7 +32,7 @@ LIVE_SMOKE_PROCESS_ID="$BASHPID"
 
 pane_ids() {
   local raw
-  raw="$(herdr pane list 2>/dev/null)" || return 1
+  raw="$(herdr pane list --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null)" || return 1
   jq -e -c 'select(.result.panes | type == "array") | [.result.panes[].pane_id] | unique' 2>/dev/null <<< "$raw"
 }
 
@@ -157,7 +157,7 @@ assert_ok "$(bash "$HERDR_SCRIPT" actions.list)" '.status == "ok"' "actions.list
 UNKNOWN_OUTPUT="$(bash "$HERDR_SCRIPT" unknown.action 2>&1 || true)"
 assert_ok "$UNKNOWN_OUTPUT" '.status == "failed" and .error.code == "UNKNOWN_ACTION"' "unknown action"
 
-TEAM_RESULT="$(printf '%s\n' '{"request_id":"live-smoke-001","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)"
+TEAM_RESULT="$(printf '%s\n' '{"request_id":"live-smoke-001","config_path":"herdr/team.json","grant":"write"}' | bash "$HERDR_SCRIPT" team.start 2>&1 || true)"
 assert_ok "$TEAM_RESULT" '.status == "ok"' "team.start creates team"
 LIVE_TEAM_ID="$(jq -r '.data.team_id // empty' 2>/dev/null <<< "$TEAM_RESULT")"
 if [ -z "$LIVE_TEAM_ID" ]; then

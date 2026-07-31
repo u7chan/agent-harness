@@ -1,95 +1,69 @@
 # Herdr Smoke Tests
 
-## Prerequisites
+## 前提
 
 ```bash
 command -v jq >/dev/null
 ```
 
-## Mock Smoke Tests (no Herdr required)
+## Mock smoke tests（Herdr不要）
 
-Uses a fake `herdr` CLI (`herdr/tests/fake_herdr.sh`) for fast, offline testing of all actions.
-Tests run under a temporary `XDG_STATE_HOME` to avoid any interference with real manifest data.
+StatefulなBSP simulatorで、planner・Grid適用・snapshot検証・復旧・safe-stopを検証します。状態は一時 `XDG_STATE_HOME` に保存されます。
 
 ```bash
 cd /path/to/global-agent-skills
 bash herdr/tests/smoke.sh
 ```
 
-## Live Smoke Tests (requires Herdr)
+主な検証内容:
 
-Requires a running Herdr environment with `HERDR_ENV=1` and an active agent pane.
-Tests run under a temporary `XDG_STATE_HOME` to avoid deleting or interfering with existing team manifests.
+- `schema_version: 2`、必須 `layout.max_cols`、未知fieldの拒否
+- 1〜7メンバー、`max_cols: 1..3`、最低幅・最低高、divider込みの計画
+- 同じ入力からbyte-equivalentな計画JSONが生成されること
+- 明示的なpane IDによるGrid splitと、全split後のAgent起動
+- split前後のpane集合・矩形・target維持・response pane IDの検証
+- response欠落から一意に復旧できるケース
+- 0件・複数件・別pane変更・snapshot失敗時の `unknown_outcome`
+- 既知失敗時の作成済みpane逆順rollback、未知結果時の自動close禁止
+
+## Live smoke tests（実Herdrが必要）
+
+Herdr `0.7.5` 以上の実行環境で、次を確認します。
+
+- `HERDR_ENV=1`
+- `HERDR_PANE_ID`、`HERDR_TAB_ID`、`HERDR_WORKSPACE_ID` が設定済み
+- `herdr pane layout --pane`、`herdr pane list --workspace`、明示target付き `pane split` が利用可能
+
+実ペインとAgentを作成するため、実行前に内容を確認してください。
 
 ```bash
 cd /path/to/global-agent-skills
 HERDR_ENV=1 bash herdr/tests/live-smoke.sh
 ```
 
-⚠️ **Caution**: The live test creates real Herdr panes and agents. Its EXIT cleanup
-stops tracked teams and closes only manifest-owned panes (foreign panes are never
-touched). Temporary state is deleted only after every manifest-tracked pane is
-confirmed closed. If cleanup is failed or unknown, the state directory is retained
-for retry and the test fails. An externally supplied `HERDR_TEMP_DIR` is only a
-parent; it is never deleted.
+Live testは一時状態を使い、manifestに記録されたpaneだけを終了処理します。unknown状態やcleanup失敗時は状態を残して手動確認を促します。
 
-## Test Coverage
+## トラブルシュート
 
-### Mock smoke tests
+### `jq: command not found`
 
-| Category | Checks |
-|----------|--------|
-| Catalog | `actions.list` returns action array, `actions.describe` returns definition |
-| Validation | Unknown action/fields, missing input, invalid JSON, strict config types/schema/control characters, unsafe IDs, fractional timeout |
-| Envelope | Required fields and exactly one JSON document on every tested success/failure/unknown path |
-| Team lifecycle | Start/get/list/stop, full start deadline, ready retry, rollback, unknown pane persistence, cross-workspace request IDs |
-| Member operations | Prompt state machine, wait/read real-envelope classification, failed/unknown close retries, partial stop retries |
-| Agent naming | Per-member `kind` used for agent start, agent names use `<kind>-<role>-<short-team-id>`, pane display names set |
-| Deferred activation | First prompt to deferred member includes role prompt + kickoff context, second prompt does not repeat them |
-| Idempotency | True parallel start/prompt (`&`, PID, `wait`), one external send, in-flight crash window, close target state |
-| Grant rejection | Write action with `read` grant fails with `GRANT_INSUFFICIENT` |
-| Error handling | `team.get` on nonexistent team returns `NOT_FOUND` |
-| Config | Strict raw schema and types, canonical paths/symlink boundary, immutable prompt snapshots, lock release on all errors |
-| Safety | External temp sentinel preservation, owned temp cleanup, unowned cleanup rejection, exact lock timing |
+Debian/Ubuntuなら `sudo apt-get install jq`、macOSなら `brew install jq` で導入します。
 
-### Live smoke tests
+### `HERDR_CAPABILITY_MISSING`
 
-| Category | Checks |
-|----------|--------|
-| Preflight | `herdr pane current` returns a valid pane with `pane_id` |
-| Catalog | `actions.list`, `actions.describe` |
-| Team lifecycle | `team.start` creates tracked panes and cleanup removes exact created pane IDs |
-| Member operations | Deferred prompt, wait, and read on real agents |
-| Cleanup | Manifest recovery when start output is unavailable, manifest-owned pane close, retained state on failed/unknown cleanup |
-
-## Troubleshooting
-
-### Mock tests fail with "jq: command not found"
+`herdr --version` が0.7.5以上であることと、次のhelpに必要なoptionがあることを確認します。
 
 ```bash
-sudo apt-get install jq   # Debian/Ubuntu
-brew install jq            # macOS
+herdr --version
+herdr pane layout --help
+herdr pane split --help
+herdr agent start --help
 ```
 
-### Live tests skip with "HERDR_ENV is not set"
+### `LAYOUT_NOT_FEASIBLE`
 
-The live smoke test requires running inside a Herdr workspace. Set `HERDR_ENV=1` or run from a Herdr pane.
+現在paneの幅・高さが、orchestrator最低48列、member最低60列×列数、member最低12行×行数を満たしていません。Grid splitは実行されないため、pane状態を変更せずに再試行できます。
 
-### Live tests fail with "Cannot determine current workspace"
+### `unknown_outcome`
 
-Ensure `herdr pane current` returns a valid result with a `workspace_id`.
-
-### team.start fails partway
-
-If `team.start` fails after creating some panes, the remaining panes are automatically rolled back (unless `keep_on_failure: true` was set). Check `herdr pane list` for orphaned panes and close them manually if needed.
-
-### Manifest cleanup
-
-Both mock and live smoke tests use dedicated temporary `XDG_STATE_HOME`
-directories. Mock state is removed on exit. Live state is removed only after pane
-cleanup is confirmed; otherwise the retained path is printed for manual recovery.
-To check for leftover temp dirs:
-
-```bash
-ls -la /tmp/herdr-*-state-*
-```
+CLI応答またはread-only snapshotからsplit結果を一意に確定できません。自動retry・自動closeは行わず、manifestの `layout.steps` と `layout.cleanup_complete` を確認してから明示的に復旧してください。

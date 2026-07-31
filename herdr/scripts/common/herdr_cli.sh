@@ -156,3 +156,82 @@ herdr_cli_call_before_deadline() {
   fi
   herdr_cli_safe_call_timeout "$remaining" "$@"
 }
+
+herdr_cli_text_call_timeout() {
+  local timeout_ms="$1"
+  shift
+  if [ "$timeout_ms" -le 0 ] 2>/dev/null; then
+    echo ""
+    return 0
+  fi
+  local timeout_seconds
+  timeout_seconds="$(awk -v ms="$timeout_ms" 'BEGIN { printf "%.3f", ms / 1000 }')"
+  local output rc=0
+  output="$(timeout --kill-after=1s "${timeout_seconds}s" "$@" 2>/dev/null)" || rc=$?
+  if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+    echo ""
+  else
+    printf '%s\n' "$output"
+  fi
+}
+
+herdr_cli_version_at_least() {
+  local version="$1"
+  local major minor patch
+  IFS=. read -r major minor patch <<< "$version"
+  if [ "${major:-0}" -gt 0 ]; then
+    return 0
+  fi
+  if [ "${major:-0}" -lt 0 ] || [ "${minor:-0}" -lt 7 ]; then
+    return 1
+  fi
+  if [ "${minor:-0}" -gt 7 ]; then
+    return 0
+  fi
+  [ "${patch:-0}" -ge 5 ]
+}
+
+herdr_cli_require_capabilities() {
+  local deadline_ms="$1"
+  local remaining version version_number
+  remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
+  version="$(herdr_cli_text_call_timeout "$remaining" herdr --version)"
+  version_number="$(printf '%s\n' "$version" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+  if [ -z "$version_number" ] || ! herdr_cli_version_at_least "$version_number"; then
+    return 1
+  fi
+
+  local help_text
+  remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
+  help_text="$(herdr_cli_text_call_timeout "$remaining" herdr pane layout --help)"
+  printf '%s\n' "$help_text" | grep -q -- '--pane' || return 1
+  remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
+  help_text="$(herdr_cli_text_call_timeout "$remaining" herdr pane split --help)"
+  for option in --pane --direction --ratio --cwd --no-focus; do
+    printf '%s\n' "$help_text" | grep -q -- "$option" || return 1
+  done
+  remaining="$(herdr_cli_timeout_remaining "$deadline_ms")"
+  help_text="$(herdr_cli_text_call_timeout "$remaining" herdr agent start --help)"
+  printf '%s\n' "$help_text" | grep -q -- '--pane' || return 1
+}
+
+herdr_cli_pane_list_before_deadline() {
+  local deadline_ms="$1"
+  local workspace_id="$2"
+  herdr_cli_call_before_deadline "$deadline_ms" herdr pane list --workspace "$workspace_id"
+}
+
+herdr_cli_pane_layout_before_deadline() {
+  local deadline_ms="$1"
+  local pane_id="$2"
+  herdr_cli_call_before_deadline "$deadline_ms" herdr pane layout --pane "$pane_id"
+}
+
+herdr_cli_pane_split_before_deadline() {
+  local deadline_ms="$1"
+  local pane_id="$2"
+  local direction="$3"
+  local ratio="$4"
+  herdr_cli_call_before_deadline "$deadline_ms" herdr pane split --pane "$pane_id" \
+    --direction "$direction" --ratio "$ratio" --cwd "$PWD" --no-focus
+}

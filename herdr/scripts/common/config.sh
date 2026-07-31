@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONFIG_ALLOWED_TOP_FIELDS='["schema_version","members"]'
+CONFIG_ALLOWED_TOP_FIELDS='["schema_version","layout","members"]'
 CONFIG_ALLOWED_MEMBER_FIELDS='["role","kind","activation","prompt_file"]'
+CONFIG_ALLOWED_LAYOUT_FIELDS='["max_cols"]'
 
 herdr_config_realpath_file() {
   local path="$1"
@@ -13,18 +14,23 @@ herdr_config_validate_raw_file() {
   local config_path="$1"
 
   jq -e --argjson top_allowed "$CONFIG_ALLOWED_TOP_FIELDS" \
-    --argjson member_allowed "$CONFIG_ALLOWED_MEMBER_FIELDS" '
+    --argjson member_allowed "$CONFIG_ALLOWED_MEMBER_FIELDS" \
+    --argjson layout_allowed "$CONFIG_ALLOWED_LAYOUT_FIELDS" '
     def safe_name:
       type == "string"
       and length > 0
       and length <= 128
       and test("^[A-Za-z0-9][A-Za-z0-9._-]*$");
     def no_control:
-      type == "string" and (test("[\\u0000-\\u001F\\u007F]") | not);
+      type == "string" and (explode | all(. >= 32 and . != 127));
     type == "object"
     and ((keys - $top_allowed) | length == 0)
     and has("schema_version")
-    and (.schema_version | type == "number" and . == 1)
+    and (.schema_version | type == "number" and . == 2)
+    and has("layout")
+    and (.layout | type == "object")
+    and ((.layout | keys - $layout_allowed) | length == 0)
+    and (.layout.max_cols | type == "number" and floor == . and . >= 1 and . <= 3)
     and has("members")
     and (.members | type == "array" and length > 0)
     and all(.members[];
@@ -112,6 +118,7 @@ herdr_config_resolve() {
     . + {
       _config_dir: $config_dir,
       _config_path: $config_path,
+      layout: .layout,
       members: [.members[] | . + {
         kind: (.kind // $fallback_kind),
         activation: (.activation // (if .role == "impl" then "immediate" else "deferred" end)),
@@ -126,9 +133,11 @@ herdr_config_validate_members() {
 
   if ! jq -e '
     type == "object"
-    and (.schema_version | type == "number" and . == 1)
+    and (.schema_version | type == "number" and . == 2)
     and (._config_dir | type == "string" and length > 0)
     and (._config_path | type == "string" and length > 0)
+    and (.layout | type == "object")
+    and (.layout.max_cols | type == "number" and floor == . and . >= 1 and . <= 3)
     and (.members | type == "array" and length > 0)
     and all(.members[];
       type == "object"
