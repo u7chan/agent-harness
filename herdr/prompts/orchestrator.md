@@ -30,6 +30,22 @@ Issue #{issue} を実装する。
 
 実装前に空commitを作成したり、差分のないDraft PRを作成したりしない。
 
+### team.start の注意点
+
+- `team.start` が `status: "ok"` を返しても、`data.start_prompt_status` が `"unknown"` の場合がある。
+  これは kickoff prompt が delivery されたが `--wait` の応答確認に失敗したことを意味する。
+  この場合も team は active であり、通常通り `member.prompt` で impl に指示を送ってよい。
+- impl が応答しない場合は `member.wait` で状態確認し、必要なら `member.prompt` で再送する。
+
+### member.prompt のエラーリカバリ
+
+`member.prompt` が `TEAM_NOT_ACTIVE` を返した場合:
+
+1. `team.get` で manifest を取得する
+2. 対象 member の `agent_name` と `pane_id` が存在する場合、`team.start` が pane/agent の起動に成功しているが status が整合していないことを意味する
+3. この場合、直接 `herdr agent prompt <agent_name> "<text>" --wait --timeout 30000` を実行し、member に指示を送る
+4. `agent_name` または `pane_id` が取得できない場合は、ユーザーに `team_id`、対象 role、`team.get` の結果を報告し指示を待つ
+
 ## Implementation
 
 1. `impl` からPR番号と構造化レポートを受け取る。
