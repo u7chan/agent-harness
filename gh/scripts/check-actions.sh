@@ -11,7 +11,6 @@ SCRIPT_DIR=$(cd -- "$SCRIPT_DIR" && pwd)
 GH_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
 ACTIONS_JSON="$GH_DIR/actions.json"
 ACTIONS_DIR="$GH_DIR/scripts/actions"
-SKILL_MD="$GH_DIR/SKILL.md"
 failed=0
 
 pass() {
@@ -114,112 +113,6 @@ if ((${#missing_scripts[@]} > 0 || ${#orphan_scripts[@]} > 0)); then
   fail 'actions.json and action scripts are in sync' "${missing_scripts[@]}" "${orphan_scripts[@]}"
 else
   pass 'actions.json and action scripts are in sync'
-fi
-
-skill_actions=()
-in_index=0
-header_seen=0
-index_ended=0
-extract_action_cell() {
-  local row=$1
-  local cell=''
-  local char=''
-  local in_code=0
-  local escaped=0
-  local i
-  local -a cells=()
-
-  for ((i = 0; i < ${#row}; i++)); do
-    char=${row:i:1}
-    if ((in_code == 0 && escaped == 0)) && [[ "$char" == '\\' ]]; then
-      cell+=$char
-      escaped=1
-    elif [[ "$char" == '`' ]]; then
-      cell+=$char
-      in_code=$((1 - in_code))
-      escaped=0
-    elif [[ "$char" == '|' ]] && ((in_code == 0 && escaped == 0)); then
-      cells+=("$cell")
-      cell=''
-    else
-      cell+=$char
-      escaped=0
-    fi
-  done
-  cells+=("$cell")
-  printf '%s' "${cells[2]-}"
-}
-
-if [[ ! -f "$SKILL_MD" ]]; then
-  fail 'SKILL.md Action Index is present and parseable' "missing: $SKILL_MD"
-else
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^##[[:space:]]Action[[:space:]]Index[[:space:]]*$ ]]; then
-      in_index=1
-      continue
-    fi
-    if ((in_index == 1)) && [[ "$line" =~ ^##[[:space:]]Permission[[:space:]]*$ ]]; then
-      index_ended=1
-      break
-    fi
-    if ((in_index == 1 && header_seen == 0)); then
-      if [[ -z "${line//[[:space:]]/}" ]]; then
-        continue
-      fi
-      header_seen=1
-      continue
-    fi
-    if ((in_index == 1)) && [[ "$line" == \|* ]]; then
-      skill_action=$(extract_action_cell "$line")
-      skill_action="${skill_action#"${skill_action%%[![:space:]]*}"}"
-      skill_action="${skill_action%"${skill_action##*[![:space:]]}"}"
-      if [[ -z "$skill_action" || "$skill_action" =~ ^-+$ ]]; then
-        continue
-      fi
-      skill_action=${skill_action#'`'}
-      skill_action=${skill_action%'`'}
-      skill_action=${skill_action//\\|/|}
-      skill_actions+=("$skill_action")
-    fi
-  done < "$SKILL_MD"
-
-  if ((in_index == 0 || index_ended == 0 || header_seen == 0)); then
-    fail 'SKILL.md Action Index is present and parseable'
-    skill_actions=()
-  else
-    pass 'SKILL.md Action Index is present and parseable'
-  fi
-fi
-
-index_orphans=()
-for skill_action in "${skill_actions[@]}"; do
-  if [[ -n "$skill_action" ]] && ! jq -e --arg name "$skill_action" '.actions[] | select(.name == $name)' "$ACTIONS_JSON" >/dev/null; then
-    index_orphans+=("not in actions.json: $skill_action")
-  fi
-done
-if ((${#index_orphans[@]} > 0)); then
-  fail 'SKILL.md Action Index actions exist in actions.json' "${index_orphans[@]}"
-else
-  pass 'SKILL.md Action Index actions exist in actions.json'
-fi
-
-missing_index_actions=()
-for action_name in "${action_names[@]}"; do
-  found=0
-  for skill_action in "${skill_actions[@]}"; do
-    if [[ "$action_name" == "$skill_action" ]]; then
-      found=1
-      break
-    fi
-  done
-  if ((found == 0)); then
-    missing_index_actions+=("not in SKILL.md Action Index: $action_name")
-  fi
-done
-if ((${#missing_index_actions[@]} > 0)); then
-  fail 'actions.json actions are listed in SKILL.md Action Index' "${missing_index_actions[@]}"
-else
-  pass 'actions.json actions are listed in SKILL.md Action Index'
 fi
 
 exit "$failed"

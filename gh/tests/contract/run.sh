@@ -131,6 +131,155 @@ test_not_implemented() {
   assert_json_eq "$output" '.error.code' "NOT_IMPLEMENTED" || return 1
 }
 
+setup_actions_list_fixture() {
+  setup_fixture
+  cp "$SCRIPT_DIR/../../scripts/actions/actions.list.sh" \
+    "$FIXTURE_DIR/scripts/actions/actions.list.sh"
+  chmod +x "$FIXTURE_DIR/scripts/actions/actions.list.sh"
+}
+
+register_actions_list_mock() {
+  local action_name="$1"
+  local category="$2"
+  local permission="$3"
+  local actions_file="$FIXTURE_DIR/actions.json"
+  local actions_tmp="$actions_file.tmp"
+
+  register_mock_action "$action_name" '#!/usr/bin/env bash
+set -euo pipefail
+exit 0'
+
+  jq --arg name "$action_name" \
+    --arg category "$category" \
+    --arg permission "$permission" \
+    '(.actions[] | select(.name == $name)) |=
+      (.category = $category | .permission = $permission)' \
+    "$actions_file" > "$actions_tmp"
+  mv "$actions_tmp" "$actions_file"
+}
+
+run_actions_list() {
+  local input_json="$1"
+  local input_file
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' "$input_json" > "$input_file"
+  fixture_gh "actions.list" "$input_file"
+  local rc=$?
+  rm -f "$input_file"
+  return "$rc"
+}
+
+test_actions_list_no_filter() (
+  setup_actions_list_fixture
+  trap teardown_fixture EXIT
+
+  register_actions_list_mock "contract.issue.read" "issue" "read"
+  register_actions_list_mock "contract.pr.write" "pr" "write"
+
+  local output expected actual
+  output="$(run_actions_list '{}')" || return 1
+  expected="$(jq -c '[.actions[] | {name, description, category, permission}] | sort_by(.name)' \
+    "$FIXTURE_DIR/actions.json")"
+  actual="$(jq -c '.data | sort_by(.name)' <<< "$output")"
+  assert_eq "$actual" "$expected" || return 1
+)
+
+test_actions_list_filter_by_categories() (
+  setup_actions_list_fixture
+  trap teardown_fixture EXIT
+
+  register_actions_list_mock "contract.issue.filter" "issue" "read"
+  register_actions_list_mock "contract.pr.filter" "pr" "read"
+
+  local output
+  output="$(run_actions_list '{"categories":["issue"]}')" || return 1
+  assert_json_eq "$output" '[.data[].category] | unique == ["issue"]' "true" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.issue.filter")) | length' "1" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.pr.filter")) | length' "0" || return 1
+)
+
+test_actions_list_filter_by_permissions() (
+  setup_actions_list_fixture
+  trap teardown_fixture EXIT
+
+  register_actions_list_mock "contract.read.filter" "issue" "read"
+  register_actions_list_mock "contract.write.filter" "issue" "write"
+
+  local output
+  output="$(run_actions_list '{"permissions":["read"]}')" || return 1
+  assert_json_eq "$output" '[.data[].permission] | unique == ["read"]' "true" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.read.filter")) | length' "1" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.write.filter")) | length' "0" || return 1
+)
+
+test_actions_list_filter_by_query() (
+  setup_actions_list_fixture
+  trap teardown_fixture EXIT
+
+  register_actions_list_mock "contract.pull.filter" "pr" "read"
+  register_actions_list_mock "contract.other.filter" "pr" "read"
+
+  local output
+  output="$(run_actions_list '{"query":"pull"}')" || return 1
+  assert_json_eq "$output" '.data | all(.[]; ((.name | ascii_downcase | contains("pull")) or (.description | ascii_downcase | contains("pull"))))' "true" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.pull.filter")) | length' "1" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.other.filter")) | length' "0" || return 1
+)
+
+test_actions_list_filter_query_case_insensitive() (
+  setup_actions_list_fixture
+  trap teardown_fixture EXIT
+
+  register_actions_list_mock "contract.pull.case" "pr" "read"
+  register_actions_list_mock "contract.other.case" "pr" "read"
+
+  local lower_output upper_output lower_data upper_data
+  lower_output="$(run_actions_list '{"query":"pull"}')" || return 1
+  upper_output="$(run_actions_list '{"query":"PULL"}')" || return 1
+  lower_data="$(jq -c '.data | sort_by(.name)' <<< "$lower_output")"
+  upper_data="$(jq -c '.data | sort_by(.name)' <<< "$upper_output")"
+  assert_eq "$upper_data" "$lower_data" || return 1
+)
+
+test_actions_list_filter_combined() (
+  setup_actions_list_fixture
+  trap teardown_fixture EXIT
+
+  register_actions_list_mock "contract.pr.read" "pr" "read"
+  register_actions_list_mock "contract.pr.write" "pr" "write"
+
+  local output
+  output="$(run_actions_list '{"categories":["pr"],"permissions":["read"]}')" || return 1
+  assert_json_eq "$output" '.data | all(.[]; .category == "pr" and .permission == "read")' "true" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.pr.read")) | length' "1" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.pr.write")) | length' "0" || return 1
+)
+
+test_actions_list_filter_or_within_field() (
+  setup_actions_list_fixture
+  trap teardown_fixture EXIT
+
+  register_actions_list_mock "contract.issue.or" "issue" "read"
+  register_actions_list_mock "contract.pr.or" "pr" "read"
+
+  local output
+  output="$(run_actions_list '{"categories":["issue","pr"]}')" || return 1
+  assert_json_eq "$output" '[.data[].category] | unique == ["issue", "pr"]' "true" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.issue.or")) | length' "1" || return 1
+  assert_json_eq "$output" '.data | map(select(.name == "contract.pr.or")) | length' "1" || return 1
+)
+
+test_actions_list_filter_empty_result() (
+  setup_actions_list_fixture
+  trap teardown_fixture EXIT
+
+  local output
+  output="$(run_actions_list '{"categories":["nonexistent"]}')" || return 1
+  assert_json_eq "$output" '.status' "ok" || return 1
+  assert_json_eq "$output" '.data' '[]' || return 1
+)
+
 test_envelope() {
   local input_file
   local output
@@ -237,7 +386,17 @@ main() {
   export GH_TEST_AUTH_RESULT=0
   run_test test_not_implemented
 
-  # Group C: envelope and dispatch
+  # Group C: actions.list filters
+  run_test test_actions_list_no_filter
+  run_test test_actions_list_filter_by_categories
+  run_test test_actions_list_filter_by_permissions
+  run_test test_actions_list_filter_by_query
+  run_test test_actions_list_filter_query_case_insensitive
+  run_test test_actions_list_filter_combined
+  run_test test_actions_list_filter_or_within_field
+  run_test test_actions_list_filter_empty_result
+
+  # Group D: envelope and dispatch
   run_test test_envelope
   run_test test_dispatch
 

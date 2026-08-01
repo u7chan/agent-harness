@@ -7,7 +7,23 @@
       "category": "catalog",
       "permission": "read",
       "requires_auth": false,
-      "input_schema": {},
+      "input_schema": {
+        "categories": {
+          "type": "array",
+          "required": false,
+          "description": "Filter by one or more action categories"
+        },
+        "permissions": {
+          "type": "array",
+          "required": false,
+          "description": "Filter by one or more permission levels"
+        },
+        "query": {
+          "type": "string",
+          "required": false,
+          "description": "Search action names and descriptions"
+        }
+      },
       "output_schema": {
         "data": {
           "type": "array",
