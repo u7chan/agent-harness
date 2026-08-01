@@ -238,7 +238,6 @@ main() {
   run_test test_not_implemented
 
   # Group C: envelope and dispatch
-  export GH_TEST_AUTH_RESULT=0
   run_test test_envelope
   run_test test_dispatch
 
