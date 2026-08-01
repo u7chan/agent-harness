@@ -120,43 +120,75 @@ skill_actions=()
 in_index=0
 header_seen=0
 index_ended=0
-while IFS= read -r line || [[ -n "$line" ]]; do
-  if [[ "$line" =~ ^##[[:space:]]Action[[:space:]]Index[[:space:]]*$ ]]; then
-    in_index=1
-    continue
-  fi
-  if ((in_index == 1)) && [[ "$line" =~ ^##[[:space:]]Permission[[:space:]]*$ ]]; then
-    index_ended=1
-    break
-  fi
-  if ((in_index == 1 && header_seen == 0)); then
-    if [[ -z "${line//[[:space:]]/}" ]]; then
-      continue
-    fi
-    header_seen=1
-    continue
-  fi
-  if ((in_index == 1)) && [[ "$line" == \|* ]]; then
-    row=${line#|}
-    row=${row%|}
-    skill_action=${row#*|}
-    skill_action=${skill_action%%|*}
-    skill_action="${skill_action#"${skill_action%%[![:space:]]*}"}"
-    skill_action="${skill_action%"${skill_action##*[![:space:]]}"}"
-    if [[ -z "$skill_action" || "$skill_action" =~ ^-+$ ]]; then
-      continue
-    fi
-    skill_action=${skill_action#'`'}
-    skill_action=${skill_action%'`'}
-    skill_actions+=("$skill_action")
-  fi
-done < "$SKILL_MD"
+extract_action_cell() {
+  local row=$1
+  local cell=''
+  local char=''
+  local in_code=0
+  local escaped=0
+  local i
+  local -a cells=()
 
-if ((in_index == 0 || index_ended == 0 || header_seen == 0)); then
-  fail 'SKILL.md Action Index is present and parseable'
-  skill_actions=()
+  for ((i = 0; i < ${#row}; i++)); do
+    char=${row:i:1}
+    if ((in_code == 0 && escaped == 0)) && [[ "$char" == '\\' ]]; then
+      cell+=$char
+      escaped=1
+    elif [[ "$char" == '`' ]]; then
+      cell+=$char
+      in_code=$((1 - in_code))
+      escaped=0
+    elif [[ "$char" == '|' ]] && ((in_code == 0 && escaped == 0)); then
+      cells+=("$cell")
+      cell=''
+    else
+      cell+=$char
+      escaped=0
+    fi
+  done
+  cells+=("$cell")
+  printf '%s' "${cells[2]-}"
+}
+
+if [[ ! -f "$SKILL_MD" ]]; then
+  fail 'SKILL.md Action Index is present and parseable' "missing: $SKILL_MD"
 else
-  pass 'SKILL.md Action Index is present and parseable'
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^##[[:space:]]Action[[:space:]]Index[[:space:]]*$ ]]; then
+      in_index=1
+      continue
+    fi
+    if ((in_index == 1)) && [[ "$line" =~ ^##[[:space:]]Permission[[:space:]]*$ ]]; then
+      index_ended=1
+      break
+    fi
+    if ((in_index == 1 && header_seen == 0)); then
+      if [[ -z "${line//[[:space:]]/}" ]]; then
+        continue
+      fi
+      header_seen=1
+      continue
+    fi
+    if ((in_index == 1)) && [[ "$line" == \|* ]]; then
+      skill_action=$(extract_action_cell "$line")
+      skill_action="${skill_action#"${skill_action%%[![:space:]]*}"}"
+      skill_action="${skill_action%"${skill_action##*[![:space:]]}"}"
+      if [[ -z "$skill_action" || "$skill_action" =~ ^-+$ ]]; then
+        continue
+      fi
+      skill_action=${skill_action#'`'}
+      skill_action=${skill_action%'`'}
+      skill_action=${skill_action//\\|/|}
+      skill_actions+=("$skill_action")
+    fi
+  done < "$SKILL_MD"
+
+  if ((in_index == 0 || index_ended == 0 || header_seen == 0)); then
+    fail 'SKILL.md Action Index is present and parseable'
+    skill_actions=()
+  else
+    pass 'SKILL.md Action Index is present and parseable'
+  fi
 fi
 
 index_orphans=()
