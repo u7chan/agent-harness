@@ -63,7 +63,7 @@ herdr agent start <name> --kind <kind> --pane <pane-id>
 Use the kind requested by the user. When unspecified:
 
 | Task | Default kind |
-|---| ---|
+|---|---|
 | Implementation | `opencode` |
 | Review or verification | `codex` |
 
