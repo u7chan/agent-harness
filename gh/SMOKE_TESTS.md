@@ -480,7 +480,7 @@ echo '{"q":"is:open"}' | bash gh/scripts/gh.sh prs.search | jq -e '.status == "o
 echo '{"number":12}' | bash gh/scripts/gh.sh pr.read | jq -e '.status == "ok" and .data.number == 12 and .data.title != null'
 
 # Test: get PR from URL
-echo '{"reference":"https://github.com/anomalyco/global-agent-skills/pull/12"}' | bash gh/scripts/gh.sh pr.read | jq -e '.status == "ok" and .target.type == "pull_request"'
+echo '{"reference":"https://github.com/u7chan/agent-harness/pull/12"}' | bash gh/scripts/gh.sh pr.read | jq -e '.status == "ok" and .target.type == "pull_request"'
 ```
 
 | Check | Pass Condition |
@@ -551,7 +551,7 @@ echo '{"number":12}' | bash gh/scripts/gh.sh pr.checks.read | jq -e '.status == 
 bash gh/scripts/gh.sh pr.read | jq -e '.status == "ok"'
 
 # Test: ambiguous target should fail
-echo '{"reference":"anomalyco/global-agent-skills"}' | bash gh/scripts/gh.sh pr.read 2>&1 | jq -e '.status == "failed"'
+echo '{"reference":"u7chan/agent-harness"}' | bash gh/scripts/gh.sh pr.read 2>&1 | jq -e '.status == "failed"'
 ```
 
 | Check | Pass Condition |
