@@ -19,7 +19,7 @@ Select the smallest matching category set.
 |---|---|
 | Discover or describe actions | `catalog` |
 | Repository information | `repository` |
-| Issue operations | `issue`, `metadata`, `comment` |
+| Issue operations | `issue`, `subissue`, `metadata`, `comment` |
 | Pull request operations | `pr`, `comment` |
 | Pull request review | `pr`, `review-comment`, `review`, `review-thread`, `comment` |
 | Common issue-driven development | `references/workflows/development.md` |
