@@ -3,46 +3,32 @@
 すべての GitHub 操作は `gh/scripts/gh.sh` 経由で行う。カテゴリ `pr`, `review`, `review-comment`, `review-thread`, `comment` のアクションを使用する。
 入力は stdin または JSON ファイルで渡す（文字列を直接引数にしない）。
 
-## PR 情報の取得
+各アクションの field 定義・型・permission は `gh/actions.json` の `input_schema` / `output_schema` を正本とする。このドキュメントは操作順序・安全ルール・API 注意事項のみを記述する。
+
+## 操作フロー
+
+### 1. 情報収集（read）
+
+以下の順で必要な情報を取得する。
+
+| 順序 | アクション | 目的 |
+|------|-----------|------|
+| 1 | `pr.read` | PR メタデータ、head commit SHA の固定 |
+| 2 | `pr.diff.read` | 差分全体 |
+| 3 | `pr.files.read` | ファイル一覧 |
+| 4 | `comments.read` | Issue コメント（conversation） |
+| 5 | `reviews.read` | 既存レビュー |
+| 6 | `review-comments.read` | 既存レビューコメント（REST） |
+| 7 | `review-threads.read` | 既存スレッドと resolve 状態（GraphQL） |
+
+入出力の詳細は各アクションの `actions.json` 定義を参照する。
+
+### 2. レビュー投稿（write）
+
+`reviews.create` で投稿する。payload は `actions.json` の `input_schema` に従い jq で構築する。
 
 ```bash
-# PR メタデータ取得
-echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh pr.read
-
-# PR 差分取得
-echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh pr.diff.read
-
-# PR ファイル一覧取得
-echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh pr.files.read
-
-# PR コミット一覧取得
-echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh pr.commits.read
-
-# Issue コメント取得
-echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh comments.read
-```
-
-## レビュー情報の取得
-
-```bash
-# レビュー一覧取得
-echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh reviews.read
-
-# レビューコメント取得（REST: 数値ID、path、line を含む）
-echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh review-comments.read
-
-# レビュースレッド取得（GraphQL: resolved 状態、thread_id 含む）
-echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh review-threads.read
-```
-
-`review-comments.read` の出力から数値コメント ID を取得し、`review-threads.read` の出力からスレッドの resolve 状態と thread_id を取得する。
-
-## レビュー投稿
-
-複数行の本文は `--rawfile` で別ファイルから渡し、jq フィルタへ直接埋め込まない。
-
-```bash
-# インラインコメント付きレビュー作成（各コメント本文は別ファイルで用意）
+# インラインコメント付きレビュー
 jq -n \
   --arg reference "<owner/repo または PR URL>" \
   --argjson number <PR番号> \
@@ -51,89 +37,60 @@ jq -n \
   --rawfile comment_body comment-body.md \
   --arg event COMMENT \
   --arg grant write \
-  '{
-    reference: $reference,
-    number: $number,
-    commit_id: $commit_id,
-    body: $body,
-    comments: [
-      {
-        path: "<ファイルパス>",
-        position: <diff内の位置>,
-        body: $comment_body
-      }
-    ],
-    event: $event,
-    grant: $grant
-  }' > review-payload.json
+  '{...}' > review-payload.json
 
 gh/scripts/gh.sh reviews.create review-payload.json
 ```
 
-複数コメントがある場合は、各コメント本文を個別のファイルとして用意し、`--rawfile` でそれぞれ読み込む。
-
-- `comments[].position` は diff hunk 内の位置（絶対行番号ではない）。
+- 複数コメントがある場合は各本文を個別ファイルに用意し `--rawfile` で読み込む。
 - 複数コメントを 1 つの review にまとめる。
-- `event` は常に `"COMMENT"`（PENDING や APPROVE は使わない）。
+- `event` は常に `"COMMENT"`。PENDING や APPROVE は使わない。
+- 指摘がない場合も COMMENT review を投稿する（comments 配列なし）。
+
+### 3. 返信とスレッド解決
 
 ```bash
-# 指摘なしレビュー（comments 配列なし）
-jq -n \
-  --arg reference "<owner/repo または PR URL>" \
-  --argjson number <PR番号> \
-  --arg commit_id <head commit SHA> \
-  --rawfile body no-findings.md \
-  --arg event COMMENT \
-  --arg grant write \
-  '{reference: $reference, number: $number, commit_id: $commit_id, body: $body, event: $event, grant: $grant}' \
-  > no-findings-payload.json
-
-gh/scripts/gh.sh reviews.create no-findings-payload.json
-```
-
-## 個別アクション
-
-```bash
-# コメントへの返信（スレッド内）
-jq -n \
-  --arg reference "<owner/repo または PR URL>" \
-  --argjson number <PR番号> \
-  --argjson reply_to <返信先コメントID> \
-  --rawfile body reply-body.md \
-  --arg grant write \
-  '{reference: $reference, number: $number, reply_to: $reply_to, body: $body, grant: $grant}' \
+# スレッドへの返信
+jq -n --argjson reply_to <返信先コメントID> --rawfile body reply-body.md ... \
   | gh/scripts/gh.sh review-comments.reply
-```
 
-`reply_to` には `review-comments.read` の出力に含まれる数値 ID を使う。
-
-```bash
-# スレッド解決（sensitive-write、ユーザー確認後に実行）
-echo '{
-  "thread_id": "<GraphQL thread node ID>",
-  "grant": "sensitive-write"
-}' | gh/scripts/gh.sh review-threads.resolve
+# スレッド解決（ユーザー確認後に実行）
+echo '{...}' | gh/scripts/gh.sh review-threads.resolve
 
 # スレッド未解決に戻す
-echo '{
-  "thread_id": "<GraphQL thread node ID>",
-  "grant": "sensitive-write"
-}' | gh/scripts/gh.sh review-threads.unresolve
+echo '{...}' | gh/scripts/gh.sh review-threads.unresolve
 ```
 
-`thread_id` は `review-threads.read` の出力に含まれる GraphQL ノード ID を使う。
+各アクションの payload field は `actions.json` を参照する。
+
+## API 注意事項
+
+### ID の使い分け
+
+| 用途 | 取得元 | ID の種類 |
+|------|--------|----------|
+| 返信の `reply_to` | `review-comments.read` | REST 数値 ID |
+| スレッド解決の `thread_id` | `review-threads.read` | GraphQL ノード ID |
+
+GraphQL ノード ID を `reply_to` に使うと API エラーになる。必ず REST 数値 ID を使用する。
+
+### position について
+
+`comments[].position` は GitHub の Legacy diff position。hunk をまたいで継続カウントされる（hunk ごとにリセットされない）。
+API 制約により `line`（絶対行番号）は指定できない。
+
+### commit_id
+
+`reviews.create` の `commit_id` には、レビュー開始時に `pr.read` で固定した head commit SHA を渡す。投稿後、API 応答の `commit_id` が固定 SHA と一致することを確認する。
 
 ## JSON payload の扱い
 
-- jq の `--rawfile` で値を渡し、jq に JSON のエスケープを任せる。JSON の wire 表現としての `\n` は正常（jq が適切にエンコードする）。
+- jq の `--rawfile` で値を渡し、JSON のエスケープは jq に任せる。
 - 不要になった一時ファイルはワーキングディレクトリ配下に作成し、`/tmp` は使わない。
-- GitHub 上の表示本文（API 応答の decoded body）に二文字のバックスラッシュ+n が出現していないかだけを検査する。JSON ペイロード内の `\n` エスケープは正常なため検査不要。
+- GitHub 上の表示本文（API 応答の decoded body）にリテラル `\n`（二文字のバックスラッシュ+n）が出現していないか検査する。JSON ペイロード内の `\n` エスケープは正常なため検査不要。
 
-## 注意事項
+## 禁止事項
 
-- `review-comments.create` は常に `commit_id` が必要。PR の head commit SHA を `pr.read` から取得する。
-- `position` は GitHub の Legacy diff position。API 制約により絶対行番号（`line`）は使えない。
-- 返信の `reply_to` には `review-comments.read` の REST API が返す数値 ID を使う。`review-threads.read` の GraphQL ノード ID とは異なる。
-- スレッド解決の `thread_id` には `review-threads.read` の GraphQL ノード ID を使う。
-- すべての write 系アクションには `grant` フィールドが必要。
-- APPROVE レビューは発行しない。merge や issue close は行わない。
+- APPROVE review は発行しない。`event` は常に `"COMMENT"`。
+- merge や issue close は行わない。
+- バッククォート、`$()`、引用符、改行を含む本文をシェル引数へ直接埋め込まない。
