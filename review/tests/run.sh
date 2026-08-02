@@ -37,6 +37,12 @@ expect_valid reviews.create "$FIXTURES/nit-only.json"
 expect_valid reviews.create "$FIXTURES/blocker.json"
 expect_valid review-comments.reply "$FIXTURES/recheck-resolved.json"
 expect_valid review-comments.reply "$FIXTURES/recheck-unresolved.json"
+jq '.body = "**Partial** (**Blocker**): 一部の入力経路に失敗条件が残っています。"' \
+  "$FIXTURES/recheck-unresolved.json" > "$TEST_TMP/recheck-partial.json"
+expect_valid review-comments.reply "$TEST_TMP/recheck-partial.json"
+jq '.body = "**Unknown**: 実行時条件を確認できないため判定できません。"' \
+  "$FIXTURES/recheck-resolved.json" > "$TEST_TMP/recheck-unknown.json"
+expect_valid review-comments.reply "$TEST_TMP/recheck-unknown.json"
 
 expect_invalid label-supplement reviews.create \
   '.comments[0].body = ("**Nit (" + "Optional)**: 表記が揺れています。")' \

@@ -21,7 +21,7 @@
 ## Thread の特定
 
 1. `review-threads.read` の `database_id` と `review-comments.read` の root comment の数値 ID を照合する。
-2. `database_id` がない場合だけ、PR、path、line、投稿者、`in_reply_to_id == null` を照合し、outdated なら original position を優先する。
+2. `database_id` がない場合だけ、PR、path、line、投稿者が自分のアカウントであること、`in_reply_to_id == null` を照合し、outdated なら original position を優先する。
 3. 一意に特定できなければ unknown とし、返信しない。
 
 ## 報告
