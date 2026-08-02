@@ -24,7 +24,7 @@ main() {
   esac
 
   local target
-  target="$(resolve_pr_target)" || {
+  target="$(resolve_pr_target "" "$number")" || {
     envelope_fail "reviews.create" "TARGET_ERROR" "Failed to resolve PR target" false
     exit 1
   }

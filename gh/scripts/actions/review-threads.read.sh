@@ -44,7 +44,7 @@ main() {
   per_page="$(jq -r '.per_page // 100' "$request_file")"
 
   local target
-  target="$(resolve_pr_target)" || {
+  target="$(resolve_pr_target "" "$number")" || {
     envelope_fail "review-threads.read" "TARGET_ERROR" "Failed to resolve PR target" false
     exit 1
   }
