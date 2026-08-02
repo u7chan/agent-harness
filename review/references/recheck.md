@@ -11,7 +11,7 @@
 ## ラウンド制限
 
 - 同一 PR に対する再チェックは最大 3 ラウンドまで。
-- 3 ラウンド後も Blocker または Major が残存する場合、それ以上投稿せずユーザーに報告する。
+- 3 ラウンド後も Blocker が残存する場合、それ以上投稿せずユーザーに報告する。
 - 最終ラウンドの投稿は常に COMMENT とする。
 
 ## 判定方法
@@ -29,8 +29,8 @@
 ## Draft PR の扱い
 
 - Draft PR でも最大 3 ラウンドまで再チェックを継続する。
-- 3 ラウンド後も Blocker または Major が残存する場合は Draft のまま停止して報告する。
-- PR が Draft でも Minor または Nit のみの残存であれば継続する。
+- 3 ラウンド後も Blocker が残存する場合は Draft のまま停止して報告する。
+- PR が Draft でも Nit、Consider、FYI のみの残存であれば継続する。
 
 ## アクション
 
@@ -38,7 +38,7 @@
 - **partial** / **unresolved**: 残っている発生条件と挙動を同じ thread へ返信する。
 - **unknown**: 判断できない理由を報告し、Resolve しない。
 - 返信できない場合だけ、必要に応じて overall comment で状態を伝える。
-- 返信には重要度ラベルを更新して付ける（例: Blocker → Major など、状況変化を反映）。
+- 返信には重要度ラベルを更新して付ける（例: Blocker → Nit など、状況変化を反映）。
 - 返信の `reply_to` には `review-comments.read` の出力に含まれる数値 ID を使う。`review-threads.read` の GraphQL ノード ID は `reply_to` に使えない。thread とコメントの対応付けは、以下の順で判定する：
   1. `review-threads.read` の `database_id`（REST 数値 ID）で直接 `reply_to` を特定する
   2. `database_id` が利用できない場合のみ、PR 番号とファイルパス、行番号、自アカウントのコメント、`in_reply_to_id` が `null` の root comment で照合する
@@ -67,4 +67,4 @@
 
 - 再コメント件数、Resolve 件数、ラウンド数を伝える。
 - 未解決または判断不能があれば、その条件と理由を伝える。
-- Blocker/Major 残存による停止の場合は、残存指摘の一覧をレビュー記録テンプレート形式で報告する。
+- Blocker 残存による停止の場合は、残存指摘の一覧をレビュー記録テンプレート形式で報告する。

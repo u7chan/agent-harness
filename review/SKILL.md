@@ -25,7 +25,7 @@ PR が指定された場合は差分行へ投稿し、指定がない場合は�
 - 投稿後は API 応答または再取得で本文、ラベル、コメント位置を確認する。
 - 投稿完了前に API 応答の decoded body を `rg` で検査し、リテラル `\n`（二文字のバックスラッシュ+n）、不完全な重要度ラベル、未置換変数パターンをチェックする。JSON ペイロード内の `\n` エスケープは正常なため除外する。
 - 直接修正はタイポ、コードコメント、Markdown の修正に限る。コードロジック、設定、テスト、型定義の直接修正は不可。
-- 再チェックは最大 3 ラウンド。3 ラウンド後も Blocker または Major が残存する場合は停止して報告する。Draft PR でも 3 ラウンドまで継続し、停止時は Draft のまま報告する。
+- 再チェックは最大 3 ラウンド。3 ラウンド後も Blocker が残存する場合は停止して報告する。Draft PR でも 3 ラウンドまで継続し、停止時は Draft のまま報告する。
 
 # Workflow
 
@@ -88,7 +88,7 @@ PR レビューモード:
 
 - `references/review-criteria.md` の品質ゲートを通過し、投稿可能と判定した候補だけを対象にする。
 - 品質ゲートを通過しなかった候補（判断不能、反証済み）は投稿しない。
-- 重要度は Blocker / Major / Minor / Nit の 4 段階で判定する。
+- 重要度は Blocker / Nit / Consider / FYI の 4 段階で判定する。
 - 原因または修正対象に最も近い差分行へ inline comment を付ける。
 - 複数ファイルにまたがる問題、削除済み行、API 制約で紐づけられない問題だけ overall comment にする。
 
@@ -105,7 +105,7 @@ PR レビューモード:
 - **Reviewed commit:** `<固定した head SHA>`
 - **Round:** `<n>`/3
 - **Verification:** `<実行した検証コマンド・アクション>`
-- **Findings:** Blocker `<n>` / Major `<n>` / Minor `<n>` / Nit `<n>`
+- **Findings:** Blocker `<n>` / Nit `<n>` / Consider `<n>` / FYI `<n>`
 - **Remaining:** `<未解決指摘 or none>`
 - **Skipped candidates:** `<見送りカテゴリと簡潔な理由>`
 ```
