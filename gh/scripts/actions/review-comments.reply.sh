@@ -15,7 +15,7 @@ main() {
   reply_to="$(jq -r '.reply_to' "$request_file")"
 
   local target
-  target="$(resolve_pr_target)" || {
+  target="$(resolve_pr_target "" "$number")" || {
     envelope_fail "review-comments.reply" "TARGET_ERROR" "Failed to resolve PR target" false
     exit 1
   }
