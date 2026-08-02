@@ -33,7 +33,7 @@ main() {
   per_page="$(jq -r '.per_page // 100' "$request_file")"
 
   local target
-  target="$(resolve_target "$reference" "$number")" || {
+  target="$(resolve_target "$reference")" || {
     envelope_fail "comments.read" "TARGET_ERROR" "Failed to resolve repository target" false
     exit 1
   }

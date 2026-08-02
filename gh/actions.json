@@ -2443,7 +2443,7 @@
                     "items": {
                       "type": "object",
                       "properties": {
-                        "id": "integer",
+                        "id": "string",
                         "database_id": "integer",
                         "body": "string",
                         "html_url": "string",
@@ -2451,7 +2451,7 @@
                         "line": "integer",
                         "outdated": "boolean",
                         "commit_id": "string",
-                        "in_reply_to_id": "integer",
+                        "in_reply_to_id": "string",
                         "user": {
                           "login": "string"
                         },
