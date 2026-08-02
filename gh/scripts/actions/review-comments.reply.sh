@@ -10,12 +10,13 @@ source "$SCRIPT_DIR/../common/file.sh"
 main() {
   local request_file="$1"
 
-  local number reply_to
+  local number reference reply_to
   number="$(jq -r '.number' "$request_file")"
+  reference="$(jq -r '.reference // empty' "$request_file")"
   reply_to="$(jq -r '.reply_to' "$request_file")"
 
   local target
-  target="$(resolve_pr_target "" "$number")" || {
+  target="$(resolve_pr_target "$reference" "$number")" || {
     envelope_fail "review-comments.reply" "TARGET_ERROR" "Failed to resolve PR target" false
     exit 1
   }

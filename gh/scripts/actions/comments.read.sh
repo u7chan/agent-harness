@@ -9,9 +9,10 @@ source "$SCRIPT_DIR/../common/http.sh"
 main() {
   local request_file="$1"
 
-  local number comment_id
+  local number comment_id reference
   number="$(jq -r '.number' "$request_file")"
   comment_id="$(jq -r '.comment_id // empty' "$request_file")"
+  reference="$(jq -r '.reference // empty' "$request_file")"
 
   local per_page_valid
   per_page_valid="$(jq -r '
@@ -32,7 +33,7 @@ main() {
   per_page="$(jq -r '.per_page // 100' "$request_file")"
 
   local target
-  target="$(resolve_target)" || {
+  target="$(resolve_target "$reference")" || {
     envelope_fail "comments.read" "TARGET_ERROR" "Failed to resolve repository target" false
     exit 1
   }
