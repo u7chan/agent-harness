@@ -4,6 +4,7 @@ Common GitHub action sequences for issue-driven development.
 
 ## 1. Read issue
 
+Basic:
 - `issue.get`
 - `comments.read`
 
