@@ -39,13 +39,14 @@ echo '{"number": <PR番号>}' | gh/scripts/gh.sh review-threads.read
 
 ## レビュー投稿
 
-複数行の本文は JSON ファイル経由で渡す。
+複数行の本文は `--rawfile` で別ファイルから渡し、jq フィルタへ直接埋め込まない。
 
 ```bash
-# インラインコメント付きレビュー作成
+# インラインコメント付きレビュー作成（各コメント本文は別ファイルで用意）
 jq -n \
   --argjson number <PR番号> \
   --rawfile body review-body.md \
+  --rawfile comment_body comment-body.md \
   --arg event COMMENT \
   --arg grant write \
   '{
@@ -55,7 +56,7 @@ jq -n \
       {
         path: "<ファイルパス>",
         position: <diff内の位置>,
-        body: "<コメント本文>"
+        body: $comment_body
       }
     ],
     event: $event,
@@ -64,6 +65,8 @@ jq -n \
 
 gh/scripts/gh.sh reviews.create review-payload.json
 ```
+
+複数コメントがある場合は、各コメント本文を個別のファイルとして用意し、`--rawfile` でそれぞれ読み込む。
 
 - `comments[].position` は diff hunk 内の位置（絶対行番号ではない）。
 - 複数コメントを 1 つの review にまとめる。
@@ -86,12 +89,13 @@ gh/scripts/gh.sh reviews.create no-findings-payload.json
 
 ```bash
 # コメントへの返信（スレッド内）
-echo '{
-  "number": <PR番号>,
-  "reply_to": <返信先コメントID>,
-  "body": "<返信本文>",
-  "grant": "write"
-}' | gh/scripts/gh.sh review-comments.reply
+jq -n \
+  --argjson number <PR番号> \
+  --argjson reply_to <返信先コメントID> \
+  --rawfile body reply-body.md \
+  --arg grant write \
+  '{number: $number, reply_to: $reply_to, body: $body, grant: $grant}' \
+  | gh/scripts/gh.sh review-comments.reply
 ```
 
 `reply_to` には `review-comments.read` の出力に含まれる数値 ID を使う。
@@ -114,10 +118,9 @@ echo '{
 
 ## JSON payload の扱い
 
-- 複数行 Markdown 本文は jq の `--rawfile` または JSON ファイルで渡す。
-- 永続化が必要な場合はワーキングディレクトリ配下に一時ファイルを作成し、`/tmp` は使わない。
-- JSON ファイル内では実改行を使う。文字列としての `\n` を埋め込まない。
-- JSON 表現としての `\n` は正常（jq が適切にエンコードする）。検査対象は GitHub 上の表示本文（API 応答の decoded body）に限定する。
+- jq の `--rawfile` で値を渡し、jq に JSON のエスケープを任せる。JSON の wire 表現としての `\n` は正常（jq が適切にエンコードする）。
+- 不要になった一時ファイルはワーキングディレクトリ配下に作成し、`/tmp` は使わない。
+- GitHub 上の表示本文（API 応答の decoded body）に二文字のバックスラッシュ+n が出現していないかだけを検査する。JSON ペイロード内の `\n` エスケープは正常なため検査不要。
 
 ## 注意事項
 

@@ -38,7 +38,13 @@
 - **unknown**: 判断できない理由を報告し、Resolve しない。
 - 返信できない場合だけ、必要に応じて overall comment で状態を伝える。
 - 返信には重要度ラベルを更新して付ける（例: Blocker → Major など、状況変化を反映）。
-- 返信の `reply_to` には `review-comments.read` の出力に含まれる数値 ID を使う。`review-threads.read` の GraphQL ノード ID は `reply_to` に使えない。thread とコメントの対応付けは、ファイルパス、行番号、本文内容で一致を確認する。
+- 返信の `reply_to` には `review-comments.read` の出力に含まれる数値 ID を使う。`review-threads.read` の GraphQL ノード ID は `reply_to` に使えない。thread とコメントの対応付けは、以下の識別条件の組み合わせで一致を確認する：
+  1. PR 番号とファイルパス
+  2. 行番号（または position）
+  3. 自アカウント（`user.login`）のコメントであること
+  4. コメント本文の主要部分（発生条件の記述）の一致
+  5. `commit_id` が前回レビュー時の head SHA と一致するか、より新しいこと
+  6. 同じ条件に複数コメントが該当する場合は `created_at` で最新のものを選択
 
 ## 直接修正
 
