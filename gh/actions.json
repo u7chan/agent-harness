@@ -109,10 +109,22 @@
             "state": "string",
             "html_url": "string",
             "body": "string",
-            "user": { "login": "string" },
-            "labels": [{ "name": "string" }],
-            "assignees": [{ "login": "string" }],
-            "milestone": { "title": "string" },
+            "user": {
+              "login": "string"
+            },
+            "labels": [
+              {
+                "name": "string"
+              }
+            ],
+            "assignees": [
+              {
+                "login": "string"
+              }
+            ],
+            "milestone": {
+              "title": "string"
+            },
             "comments": "integer",
             "created_at": "string",
             "updated_at": "string",
@@ -165,10 +177,18 @@
               "title": "string",
               "state": "string",
               "html_url": "string",
-              "user": { "login": "string" },
-              "labels": ["string"],
-              "assignees": ["string"],
-              "milestone": { "title": "string" },
+              "user": {
+                "login": "string"
+              },
+              "labels": [
+                "string"
+              ],
+              "assignees": [
+                "string"
+              ],
+              "milestone": {
+                "title": "string"
+              },
               "comments": "integer",
               "created_at": "string",
               "updated_at": "string",
@@ -230,9 +250,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -274,9 +300,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -313,9 +345,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -347,9 +385,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -386,9 +430,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -425,9 +475,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -464,9 +520,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -503,9 +565,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -542,9 +610,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -581,9 +655,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -615,9 +695,15 @@
             "title": "string",
             "state": "string",
             "html_url": "string",
-            "labels": ["string"],
-            "assignees": ["string"],
-            "milestone": { "title": "string" }
+            "labels": [
+              "string"
+            ],
+            "assignees": [
+              "string"
+            ],
+            "milestone": {
+              "title": "string"
+            }
           }
         }
       }
@@ -789,13 +875,29 @@
               "title": "string",
               "state": "string",
               "html_url": "string",
-              "user": { "login": "string" },
-              "labels": ["string"],
+              "user": {
+                "login": "string"
+              },
+              "labels": [
+                "string"
+              ],
               "draft": "boolean",
               "created_at": "string",
               "updated_at": "string",
-              "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
-              "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+              "head": {
+                "ref": "string",
+                "sha": "string",
+                "repo": {
+                  "full_name": "string"
+                }
+              },
+              "base": {
+                "ref": "string",
+                "sha": "string",
+                "repo": {
+                  "full_name": "string"
+                }
+              }
             }
           }
         }
@@ -843,8 +945,12 @@
                   "title": "string",
                   "state": "string",
                   "html_url": "string",
-                  "user": { "login": "string" },
-                  "labels": ["string"],
+                  "user": {
+                    "login": "string"
+                  },
+                  "labels": [
+                    "string"
+                  ],
                   "draft": "boolean",
                   "created_at": "string",
                   "updated_at": "string"
@@ -885,10 +991,22 @@
             "state": "string",
             "html_url": "string",
             "body": "string",
-            "user": { "login": "string" },
-            "labels": [{ "name": "string" }],
-            "assignees": [{ "login": "string" }],
-            "milestone": { "title": "string" },
+            "user": {
+              "login": "string"
+            },
+            "labels": [
+              {
+                "name": "string"
+              }
+            ],
+            "assignees": [
+              {
+                "login": "string"
+              }
+            ],
+            "milestone": {
+              "title": "string"
+            },
             "draft": "boolean",
             "merged": "boolean",
             "mergeable": "string",
@@ -901,8 +1019,20 @@
             "updated_at": "string",
             "closed_at": "string",
             "merged_at": "string",
-            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
-            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            "head": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            },
+            "base": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            }
           }
         }
       }
@@ -1013,9 +1143,20 @@
                   "date": "string"
                 }
               },
-              "author": { "login": "string", "avatar_url": "string" },
-              "committer": { "login": "string", "avatar_url": "string" },
-              "parents": [{ "sha": "string", "html_url": "string" }]
+              "author": {
+                "login": "string",
+                "avatar_url": "string"
+              },
+              "committer": {
+                "login": "string",
+                "avatar_url": "string"
+              },
+              "parents": [
+                {
+                  "sha": "string",
+                  "html_url": "string"
+                }
+              ]
             }
           }
         }
@@ -1089,7 +1230,9 @@
                   "id": "integer",
                   "body": "string",
                   "html_url": "string",
-                  "user": { "login": "string" },
+                  "user": {
+                    "login": "string"
+                  },
                   "created_at": "string",
                   "updated_at": "string",
                   "author_association": "string"
@@ -1102,7 +1245,9 @@
                 "id": "integer",
                 "body": "string",
                 "html_url": "string",
-                "user": { "login": "string" },
+                "user": {
+                  "login": "string"
+                },
                 "created_at": "string",
                 "updated_at": "string",
                 "author_association": "string"
@@ -1142,7 +1287,9 @@
             "id": "integer",
             "body": "string",
             "html_url": "string",
-            "user": { "login": "string" },
+            "user": {
+              "login": "string"
+            },
             "created_at": "string",
             "updated_at": "string",
             "author_association": "string"
@@ -1185,7 +1332,9 @@
             "id": "integer",
             "body": "string",
             "html_url": "string",
-            "user": { "login": "string" },
+            "user": {
+              "login": "string"
+            },
             "created_at": "string",
             "updated_at": "string",
             "author_association": "string",
@@ -1225,7 +1374,9 @@
             "id": "integer",
             "body": "string",
             "html_url": "string",
-            "user": { "login": "string" },
+            "user": {
+              "login": "string"
+            },
             "created_at": "string",
             "updated_at": "string",
             "author_association": "string"
@@ -1320,14 +1471,38 @@
             "html_url": "string",
             "body": "string",
             "draft": "boolean",
-            "user": { "login": "string" },
-            "labels": [{ "name": "string" }],
-            "assignees": [{ "login": "string" }],
-            "milestone": { "title": "string" },
+            "user": {
+              "login": "string"
+            },
+            "labels": [
+              {
+                "name": "string"
+              }
+            ],
+            "assignees": [
+              {
+                "login": "string"
+              }
+            ],
+            "milestone": {
+              "title": "string"
+            },
             "created_at": "string",
             "updated_at": "string",
-            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
-            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            "head": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            },
+            "base": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            }
           }
         }
       }
@@ -1386,14 +1561,38 @@
             "html_url": "string",
             "body": "string",
             "draft": "boolean",
-            "user": { "login": "string" },
-            "labels": [{ "name": "string" }],
-            "assignees": [{ "login": "string" }],
-            "milestone": { "title": "string" },
+            "user": {
+              "login": "string"
+            },
+            "labels": [
+              {
+                "name": "string"
+              }
+            ],
+            "assignees": [
+              {
+                "login": "string"
+              }
+            ],
+            "milestone": {
+              "title": "string"
+            },
             "created_at": "string",
             "updated_at": "string",
-            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
-            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            "head": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            },
+            "base": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            }
           }
         }
       }
@@ -1431,8 +1630,20 @@
             "state": "string",
             "html_url": "string",
             "draft": "boolean",
-            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
-            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            "head": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            },
+            "base": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            }
           }
         }
       }
@@ -1470,8 +1681,20 @@
             "state": "string",
             "html_url": "string",
             "draft": "boolean",
-            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
-            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            "head": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            },
+            "base": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            }
           }
         }
       }
@@ -1509,8 +1732,20 @@
             "state": "string",
             "html_url": "string",
             "draft": "boolean",
-            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
-            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            "head": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            },
+            "base": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            }
           }
         }
       }
@@ -1548,8 +1783,20 @@
             "state": "string",
             "html_url": "string",
             "draft": "boolean",
-            "head": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } },
-            "base": { "ref": "string", "sha": "string", "repo": { "full_name": "string" } }
+            "head": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            },
+            "base": {
+              "ref": "string",
+              "sha": "string",
+              "repo": {
+                "full_name": "string"
+              }
+            }
           }
         }
       }
@@ -1576,8 +1823,21 @@
         "data": {
           "type": "object",
           "properties": {
-            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
-            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+            "users": [
+              {
+                "login": "string",
+                "id": "integer",
+                "html_url": "string"
+              }
+            ],
+            "teams": [
+              {
+                "name": "string",
+                "id": "integer",
+                "slug": "string",
+                "html_url": "string"
+              }
+            ]
           }
         }
       }
@@ -1614,8 +1874,21 @@
         "data": {
           "type": "object",
           "properties": {
-            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
-            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+            "users": [
+              {
+                "login": "string",
+                "id": "integer",
+                "html_url": "string"
+              }
+            ],
+            "teams": [
+              {
+                "name": "string",
+                "id": "integer",
+                "slug": "string",
+                "html_url": "string"
+              }
+            ]
           }
         }
       }
@@ -1652,8 +1925,21 @@
         "data": {
           "type": "object",
           "properties": {
-            "users": [{ "login": "string", "id": "integer", "html_url": "string" }],
-            "teams": [{ "name": "string", "id": "integer", "slug": "string", "html_url": "string" }]
+            "users": [
+              {
+                "login": "string",
+                "id": "integer",
+                "html_url": "string"
+              }
+            ],
+            "teams": [
+              {
+                "name": "string",
+                "id": "integer",
+                "slug": "string",
+                "html_url": "string"
+              }
+            ]
           }
         }
       }
@@ -1665,6 +1951,11 @@
       "permission": "read",
       "requires_auth": true,
       "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
         "number": {
           "type": "number",
           "required": true,
@@ -1697,7 +1988,9 @@
                   "line": "integer",
                   "commit_id": "string",
                   "in_reply_to_id": "integer",
-                  "user": { "login": "string" },
+                  "user": {
+                    "login": "string"
+                  },
                   "created_at": "string",
                   "updated_at": "string",
                   "author_association": "string"
@@ -1714,7 +2007,9 @@
                 "line": "integer",
                 "commit_id": "string",
                 "in_reply_to_id": "integer",
-                "user": { "login": "string" },
+                "user": {
+                  "login": "string"
+                },
                 "created_at": "string",
                 "updated_at": "string",
                 "author_association": "string"
@@ -1751,11 +2046,11 @@
           "required": true,
           "description": "Relative file path in the repository"
         },
-  "position": {
-    "type": "number",
-    "required": true,
-    "description": "Position in the diff to comment on"
-  },
+        "position": {
+          "type": "number",
+          "required": true,
+          "description": "Position in the diff to comment on"
+        },
         "side": {
           "type": "string",
           "required": false,
@@ -1766,12 +2061,12 @@
           "required": false,
           "description": "First line of a multi-line comment range"
         },
-  "start_side": {
-    "type": "string",
-    "required": false,
-    "description": "LEFT or RIGHT side for start_line"
-  },
-  "grant": {
+        "start_side": {
+          "type": "string",
+          "required": false,
+          "description": "LEFT or RIGHT side for start_line"
+        },
+        "grant": {
           "type": "string",
           "required": true,
           "description": "Operation permission level (read, write, sensitive-write)"
@@ -1788,7 +2083,9 @@
             "line": "integer",
             "commit_id": "string",
             "in_reply_to_id": "integer",
-            "user": { "login": "string" },
+            "user": {
+              "login": "string"
+            },
             "created_at": "string",
             "updated_at": "string",
             "author_association": "string"
@@ -1803,6 +2100,11 @@
       "permission": "write",
       "requires_auth": true,
       "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
         "number": {
           "type": "number",
           "required": true,
@@ -1835,7 +2137,9 @@
             "line": "integer",
             "commit_id": "string",
             "in_reply_to_id": "integer",
-            "user": { "login": "string" },
+            "user": {
+              "login": "string"
+            },
             "created_at": "string",
             "updated_at": "string",
             "author_association": "string"
@@ -1873,7 +2177,9 @@
             "id": "integer",
             "body": "string",
             "html_url": "string",
-            "user": { "login": "string" },
+            "user": {
+              "login": "string"
+            },
             "created_at": "string",
             "updated_at": "string",
             "author_association": "string"
@@ -1916,6 +2222,11 @@
       "permission": "read",
       "requires_auth": true,
       "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
         "number": {
           "type": "number",
           "required": true,
@@ -1945,7 +2256,9 @@
                   "state": "string",
                   "body": "string",
                   "html_url": "string",
-                  "user": { "login": "string" },
+                  "user": {
+                    "login": "string"
+                  },
                   "submitted_at": "string",
                   "commit_id": "string",
                   "comments_count": "integer"
@@ -1959,7 +2272,9 @@
                 "state": "string",
                 "body": "string",
                 "html_url": "string",
-                "user": { "login": "string" },
+                "user": {
+                  "login": "string"
+                },
                 "submitted_at": "string",
                 "commit_id": "string",
                 "comments_count": "integer"
@@ -1976,6 +2291,11 @@
       "permission": "write",
       "requires_auth": true,
       "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
         "number": {
           "type": "number",
           "required": true,
@@ -2000,6 +2320,11 @@
           "type": "string",
           "required": true,
           "description": "Operation permission level (read, write, sensitive-write)"
+        },
+        "commit_id": {
+          "type": "string",
+          "required": false,
+          "description": "SHA of the commit to associate the review with"
         }
       },
       "output_schema": {
@@ -2010,7 +2335,9 @@
             "state": "string",
             "body": "string",
             "html_url": "string",
-            "user": { "login": "string" },
+            "user": {
+              "login": "string"
+            },
             "submitted_at": "string",
             "commit_id": "string"
           }
@@ -2058,7 +2385,9 @@
             "state": "string",
             "body": "string",
             "html_url": "string",
-            "user": { "login": "string" },
+            "user": {
+              "login": "string"
+            },
             "submitted_at": "string",
             "commit_id": "string"
           }
@@ -2072,6 +2401,11 @@
       "permission": "read",
       "requires_auth": true,
       "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo"
+        },
         "number": {
           "type": "number",
           "required": true,
@@ -2111,7 +2445,9 @@
                         "line": "integer",
                         "commit_id": "string",
                         "in_reply_to_id": "integer",
-                        "user": { "login": "string" },
+                        "user": {
+                          "login": "string"
+                        },
                         "created_at": "string",
                         "updated_at": "string",
                         "author_association": "string"

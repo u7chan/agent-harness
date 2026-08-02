@@ -28,7 +28,8 @@
 
 ## Draft PR の扱い
 
-- PR が Draft 状態で Blocker または Major が残存する場合、ラウンドに関わらず再チェックを停止しユーザーに報告する。
+- Draft PR でも最大 3 ラウンドまで再チェックを継続する。
+- 3 ラウンド後も Blocker または Major が残存する場合は Draft のまま停止して報告する。
 - PR が Draft でも Minor または Nit のみの残存であれば継続する。
 
 ## アクション
@@ -38,14 +39,11 @@
 - **unknown**: 判断できない理由を報告し、Resolve しない。
 - 返信できない場合だけ、必要に応じて overall comment で状態を伝える。
 - 返信には重要度ラベルを更新して付ける（例: Blocker → Major など、状況変化を反映）。
-- 返信の `reply_to` には `review-comments.read` の出力に含まれる数値 ID を使う。`review-threads.read` の GraphQL ノード ID は `reply_to` に使えない。thread とコメントの対応付けは、以下の識別条件の組み合わせで一致を確認する：
-  1. PR 番号とファイルパス
-  2. 行番号（または position）
-  3. 自アカウント（`user.login`）のコメントであること
-  4. コメント本文の主要部分（発生条件の記述）の一致
-  5. `commit_id` が前回レビュー時の head SHA と一致するか、より新しいこと
-  6. `in_reply_to_id` が `null` の root comment に限定する（返信コメントは対象外）
-  7. 全条件が一致して一意に特定できない場合は unknown として扱い、誤った thread への返信は行わない
+- 返信の `reply_to` には `review-comments.read` の出力に含まれる数値 ID を使う。`review-threads.read` の GraphQL ノード ID は `reply_to` に使えない。thread とコメントの対応付けは、以下の順で判定する：
+  1. `review-threads.read` の `database_id`（REST 数値 ID）で直接 `reply_to` を特定する
+  2. `database_id` が利用できない場合のみ、PR 番号とファイルパス、行番号、自アカウントのコメント、`in_reply_to_id` が `null` の root comment で照合する
+  3. コメントが outdated の場合は `outdated` フラグを考慮し、original position を優先する
+  4. 全条件で一意に特定できない場合は unknown として扱い、誤った thread への返信は行わない
 
 ## 直接修正
 

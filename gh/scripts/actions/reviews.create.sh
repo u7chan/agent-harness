@@ -9,12 +9,14 @@ source "$SCRIPT_DIR/../common/file.sh"
 
 main() {
   local request_file="$1"
-
-  local number
+  local number reference commit_id
   number="$(jq -r '.number' "$request_file")"
+  reference="$(jq -r '.reference // empty' "$request_file")"
+  commit_id="$(jq -r '.commit_id // empty' "$request_file")"
 
   local event
   event="$(jq -r '.event // "COMMENT"' "$request_file")"
+
   case "$event" in
     COMMENT|PENDING) ;;
     *)
@@ -24,7 +26,7 @@ main() {
   esac
 
   local target
-  target="$(resolve_pr_target "" "$number")" || {
+  target="$(resolve_pr_target "$reference" "$number")" || {
     envelope_fail "reviews.create" "TARGET_ERROR" "Failed to resolve PR target" false
     exit 1
   }
@@ -49,15 +51,15 @@ main() {
 
   if [ "$event" = "PENDING" ]; then
     if [ "$has_comments" = "true" ]; then
-      jq '{body: .body, comments: .comments}' "$request_file" > "$body_file"
+      jq --arg cid "$commit_id" '{body: .body, comments: .comments} + (if $cid != "" then {commit_id: $cid} else {} end)' "$request_file" > "$body_file"
     else
-      jq '{body: .body}' "$request_file" > "$body_file"
+      jq --arg cid "$commit_id" '{body: .body} + (if $cid != "" then {commit_id: $cid} else {} end)' "$request_file" > "$body_file"
     fi
   else
     if [ "$has_comments" = "true" ]; then
-      jq '{body: .body, event: "COMMENT", comments: .comments}' "$request_file" > "$body_file"
+      jq --arg cid "$commit_id" '{body: .body, event: "COMMENT", comments: .comments} + (if $cid != "" then {commit_id: $cid} else {} end)' "$request_file" > "$body_file"
     else
-      jq '{body: .body, event: "COMMENT"}' "$request_file" > "$body_file"
+      jq --arg cid "$commit_id" '{body: .body, event: "COMMENT"} + (if $cid != "" then {commit_id: $cid} else {} end)' "$request_file" > "$body_file"
     fi
   fi
 
@@ -89,6 +91,17 @@ main() {
   if [ "$res_id" != "$verified_id" ]; then
     envelope_unknown_outcome "reviews.create" "$pr_target" "$verified"
     exit 1
+  fi
+
+  if [ -n "$commit_id" ]; then
+    local res_commit_id
+    res_commit_id="$(echo "$_res" | jq -r '.commit_id // ""')"
+    local verified_commit_id
+    verified_commit_id="$(echo "$verified" | jq -r '.commit_id // ""')"
+    if [ "$res_commit_id" != "$commit_id" ] || [ "$verified_commit_id" != "$commit_id" ]; then
+      envelope_unknown_outcome "reviews.create" "$pr_target" "$verified"
+      exit 1
+    fi
   fi
 
   local res_url verified_url

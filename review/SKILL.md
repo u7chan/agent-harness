@@ -16,16 +16,16 @@ PR が指定された場合は差分行へ投稿し、指定がない場合は�
 # Rules
 
 - PR URL または PR 番号の指定がない場合は、ローカルレビュー（GitHub へ投稿せず結果をチャットで報告）を行うかユーザーに確認する。PR 指定がある場合は確認せず自動で投稿まで進める。
+- PR URL が指定された場合、抽出した `owner/repo` を全 read/write アクションの `reference` として渡す。write 直前に解決済み target repository が開始時と一致することを確認する。
 - 全操作は `gh/scripts/gh.sh` 経由で行い、GitHub コネクタは使わない。
 - github.com のリポジトリのみ対象とする。
 - APPROVE review は発行しない。常に COMMENT イベントを使う。
 - merge や issue close は行わない。
-- レビュー開始時に head commit SHA を固定する。各 write アクションの直前に `pr.read` で最新の head SHA と Draft 状態を再取得し、開始時から変更があれば投稿せずユーザーに報告する。
+- レビュー開始時に head commit SHA を固定する。各 write アクションの直前に `pr.read` で最新の head SHA と Draft 状態を再取得し、開始時から変更があれば投稿せずユーザーに報告する。`reviews.create` には固定した `commit_id` を渡し、応答の `commit_id` が一致することを確認する。
 - 投稿後は API 応答または再取得で本文、ラベル、コメント位置を確認する。
 - 投稿完了前に API 応答の decoded body を `rg` で検査し、リテラル `\n`（二文字のバックスラッシュ+n）、不完全な重要度ラベル、未置換変数パターンをチェックする。JSON ペイロード内の `\n` エスケープは正常なため除外する。
 - 直接修正はタイポ、コードコメント、Markdown の修正に限る。コードロジック、設定、テスト、型定義の直接修正は不可。
-- 再チェックは最大 3 ラウンド。3 ラウンド後も Blocker または Major が残存する場合は停止して報告する。
-- PR が Draft 状態で Blocker または Major が残存する場合、ラウンドに関わらず停止する。
+- 再チェックは最大 3 ラウンド。3 ラウンド後も Blocker または Major が残存する場合は停止して報告する。Draft PR でも 3 ラウンドまで継続し、停止時は Draft のまま報告する。
 
 # Workflow
 
@@ -36,8 +36,14 @@ PR が指定された場合は差分行へ投稿し、指定がない場合は�
   - PR 番号だけなら現在の remote からリポジトリを推定する。
   - 対象が確定したら `pr.read` で head commit SHA を取得し固定する。
 - PR 指定がない場合は、ローカルレビューを行うかユーザーに確認する。
-  - ローカルレビューでは `git diff` または指定されたファイル・範囲を対象に Steps 2-6 を実行し、Step 8 でチャット報告する。
+  - ローカルレビューでは以下のコマンドで変更範囲を特定し、Steps 2-6 を実行し、Step 8 でチャット報告する。
   - ローカルレビューでは GitHub への投稿は行わない。
+  - 対象範囲:
+    - `git status --short` で変更状態を確認
+    - `git diff` でワーキングツリーの変更
+    - `git diff --cached` でステージング済み変更
+    - `git diff "$(git merge-base HEAD <base>)"..HEAD` でブランチ全体の差分（base が不明ならユーザーに確認）
+    - 未追跡ファイルは `git status --porcelain` から特定し、内容もレビュー対象に含める
 
 ## 2. 根拠を収集する
 
@@ -49,9 +55,12 @@ PR レビューモード:
 - `reviews.read`、`review-comments.read`、`review-threads.read` で既存レビューを取得する。
 
 ローカルレビューモード:
-- `git diff` で差分を取得する。
+- `git status --short` で変更状態を確認する。
+- `git diff` でワーキングツリーの差分を取得する。
+- `git diff --cached` でステージング済みの差分を取得する。
+- `git diff "$(git merge-base HEAD <base>)"..HEAD` でブランチ全体の差分を取得する（base が不明ならユーザーに確認）。
+- 未追跡ファイルは `git status --porcelain` から特定し、内容も確認する。
 - `git log` でコミット情報を取得する。
-- 変更ファイルは `git diff --name-only` で特定する。
 
 共通:
 - 差分だけで判断せず、変更箇所の呼び出し元、型、設定、既存テスト、プロジェクト規約を必要な範囲で読む。
@@ -88,7 +97,20 @@ PR レビューモード:
 - `references/posting-rules.md` に従い、各コメントへ重要度ラベルを付ける。
 - 複数の inline comment は `reviews.create` の `comments` 配列にまとめる。
 - 投稿 API と payload は `references/posting-api.md` を参照する。
-- 指摘がない場合は inline comment を作らず、指摘なしの COMMENT review を `reviews.create` で投稿する。
+- review body の末尾に以下のレビュー記録を必ず含める（Step 8 のチャット報告とは別に GitHub 上へ永続化する）:
+
+```markdown
+## レビュー記録
+
+- **Reviewed commit:** `<固定した head SHA>`
+- **Round:** `<n>`/3
+- **Verification:** `<実行した検証コマンド・アクション>`
+- **Findings:** Blocker `<n>` / Major `<n>` / Minor `<n>` / Nit `<n>`
+- **Remaining:** `<未解決指摘 or none>`
+- **Skipped candidates:** `<見送りカテゴリと簡潔な理由>`
+```
+
+- 指摘がない場合は inline comment を作らず、指摘なしの COMMENT review を `reviews.create` で投稿する（この場合も body にレビュー記録を含める）。
 - 投稿後に本文、コメント位置、改行が正しいことを再取得して確認する。
 - ローカルレビューモードではこのステップをスキップする。
 

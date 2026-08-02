@@ -7,32 +7,32 @@
 
 ```bash
 # PR メタデータ取得
-echo '{"number": <PR番号>}' | gh/scripts/gh.sh pr.read
+echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh pr.read
 
 # PR 差分取得
-echo '{"number": <PR番号>}' | gh/scripts/gh.sh pr.diff.read
+echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh pr.diff.read
 
 # PR ファイル一覧取得
-echo '{"number": <PR番号>}' | gh/scripts/gh.sh pr.files.read
+echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh pr.files.read
 
 # PR コミット一覧取得
-echo '{"number": <PR番号>}' | gh/scripts/gh.sh pr.commits.read
+echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh pr.commits.read
 
 # Issue コメント取得
-echo '{"number": <PR番号>}' | gh/scripts/gh.sh comments.read
+echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh comments.read
 ```
 
 ## レビュー情報の取得
 
 ```bash
 # レビュー一覧取得
-echo '{"number": <PR番号>}' | gh/scripts/gh.sh reviews.read
+echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh reviews.read
 
 # レビューコメント取得（REST: 数値ID、path、line を含む）
-echo '{"number": <PR番号>}' | gh/scripts/gh.sh review-comments.read
+echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh review-comments.read
 
 # レビュースレッド取得（GraphQL: resolved 状態、thread_id 含む）
-echo '{"number": <PR番号>}' | gh/scripts/gh.sh review-threads.read
+echo '{"reference": "<owner/repo または PR URL>", "number": <PR番号>}' | gh/scripts/gh.sh review-threads.read
 ```
 
 `review-comments.read` の出力から数値コメント ID を取得し、`review-threads.read` の出力からスレッドの resolve 状態と thread_id を取得する。
@@ -44,13 +44,17 @@ echo '{"number": <PR番号>}' | gh/scripts/gh.sh review-threads.read
 ```bash
 # インラインコメント付きレビュー作成（各コメント本文は別ファイルで用意）
 jq -n \
+  --arg reference "<owner/repo または PR URL>" \
   --argjson number <PR番号> \
+  --arg commit_id <head commit SHA> \
   --rawfile body review-body.md \
   --rawfile comment_body comment-body.md \
   --arg event COMMENT \
   --arg grant write \
   '{
+    reference: $reference,
     number: $number,
+    commit_id: $commit_id,
     body: $body,
     comments: [
       {
@@ -75,11 +79,13 @@ gh/scripts/gh.sh reviews.create review-payload.json
 ```bash
 # 指摘なしレビュー（comments 配列なし）
 jq -n \
+  --arg reference "<owner/repo または PR URL>" \
   --argjson number <PR番号> \
+  --arg commit_id <head commit SHA> \
   --rawfile body no-findings.md \
   --arg event COMMENT \
   --arg grant write \
-  '{number: $number, body: $body, event: $event, grant: $grant}' \
+  '{reference: $reference, number: $number, commit_id: $commit_id, body: $body, event: $event, grant: $grant}' \
   > no-findings-payload.json
 
 gh/scripts/gh.sh reviews.create no-findings-payload.json
@@ -90,11 +96,12 @@ gh/scripts/gh.sh reviews.create no-findings-payload.json
 ```bash
 # コメントへの返信（スレッド内）
 jq -n \
+  --arg reference "<owner/repo または PR URL>" \
   --argjson number <PR番号> \
   --argjson reply_to <返信先コメントID> \
   --rawfile body reply-body.md \
   --arg grant write \
-  '{number: $number, reply_to: $reply_to, body: $body, grant: $grant}' \
+  '{reference: $reference, number: $number, reply_to: $reply_to, body: $body, grant: $grant}' \
   | gh/scripts/gh.sh review-comments.reply
 ```
 

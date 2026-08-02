@@ -21,8 +21,9 @@ call_graphql() {
 main() {
   local request_file="$1"
 
-  local number thread_id
+  local number reference thread_id
   number="$(jq -r '.number' "$request_file")"
+  reference="$(jq -r '.reference // empty' "$request_file")"
   thread_id="$(jq -r '.thread_id // empty' "$request_file")"
 
   local per_page_valid
@@ -44,7 +45,7 @@ main() {
   per_page="$(jq -r '.per_page // 100' "$request_file")"
 
   local target
-  target="$(resolve_pr_target "" "$number")" || {
+  target="$(resolve_pr_target "$reference" "$number")" || {
     envelope_fail "review-threads.read" "TARGET_ERROR" "Failed to resolve PR target" false
     exit 1
   }
@@ -77,7 +78,7 @@ main() {
 
   while :; do
     local query
-    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id body url path line commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } } } }"
+    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } } } }"
 
     local page_result
     page_result="$(call_graphql "$query" \
@@ -98,10 +99,12 @@ main() {
       is_resolved: (.isResolved // false),
       comments: [.comments.nodes[]? | {
         id: (.id // empty),
+        database_id: (.databaseId // null),
         body: (.body // ""),
         url: (.url // ""),
         path: (.path // ""),
         line: (.line // null),
+        outdated: (.outdated // false),
         commit_oid: (.commit.oid // ""),
         reply_to_id: (.replyTo.id // null),
         author_login: (.author.login // ""),
@@ -127,7 +130,7 @@ main() {
   done
 
   local cquery
-  cquery='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id body url path line commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } }'
+  cquery='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } }'
 
   local threads_json
   threads_json="$(cat "$threads_tmp")"
@@ -161,10 +164,12 @@ main() {
     local new_comments
     new_comments="$(echo "$cresult" | jq -c '[.data.node.comments.nodes[]? | {
       id: (.id // empty),
+      database_id: (.databaseId // null),
       body: (.body // ""),
       url: (.url // ""),
       path: (.path // ""),
       line: (.line // null),
+      outdated: (.outdated // false),
       commit_oid: (.commit.oid // ""),
       reply_to_id: (.replyTo.id // null),
       author_login: (.author.login // ""),
@@ -191,10 +196,12 @@ main() {
     resolved: .is_resolved,
     comments: [.comments[] | {
       id: .id,
+      database_id: .database_id,
       body: .body,
       html_url: .url,
       path: .path,
       line: .line,
+      outdated: .outdated,
       commit_id: .commit_oid,
       in_reply_to_id: .reply_to_id,
       user: {login: .author_login},
