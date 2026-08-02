@@ -1,0 +1,7 @@
+{
+  "reference": "u7chan/agent-harness",
+  "number": 73,
+  "reply_to": 1002,
+  "body": "**Unresolved** (**Blocker**): commit_idがないpayloadを受理するため、開始時のhead SHAへレビューを固定できません。",
+  "grant": "write"
+}
