@@ -16,6 +16,14 @@ command -v herdr >/dev/null || exit 1
 
 If either check fails, explain that Herdr is unavailable and stop.
 
+## Inspect workspace panes
+
+```bash
+herdr pane list --workspace "$HERDR_WORKSPACE_ID" | jq -r '.result.panes[] | [.pane_id, .tab_id, (.label // "-"), (.agent // "-")] | @tsv'
+```
+
+Columns: `pane_id`, `tab_id`, `label`, `agent`
+
 ## Delegate to a new agent
 
 ### 1. Create a sibling pane
@@ -107,7 +115,6 @@ If prompt, wait, or read fails, inspect `agent get` and `agent read` before retr
 ## Send to an existing agent
 
 ```bash
-herdr agent list
 herdr agent prompt <name-or-pane-id> "<prompt>" \
   --wait \
   --timeout 120000
