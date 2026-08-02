@@ -1,0 +1,7 @@
+{
+  "reference": "u7chan/agent-harness",
+  "number": 73,
+  "reply_to": 1001,
+  "body": "**Resolved**: eventがCOMMENTに固定され、PENDING payloadが投稿前に拒否されることを確認しました。",
+  "grant": "write"
+}

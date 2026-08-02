@@ -1,0 +1,15 @@
+{
+  "reference": "u7chan/agent-harness",
+  "number": 73,
+  "body": "**LGTM**\n\nNitを1件コメントしました。",
+  "comments": [
+    {
+      "path": "review/SKILL.md",
+      "position": 1,
+      "body": "**Nit**: 見出しの表記が他の参照ファイルと一致しません。文書を横断して探す際に表記揺れが残ります。"
+    }
+  ],
+  "event": "COMMENT",
+  "grant": "write",
+  "commit_id": "0123456789abcdef0123456789abcdef01234567"
+}
