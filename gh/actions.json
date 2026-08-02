@@ -1202,6 +1202,11 @@
       "permission": "read",
       "requires_auth": true,
       "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "Issue/PR URL or owner/repo"
+        },
         "number": {
           "type": "number",
           "required": true,
@@ -2439,10 +2444,12 @@
                       "type": "object",
                       "properties": {
                         "id": "integer",
+                        "database_id": "integer",
                         "body": "string",
                         "html_url": "string",
                         "path": "string",
                         "line": "integer",
+                        "outdated": "boolean",
                         "commit_id": "string",
                         "in_reply_to_id": "integer",
                         "user": {
