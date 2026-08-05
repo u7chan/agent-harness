@@ -91,7 +91,7 @@ codex-check
 herdr agent prompt <name-or-pane-id> "<prompt>"
 ```
 
-The default is fire-and-forget: the command returns immediately without blocking the caller's session. Retrieve results after the delegate becomes idle via `herdr agent status` / `herdr agent read` (the user's next turn).
+The default is fire-and-forget: the command returns immediately without blocking the caller's session. Retrieve results after the delegate becomes idle via `herdr agent get` / `herdr agent read` (the user's next turn).
 
 Use `--wait --timeout <ms>` only when the caller is running in auto mode with no user interaction and cannot continue without the delegate's result. Be aware that `--wait` blocks the caller's event loop until the delegate idles (or until the timeout), preventing new user prompts from being processed during that window.
 
@@ -118,12 +118,15 @@ If prompt, wait, or read fails, inspect `agent get` and `agent read` before retr
 
 ```bash
 herdr agent prompt <name-or-pane-id> "<prompt>"
+```
+
+The default is fire-and-forget. See [Send the task](#3-send-the-task) for notes on `--wait` usage. Once the delegate becomes idle, read the result:
+
+```bash
 herdr agent read <name-or-pane-id> \
   --source recent-unwrapped \
   --lines 200
 ```
-
-The default is fire-and-forget. See [Send the task](#3-send-the-task) for notes on `--wait` usage.
 
 ## Create a worktree workspace
 
