@@ -140,7 +140,7 @@ herdr worktree create --cwd "$PWD" --branch <branch-name>
 - Prefer `--cwd` over `--workspace ID`; a guessed ID fails with `workspace_not_found`.
 - The checkout is created under the configured worktree directory and the branch is created from `HEAD` when it does not exist locally.
 - Focus stays unchanged by default; use `--focus` to switch to the new workspace.
-- Read new IDs from `.result.workspace`, `.result.tab`, and `.result.root_pane`. Do not guess them.
+- Read new IDs from `.result.workspace.workspace_id`, `.result.tab.tab_id`, and `.result.root_pane.pane_id`. Do not guess them.
 
 ## Rules
 
