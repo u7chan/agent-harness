@@ -88,12 +88,14 @@ codex-check
 ### 3. Send the task
 
 ```bash
-herdr agent prompt <name-or-pane-id> "<prompt>" \
-  --wait \
-  --timeout 120000
+herdr agent prompt <name-or-pane-id> "<prompt>"
 ```
 
-For long-running work, wait again only when the agent is still working:
+The default is fire-and-forget: the command returns immediately without blocking the caller's session. Retrieve results after the delegate becomes idle via `herdr agent status` / `herdr agent read` (the user's next turn).
+
+Use `--wait --timeout <ms>` only when the caller is running in auto mode with no user interaction and cannot continue without the delegate's result. Be aware that `--wait` blocks the caller's event loop until the delegate idles (or until the timeout), preventing new user prompts from being processed during that window.
+
+For long-running work when `--wait` is used, wait again only when the agent is still working:
 
 ```bash
 herdr agent wait <name-or-pane-id> --timeout 1800000
@@ -115,13 +117,13 @@ If prompt, wait, or read fails, inspect `agent get` and `agent read` before retr
 ## Send to an existing agent
 
 ```bash
-herdr agent prompt <name-or-pane-id> "<prompt>" \
-  --wait \
-  --timeout 120000
+herdr agent prompt <name-or-pane-id> "<prompt>"
 herdr agent read <name-or-pane-id> \
   --source recent-unwrapped \
   --lines 200
 ```
+
+The default is fire-and-forget. See [Send the task](#3-send-the-task) for notes on `--wait` usage.
 
 ## Create a worktree workspace
 
