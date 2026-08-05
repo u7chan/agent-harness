@@ -142,6 +142,25 @@ herdr worktree create --cwd "$PWD" --branch <branch-name>
 - Focus stays unchanged by default; use `--focus` to switch to the new workspace.
 - Read new IDs from `.result.workspace.workspace_id`, `.result.tab.tab_id`, and `.result.root_pane.pane_id`. Do not guess them.
 
+## Remove a worktree workspace
+
+Confirm the target workspace is a linked worktree, not the base checkout:
+
+```bash
+herdr worktree list --cwd "$PWD" | jq -r '.result.worktrees[] | [.branch, .open_workspace_id, .is_linked_worktree] | @tsv'
+```
+
+Remove the checkout:
+
+```bash
+herdr worktree remove --workspace <workspace-id>
+```
+
+- Only pass a workspace whose `is_linked_worktree` is `true`. Passing the base workspace fails with `not_linked_worktree`.
+- The linked workspace closes automatically when its checkout is removed.
+- `worktree remove` deletes the checkout only; the branch is never deleted.
+- A dirty checkout (modified or untracked files) fails with `dirty_worktree_requires_force`; add `--force` only when discarding those files is acceptable.
+
 ## Rules
 
 - Use Herdr only when explicitly requested.
