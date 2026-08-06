@@ -75,14 +75,14 @@ Use the kind requested by the user. When unspecified:
 | Implementation | `opencode` |
 | Review or verification | `codex` |
 
-Name agents using `<kind>-<role>`, adding a short suffix when the name is already in use.
+Name agents by responsibility, independently of `kind`. Use `<role>[-<scope>]`, adding a short suffix when the name is already in use.
 
 Examples:
 
 ```text
-opencode-impl
-codex-review
-codex-check
+impl
+review
+verify-api
 ```
 
 ### 3. Send the task
@@ -91,15 +91,7 @@ codex-check
 herdr agent prompt <name-or-pane-id> "<prompt>"
 ```
 
-The default is fire-and-forget: the command returns immediately without blocking the caller's session. Retrieve results after the delegate becomes idle via `herdr agent get` / `herdr agent read` (the user's next turn).
-
-Use `--wait --timeout <ms>` only when the caller is running in auto mode with no user interaction and cannot continue without the delegate's result. Be aware that `--wait` blocks the caller's event loop until the delegate idles (or until the timeout), preventing new user prompts from being processed during that window.
-
-For long-running work when `--wait` is used, wait again only when the agent is still working:
-
-```bash
-herdr agent wait <name-or-pane-id> --timeout 1800000
-```
+Keep delegation fire-and-forget. Do not pass `--wait` or block while the delegate works. Return control to the user immediately, then retrieve results after the delegate becomes idle via `herdr agent get` / `herdr agent read` on a later turn.
 
 ### 4. Read the result
 
@@ -112,7 +104,7 @@ herdr agent read <name-or-pane-id> \
 
 Treat `blocked` as requiring input. Treat `unknown` as unclassified, not completed.
 
-If prompt, wait, or read fails, inspect `agent get` and `agent read` before retrying. Do not blindly resend a prompt that may already have been delivered.
+If prompt, get, or read fails, inspect `agent get` and `agent read` before retrying. Do not blindly resend a prompt that may already have been delivered.
 
 ## Send to an existing agent
 
@@ -120,7 +112,7 @@ If prompt, wait, or read fails, inspect `agent get` and `agent read` before retr
 herdr agent prompt <name-or-pane-id> "<prompt>"
 ```
 
-The default is fire-and-forget. See [Send the task](#3-send-the-task) for notes on `--wait` usage. Once the delegate becomes idle, read the result:
+Follow the asynchronous behavior in [Send the task](#3-send-the-task). On a later turn, once the delegate becomes idle, read the result:
 
 ```bash
 herdr agent read <name-or-pane-id> \
