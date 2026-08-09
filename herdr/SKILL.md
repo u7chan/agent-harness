@@ -5,7 +5,7 @@ description: Delegate work to coding agents in sibling Herdr panes. Use only whe
 
 # Herdr
 
-Use the `herdr` CLI directly to delegate work to coding agents in the current workspace and tab.
+Use the existing `herdr` CLI for pane and agent operations. Do not create a workspace, worktree, or pane implicitly.
 
 ## Preflight
 
@@ -14,157 +14,39 @@ test "${HERDR_ENV:-}" = 1 || exit 1
 command -v herdr >/dev/null || exit 1
 ```
 
-If either check fails, explain that Herdr is unavailable and stop.
+Resolve pane and workspace IDs from Herdr JSON responses. Do not guess IDs. Create or remove a worktree workspace only when the user explicitly requests it; use `herdr worktree create` and `herdr worktree remove`.
 
-## Inspect workspace panes
+## Async delegation
+
+Normal delegation is fire-and-forget. Do not use `--wait`. Send the task to an existing agent, then inspect its state and terminal output on a later turn with `herdr agent get` and `herdr agent read`.
+
+Use the thin wrappers for the direct-parent result flow:
 
 ```bash
-herdr pane list --workspace "$HERDR_WORKSPACE_ID" | jq -r '.result.panes[] | [.pane_id, .tab_id, (.label // "-"), (.agent // "-")] | @tsv'
+herdr/scripts/parent-delegate-async.sh <agent-or-pane> "<prompt>"
+herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<body>"
 ```
 
-Columns: `pane_id`, `tab_id`, `label`, `agent`
+The parent wrapper adds the current `$HERDR_PANE_ID` to the child prompt. The child wrapper returns one status and free-form body to that pane. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for multi-stage, parallel, state, and worktree rules.
 
-## Delegate to a new agent
+The wrappers validate their arguments and environment, call only the existing `herdr agent prompt` command, and propagate its result. They do not wait, retry, queue, persist state, or create Herdr resources.
 
-### 1. Create a sibling pane
+If a return to a working parent exposes an agent-kind-specific problem, stop and record the reproduction. Do not add waiting or queueing to the wrappers.
 
-Honor a direction requested by the user. Otherwise inspect the current layout:
+## Pane operations
 
-```bash
-herdr pane layout --pane "$HERDR_PANE_ID"
-```
-
-Split right when there is enough width; otherwise split down.
+Inspect the current workspace before any explicitly requested pane operation:
 
 ```bash
-herdr pane split \
-  --current \
-  --direction right \
-  --cwd "$PWD" \
-  --no-focus
-```
-
-Read the new pane ID from `.result.pane.pane_id`. Do not guess it.
-
-### 2. Start or rename the agent
-
-Inspect the new pane:
-
-```bash
+herdr pane list --workspace "$HERDR_WORKSPACE_ID"
 herdr pane get <pane-id>
 ```
 
-- If a recognized agent is already running, assign it a unique name:
-
-```bash
-herdr agent rename <pane-id> <name>
-```
-
-- If the pane contains an available shell, start the requested agent:
-
-```bash
-herdr agent start <name> --kind <kind> --pane <pane-id>
-```
-
-- If an unrecognized agent or another foreground process occupies the pane, do not overwrite it. Inspect the pane or create another pane.
-
-Use the kind requested by the user. When unspecified:
-
-| Task | Default kind |
-|---|---|
-| Implementation | `opencode` |
-| Review or verification | `codex` |
-
-Name agents by responsibility, independently of `kind`. Use `<role>[-<scope>]`, adding a short suffix when the name is already in use.
-
-Examples:
-
-```text
-impl
-review
-verify-api
-```
-
-### 3. Send the task
-
-```bash
-herdr agent prompt <name-or-pane-id> "<prompt>"
-```
-
-Keep delegation fire-and-forget. Do not pass `--wait` or block while the delegate works. Return control to the user immediately, then retrieve results after the delegate becomes idle via `herdr agent get` / `herdr agent read` on a later turn.
-
-### 4. Read the result
-
-```bash
-herdr agent get <name-or-pane-id>
-herdr agent read <name-or-pane-id> \
-  --source recent-unwrapped \
-  --lines 200
-```
-
-Treat `blocked` as requiring input. Treat `unknown` as unclassified, not completed.
-
-If prompt, get, or read fails, inspect `agent get` and `agent read` before retrying. Do not blindly resend a prompt that may already have been delivered.
-
-## Send to an existing agent
-
-```bash
-herdr agent prompt <name-or-pane-id> "<prompt>"
-```
-
-Follow the asynchronous behavior in [Send the task](#3-send-the-task). On a later turn, once the delegate becomes idle, read the result:
-
-```bash
-herdr agent read <name-or-pane-id> \
-  --source recent-unwrapped \
-  --lines 200
-```
-
-## Create a worktree workspace
-
-Resolve real workspace IDs first; `w1` style IDs are session-local and never reused:
-
-```bash
-herdr workspace list
-```
-
-Create a Git worktree and open it as a new workspace:
-
-```bash
-herdr worktree create --cwd "$PWD" --branch <branch-name>
-```
-
-- Prefer `--cwd` over `--workspace ID`; a guessed ID fails with `workspace_not_found`.
-- The checkout is created under the configured worktree directory and the branch is created from `HEAD` when it does not exist locally.
-- Focus stays unchanged by default; use `--focus` to switch to the new workspace.
-- Read new IDs from `.result.workspace.workspace_id`, `.result.tab.tab_id`, and `.result.root_pane.pane_id`. Do not guess them.
-
-## Remove a worktree workspace
-
-Confirm the target workspace is a linked worktree, not the base checkout:
-
-```bash
-herdr worktree list --cwd "$PWD" | jq -r '.result.worktrees[] | [.branch, .open_workspace_id, .is_linked_worktree] | @tsv'
-```
-
-Remove the checkout:
-
-```bash
-herdr worktree remove --workspace <workspace-id>
-```
-
-- Only pass a workspace whose `is_linked_worktree` is `true`. Passing the base workspace fails with `not_linked_worktree`.
-- The linked workspace closes automatically when its checkout is removed.
-- `worktree remove` deletes the checkout only; the branch is never deleted.
-- A dirty checkout (modified or untracked files) fails with `dirty_worktree_requires_force`; add `--force` only when discarding those files is acceptable.
+When starting an agent, use an existing interactive pane and a responsibility-based name. Read the returned pane and agent IDs from JSON, then prompt it without `--wait`.
 
 ## Rules
 
 - Use Herdr only when explicitly requested.
-- Keep delegation in the current workspace, tab, and working directory unless the user requests otherwise.
-- Use `--no-focus` for background work.
-- Use `--current`, an explicit pane ID, or a unique agent name. Do not rely on UI focus.
-- Parse IDs and state from JSON responses. Do not infer them from pane order.
-- Do not create a workspace, tab, or worktree unless explicitly requested.
-- Do not close panes, kill agents, or stop the Herdr server unless explicitly requested.
-- When command syntax is unclear, inspect the installed CLI with `herdr agent` or `herdr pane`. Do not run bare `herdr`, because it may launch or attach the TUI.
+- Keep shared work in the current workspace and worktree.
+- Use an explicit Herdr worktree workspace for independent branches.
+- Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested.
