@@ -173,10 +173,13 @@ This section defines the protocol for every task delegated through this skill. T
 
 ### Completion report
 
-The parent must include the following response protocol in every delegation prompt. The delegate puts one compact report block at the end of its final response, uses the exact boundary markers, and writes nothing after the closing marker:
+For every prompt, including report-only and resume prompts, the parent generates a fresh opaque `attempt_id` that has not been used for that agent and includes `Current attempt ID: <attempt_id>` before the response protocol. The parent keeps that ID with the target agent until the attempt is classified.
+
+The parent must include the following response protocol in every delegation prompt. The delegate copies the current attempt ID, puts one compact report block at the end of its final response, uses the exact boundary markers, and writes nothing after the closing marker:
 
 ```text
 HERDR_RESULT_BEGIN
+attempt_id: <current attempt ID>
 status: <completed|blocked>
 summary:
 - <work performed and conclusion>
@@ -195,14 +198,16 @@ The report block must fit within 100 terminal lines. `blocked` means the delegat
 
 Submit prompts without `--wait`. Agent kinds differ in wait and interruption behavior, and a settled task may be reported as `idle`, `done`, or `blocked` rather than reaching one universal state. On a later turn, use `agent get`, then handle its state as follows:
 
-| State | Parent action |
-|---|---|
-| `working` | Return control and inspect again on a later turn. Do not read the snapshot as a result. |
-| `idle` or `done` | Read the snapshot and accept only its last complete `HERDR_RESULT_BEGIN` / `HERDR_RESULT_END` block. Never report completion without a complete block whose status is `completed`. |
-| `blocked` | Read the snapshot and treat the task as blocked. Use a complete report block when present; otherwise use the snapshot only to diagnose the missing input. Ask the user for that input before resuming. |
-| `unknown` | Do not classify the task as completed. Inspect the pane and snapshot; if no resumable agent can be identified, report the unknown state and ask before retrying or delegating again. |
+| Agent state | Matching `completed` report | Matching `blocked` report | No valid matching report |
+|---|---|---|---|
+| `working` | Wait; do not classify | Wait; do not classify | Wait; do not classify |
+| `idle` or `done` | Completed | Blocked; ask for the required input | Request a report-only attempt |
+| `blocked` | Blocked; treat the mismatch as diagnostic | Blocked; ask for the required input | Blocked; diagnose the snapshot and ask for the required input |
+| `unknown` | Unknown; do not classify | Unknown; do not classify | Unknown; inspect the pane and ask before retrying or delegating again |
 
-If the opening marker was truncated, read more lines and retry extraction. An incomplete or unmarked snapshot is not a completion report. For `idle` or `done` without a complete report, prompt the same agent to return only the missing report; do not rerun the task. To resume `blocked`, send the required input to the same agent in a new prompt that requests a fresh report block. Send both prompts without `--wait`, return control, and retrieve their results on a later turn.
+A matching report is the last complete `HERDR_RESULT_BEGIN` / `HERDR_RESULT_END` block whose `attempt_id` exactly equals the current attempt ID and whose status is `completed` or `blocked`. Ignore blocks from older attempts. If the opening marker was truncated, read more lines and retry extraction; an incomplete, unmarked, or mismatched block is not a completion report.
+
+For `idle` or `done` without a valid matching report, prompt the same agent to return only the missing report under a fresh attempt ID; do not rerun the task. To resume `blocked`, send the required input to the same agent under a fresh attempt ID and request a fresh report block. Send both prompts without `--wait`, return control, and retrieve their results on a later turn.
 
 ## Rules
 
