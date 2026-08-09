@@ -1,7 +1,7 @@
 {
   "reference": "u7chan/agent-harness",
   "number": 73,
-  "body": "**Blocker: 1件**\n\nマージ前に確認が必要な指摘をコメントしました。",
+  "body": "**Blocker: 1件**\n\nマージ前に修正が必要な指摘をコメントしました。",
   "comments": [
     {
       "path": "review/scripts/validate-review-payload.sh",
