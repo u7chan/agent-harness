@@ -91,9 +91,9 @@ verify-api
 herdr agent prompt <name-or-pane-id> "<prompt>"
 ```
 
-Keep delegation fire-and-forget. Do not pass `--wait` or block while the delegate works. Return control to the user immediately, then retrieve results after the delegate becomes idle via `herdr agent get` / `herdr agent read` on a later turn.
+Keep delegation fire-and-forget. Do not pass `--wait` or block while the delegate works. Return control to the user immediately, then follow the [delegation contract](#delegation-contract) on a later turn.
 
-If the delegate must read the herdr skill or perform herdr operations, say so explicitly in the prompt. The skill is not auto-loaded.
+Compose every prompt according to [Skill loading](#skill-loading) and [Completion report](#completion-report).
 
 ### 4. Read the result
 
@@ -104,9 +104,7 @@ herdr agent read <name-or-pane-id> \
   --lines 200
 ```
 
-Treat `blocked` as requiring input. Treat `unknown` as unclassified, not completed.
-
-The result is the delegate's final answer. The delegate performs no additional return operation.
+Read the state with `agent get` before reading output. `agent read` returns a terminal snapshot, not a structured final answer. Interpret it only as defined in [Async flow](#async-flow).
 
 If prompt, get, or read fails, inspect `agent get` and `agent read` before retrying. Do not blindly resend a prompt that may already have been delivered.
 
@@ -116,9 +114,10 @@ If prompt, get, or read fails, inspect `agent get` and `agent read` before retry
 herdr agent prompt <name-or-pane-id> "<prompt>"
 ```
 
-Follow the asynchronous behavior in [Send the task](#3-send-the-task). On a later turn, once the delegate becomes idle, read the result:
+Follow the asynchronous behavior in [Send the task](#3-send-the-task). On a later turn, inspect the state and terminal snapshot:
 
 ```bash
+herdr agent get <name-or-pane-id>
 herdr agent read <name-or-pane-id> \
   --source recent-unwrapped \
   --lines 200
@@ -162,31 +161,48 @@ herdr worktree remove --workspace <workspace-id>
 - `worktree remove` deletes the checkout only; the branch is never deleted.
 - A dirty checkout (modified or untracked files) fails with `dirty_worktree_requires_force`; add `--force` only when discarding those files is acceptable.
 
-## Delegation contract（子エージェント向け契約）
+## Delegation contract
 
-このセクションは、Herdr から委譲された子エージェントとして実行される場合の契約を定義する。
+This section defines the protocol for every task delegated through this skill. The parent carries the protocol in the prompt, so it applies even when the delegate does not load this skill.
 
-### Skill loading（スキルロード条件）
+### Skill loading
 
-- Herdr スキルは自動ロードされない。子エージェントは、親の委譲プロンプトで Herdr スキルの読み込みが明示された場合のみ `herdr/SKILL.md` を読む。
-- 親は、子に Herdr 操作をさせる場合（例: さらに別のエージェントへ委譲する場合）は、委譲プロンプトに「herdr スキルを読み、それに従え」と明示する。
-- 指示がない場合、子は Herdr の存在を前提とせず、通常のタスクとして作業し、通常の最終回答で完了する。
+- The Herdr skill is not auto-loaded. A delegate reads `herdr/SKILL.md` only when the parent explicitly requires it in the delegation prompt.
+- When the delegate must perform Herdr operations, such as delegating again, the parent must tell it to read and follow the Herdr skill.
+- Otherwise, the delegate works on the task without assuming Herdr is available. The completion-report protocol still applies because the parent includes it in the prompt.
 
-### Completion report（完了報告）
+### Completion report
 
-- 子の最終回答は、親が `herdr agent read` で取得する結果そのものである。追加の返却操作は不要。
-- 最終回答には次の最小項目を含める:
-  - 状態: `completed` または `blocked`
-  - 要約: 実施内容と結論
-  - 変更ファイル: 変更・作成したファイルの一覧
-  - 検証: 実行した検証とその結果
-  - 未解決事項またはブロッカー: 親の入力・判断が必要な点
-- `blocked` の場合は、何が不足していて親に何を期待するかを明記する。
+The parent must include the following response protocol in every delegation prompt. The delegate puts one compact report block at the end of its final response, uses the exact boundary markers, and writes nothing after the closing marker:
 
-### Async flow（非同期フロー）
+```text
+HERDR_RESULT_BEGIN
+status: <completed|blocked>
+summary:
+- <work performed and conclusion>
+changed_files:
+- <changed or created path, or none>
+verification:
+- <check and result, or not run with reason>
+unresolved:
+- <required input, remaining issue, or none>
+HERDR_RESULT_END
+```
 
-- 親は委譲後ブロックしない（`--wait` を使わない）。子は完了を親へ能動的に通知する仕組みを持たないため、親は子が idle になった後、`herdr agent get` / `herdr agent read` で結果を取得する。
-- 子は同期の完了待ちを前提にした動作をしない。
+The report block must fit within 100 terminal lines. `blocked` means the delegate cannot continue without parent input; `unresolved` must state exactly what is missing and what response is needed. The delegate performs no additional Herdr return operation.
+
+### Async flow
+
+Submit prompts without `--wait`. Agent kinds differ in wait and interruption behavior, and a settled task may be reported as `idle`, `done`, or `blocked` rather than reaching one universal state. On a later turn, use `agent get`, then handle its state as follows:
+
+| State | Parent action |
+|---|---|
+| `working` | Return control and inspect again on a later turn. Do not read the snapshot as a result. |
+| `idle` or `done` | Read the snapshot and accept only its last complete `HERDR_RESULT_BEGIN` / `HERDR_RESULT_END` block. Never report completion without a complete block whose status is `completed`. |
+| `blocked` | Read the snapshot and treat the task as blocked. Use a complete report block when present; otherwise use the snapshot only to diagnose the missing input. Ask the user for that input before resuming. |
+| `unknown` | Do not classify the task as completed. Inspect the pane and snapshot; if no resumable agent can be identified, report the unknown state and ask before retrying or delegating again. |
+
+If the opening marker was truncated, read more lines and retry extraction. An incomplete or unmarked snapshot is not a completion report. For `idle` or `done` without a complete report, prompt the same agent to return only the missing report; do not rerun the task. To resume `blocked`, send the required input to the same agent in a new prompt that requests a fresh report block. Send both prompts without `--wait`, return control, and retrieve their results on a later turn.
 
 ## Rules
 
