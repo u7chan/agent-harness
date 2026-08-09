@@ -1,7 +1,7 @@
 {
   "reference": "u7chan/agent-harness",
   "number": 73,
-  "body": "**LGTM**\n\n確認した範囲に指摘はありません。\n\n<details>\n<summary>Review details</summary>\n\n- Commit: `0123456789abcdef0123456789abcdef01234567`\n- Round: `1/3`\n- Scope: reviewスキルの出力契約と検証\n\n</details>",
+  "body": "**LGTM**\n\n確認した範囲では、指摘はありません。\n\n<details>\n<summary>Review details</summary>\n\n- Commit: `0123456789abcdef0123456789abcdef01234567`\n- Round: `1/3`\n- Scope: reviewスキルの出力契約と検証\n\n</details>",
   "event": "COMMENT",
   "grant": "write",
   "commit_id": "0123456789abcdef0123456789abcdef01234567"

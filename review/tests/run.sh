@@ -65,6 +65,9 @@ expect_invalid lgtm-overall-blocker-conflict reviews.create \
 expect_invalid unresolved-variable reviews.create \
   '.body += "\n\n{件数}"' \
   "$FIXTURES/no-findings.json"
+expect_invalid unresolved-scope-variable reviews.create \
+  '.body += "\n\n{確認範囲の要約}"' \
+  "$FIXTURES/no-findings.json"
 expect_invalid literal-backslash-n reviews.create \
   '.body += "\\\\n壊れた改行"' \
   "$FIXTURES/no-findings.json"
