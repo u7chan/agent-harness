@@ -68,6 +68,9 @@ expect_invalid unresolved-variable reviews.create \
 expect_invalid unresolved-scope-variable reviews.create \
   '.body += "\n\n{確認範囲の要約}"' \
   "$FIXTURES/no-findings.json"
+expect_invalid unresolved-legacy-scope-variable reviews.create \
+  '.body += "\n\n{意味で要約した確認範囲}"' \
+  "$FIXTURES/no-findings.json"
 expect_invalid literal-backslash-n reviews.create \
   '.body += "\\\\n壊れた改行"' \
   "$FIXTURES/no-findings.json"
