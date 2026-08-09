@@ -1,5 +1,5 @@
 ---
-name: refine-japanese-writing
+name: refine-docs-ja
 description: >
   既存の日本語の技術・業務文を、事実、意図、不確実性を保ったまま診断、
   校正、自然化、推敲する。誤字脱字や表記ゆれの修正、AI生成らしい表現の
@@ -7,7 +7,7 @@ description: >
   リライトを求められたときに使う。翻訳、新規執筆、事実確認だけの依頼には使わない。
 ---
 
-# Refine Japanese Writing
+# 日本語文書を推敲する
 
 既存の日本語原稿を、依頼された範囲内で改善する。
 
