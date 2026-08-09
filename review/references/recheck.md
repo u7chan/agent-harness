@@ -1,10 +1,10 @@
-# Recheck Workflow
+# 再チェック手順
 
 ## 対象とラウンド
 
-- 明示的に再チェックを依頼された場合だけ、以前の会話で自分が投稿し、未解決のまま残っている thread を対象にする。
+- 明示的に再チェックを依頼された場合だけ、以前の会話で自分が投稿し、未解決のまま残っているレビュースレッドを対象にする。
 - 初回レビューを Round 1、再チェックを Round 2、Round 3 と数え、最大 3 ラウンドまで行う。
-- Resolve 済みの thread、他者や別の会話で投稿されたコメント、再チェック中に新しく見つけた論点は対象にしない。
+- Resolve 済みのレビュースレッド、他者や別の会話で投稿されたコメント、再チェック中に新しく見つけた論点は対象にしない。
 - Round 3 を終えても Blocker が残る場合は追加で投稿せず、Draft のままユーザーへ報告する。
 
 ## 判定
@@ -16,13 +16,13 @@
 - **unresolved**: 元の失敗条件または影響が残る。
 - **unknown**: コード、実行条件、仕様、権限の情報が不足しているため判断できない。
 
-判定後は、[output-templates.md](output-templates.md) の対応する返信を同じ thread に投稿する。resolved は根拠を返信した後、ユーザーが確認した場合に限って Resolve する。partial と unresolved には現在のラベルを付け、unknown は Resolve しない。すべての対象が resolved なら、再チェック合格の review result を使う。
+判定後は、[output-templates.md](output-templates.md) の対応する返信を同じレビュースレッドに投稿する。resolved は根拠を返信した後、ユーザーが確認した場合に限って Resolve する。partial と unresolved には現在のラベルを付け、unknown は Resolve しない。すべての対象が resolved なら、再チェック合格のレビュー結果を使う。
 
-## Thread の特定
+## レビュースレッドの特定
 
-1. `review-threads.read` の `database_id` と、`review-comments.read` で取得した root comment の数値 ID を照合する。
-2. `database_id` がない場合に限り、PR、path、line、投稿者が自分のアカウントであること、`in_reply_to_id == null` を照合する。outdated の場合は original position を優先する。
-3. 一意に特定できない場合は unknown とし、返信しない。
+1. `review-threads.read` の `database_id` と、`review-comments.read` で取得したルートコメントの数値 ID を照合する。
+2. `database_id` がない場合に限り、PR、`path`、`line`、投稿者が自分のアカウントであること、`in_reply_to_id == null` を照合する。`outdated` の場合は元の位置を優先する。
+3. 一意に特定できない場合は `unknown` とし、返信しない。
 
 ## 報告
 

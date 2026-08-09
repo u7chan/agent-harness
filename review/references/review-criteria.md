@@ -1,4 +1,4 @@
-# Review Criteria
+# レビュー基準
 
 ## ラベル
 
