@@ -7,7 +7,7 @@
 - Branch names must use lowercase kebab-case with a type prefix, such as `feat/add-action-filter`.
 - Commit messages must use an English Conventional Commit prefix, such as `feat(gh): add action filter`.
 - PR descriptions must be written in Japanese and include `Issues`, `Why`, `Summary`, `Changes`, and `Verification`.
-- レビュー・改善系のスキルは日本語で、それ以外のスキルは英語で記述する。
+- Write review and improvement skills in Japanese, and all other skills in English.
 - When addressing PR feedback, reply to the relevant comment.
 - Keep `SKILL.md` minimal. Put deterministic validation and tool constraints in scripts or schemas.
 - Do not duplicate definitions. Keep one authoritative source and derive or validate everything else from it.
