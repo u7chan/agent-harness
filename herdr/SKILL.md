@@ -46,6 +46,8 @@ herdr pane get <pane-id>
 
 When starting an agent, use an existing interactive pane in `$HERDR_WORKSPACE_ID` and a responsibility-based name. If none is available, split from `$HERDR_PANE_ID` without changing focus. Read the returned pane and agent IDs from JSON, then prompt the pane ID without `--wait`.
 
+After starting the agent, set the pane label to the same responsibility-based name with `herdr pane rename <pane-id> <name>`, then verify `herdr pane get <pane-id>` returns that `label`. The agent name and pane label are separate; without a manual pane label, `show_agent_labels_on_pane_borders = true` displays the detected agent kind, such as `codex`.
+
 ## Rules
 
 - Use Herdr only when explicitly requested.
