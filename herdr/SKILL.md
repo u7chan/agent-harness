@@ -93,6 +93,8 @@ herdr agent prompt <name-or-pane-id> "<prompt>"
 
 Keep delegation fire-and-forget. Do not pass `--wait` or block while the delegate works. Return control to the user immediately, then retrieve results after the delegate becomes idle via `herdr agent get` / `herdr agent read` on a later turn.
 
+If the delegate must read the herdr skill or perform herdr operations, say so explicitly in the prompt. The skill is not auto-loaded.
+
 ### 4. Read the result
 
 ```bash
@@ -103,6 +105,8 @@ herdr agent read <name-or-pane-id> \
 ```
 
 Treat `blocked` as requiring input. Treat `unknown` as unclassified, not completed.
+
+The result is the delegate's final answer. The delegate performs no additional return operation.
 
 If prompt, get, or read fails, inspect `agent get` and `agent read` before retrying. Do not blindly resend a prompt that may already have been delivered.
 
@@ -157,6 +161,32 @@ herdr worktree remove --workspace <workspace-id>
 - The linked workspace closes automatically when its checkout is removed.
 - `worktree remove` deletes the checkout only; the branch is never deleted.
 - A dirty checkout (modified or untracked files) fails with `dirty_worktree_requires_force`; add `--force` only when discarding those files is acceptable.
+
+## Delegation contract（子エージェント向け契約）
+
+このセクションは、Herdr から委譲された子エージェントとして実行される場合の契約を定義する。
+
+### Skill loading（スキルロード条件）
+
+- Herdr スキルは自動ロードされない。子エージェントは、親の委譲プロンプトで Herdr スキルの読み込みが明示された場合のみ `herdr/SKILL.md` を読む。
+- 親は、子に Herdr 操作をさせる場合（例: さらに別のエージェントへ委譲する場合）は、委譲プロンプトに「herdr スキルを読み、それに従え」と明示する。
+- 指示がない場合、子は Herdr の存在を前提とせず、通常のタスクとして作業し、通常の最終回答で完了する。
+
+### Completion report（完了報告）
+
+- 子の最終回答は、親が `herdr agent read` で取得する結果そのものである。追加の返却操作は不要。
+- 最終回答には次の最小項目を含める:
+  - 状態: `completed` または `blocked`
+  - 要約: 実施内容と結論
+  - 変更ファイル: 変更・作成したファイルの一覧
+  - 検証: 実行した検証とその結果
+  - 未解決事項またはブロッカー: 親の入力・判断が必要な点
+- `blocked` の場合は、何が不足していて親に何を期待するかを明記する。
+
+### Async flow（非同期フロー）
+
+- 親は委譲後ブロックしない（`--wait` を使わない）。子は完了を親へ能動的に通知する仕組みを持たないため、親は子が idle になった後、`herdr agent get` / `herdr agent read` で結果を取得する。
+- 子は同期の完了待ちを前提にした動作をしない。
 
 ## Rules
 
