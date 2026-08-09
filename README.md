@@ -1,8 +1,8 @@
 # agent-harness
 
 [![Bash](https://badgen.net/static/Shell/Bash/4EAA25)](https://www.gnu.org/software/bash/)
-[![GitHub CLI](https://badgen.net/static/GitHub%20CLI/required/181717?icon=github)](https://cli.github.com/)
-[![jq](https://badgen.net/static/jq/required/0C7BDC)](https://jqlang.org/)
+[![GitHub CLI](https://badgen.net/static/GitHub%20CLI/gh/181717?icon=github)](https://cli.github.com/)
+[![jq](https://badgen.net/static/JSON/jq/0C7BDC)](https://jqlang.org/)
 
 Minimal, reusable skills and constrained tool harnesses for coding agents.
 
