@@ -2,8 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARENT_SCRIPT="$SCRIPT_DIR/../scripts/parent-delegate-async.sh"
-CHILD_SCRIPT="$SCRIPT_DIR/../scripts/child-return-result.sh"
+HERDR_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PARENT_SCRIPT="$HERDR_DIR/scripts/parent-delegate-async.sh"
+CHILD_SCRIPT="$HERDR_DIR/scripts/child-return-result.sh"
 TEST_TMP="$(mktemp -d /tmp/herdr-async-test-XXXXXX)"
 MOCK_BIN="$TEST_TMP/bin"
 MOCK_LOG="$TEST_TMP/log"
@@ -24,6 +25,7 @@ chmod +x "$MOCK_BIN/herdr"
 
 export PATH="$MOCK_BIN:$PATH"
 export HERDR_ENV=1
+export HERDR_WORKSPACE_ID=wG
 export HERDR_PANE_ID=wG:p1
 export HERDR_TEST_TARGET="$MOCK_LOG/target"
 export HERDR_TEST_MESSAGE="$MOCK_LOG/message"
@@ -54,8 +56,8 @@ assert_file_eq() {
 
 parent_success() {
   local prompt=$'run the child\nwith this prompt'
-  HERDR_TEST_RC=0 "$PARENT_SCRIPT" child-agent "$prompt"
-  assert_file_eq child-agent "$HERDR_TEST_TARGET"
+  HERDR_TEST_RC=0 "$PARENT_SCRIPT" wG:p2 "$prompt"
+  assert_file_eq wG:p2 "$HERDR_TEST_TARGET"
   local message
   message="$(<"$HERDR_TEST_MESSAGE")"
   case "$message" in
@@ -63,7 +65,9 @@ parent_success() {
     *) return 1 ;;
   esac
   [[ "$message" == *'Direct parent pane for result return: wG:p1'* ]]
-  [[ "$message" == *'Use child-return-result.sh to return the final status and body to this pane.'* ]]
+  local return_command="\"${CHILD_SCRIPT}\" \"wG:p1\" <completed|blocked> \"<body>\""
+  [[ "$CHILD_SCRIPT" = /* ]]
+  [[ "$message" == *"$return_command"* ]]
 }
 
 child_success() {
@@ -80,7 +84,8 @@ child_blocked() {
 
 invalid_arguments() {
   expect_rc 2 "$PARENT_SCRIPT" --wait 'prompt'
-  expect_rc 2 "$PARENT_SCRIPT" child-agent ''
+  expect_rc 2 "$PARENT_SCRIPT" child-agent 'prompt'
+  expect_rc 2 "$PARENT_SCRIPT" wG:p2 ''
   expect_rc 2 "$CHILD_SCRIPT" wG:p1 pending 'body'
   expect_rc 2 "$CHILD_SCRIPT" invalid-parent completed 'body'
   expect_rc 2 "$CHILD_SCRIPT" wG:p1 completed ''
@@ -88,15 +93,20 @@ invalid_arguments() {
 
 preflight_failures() {
   expect_rc 1 env -u HERDR_ENV HERDR_PANE_ID=wG:p1 PATH="$PATH" \
-    "$PARENT_SCRIPT" child-agent prompt
+    "$PARENT_SCRIPT" wG:p2 prompt
   expect_rc 1 env -u HERDR_PANE_ID HERDR_ENV=1 PATH="$PATH" \
-    "$PARENT_SCRIPT" child-agent prompt
+    "$PARENT_SCRIPT" wG:p2 prompt
+  expect_rc 1 env -u HERDR_WORKSPACE_ID HERDR_ENV=1 HERDR_PANE_ID=wG:p1 PATH="$PATH" \
+    "$PARENT_SCRIPT" wG:p2 prompt
+  expect_rc 1 env HERDR_WORKSPACE_ID=wG HERDR_PANE_ID=wJ:p1 \
+    "$PARENT_SCRIPT" wG:p2 prompt
+  expect_rc 1 "$PARENT_SCRIPT" wJ:p2 prompt
   expect_rc 1 env HERDR_ENV=1 HERDR_PANE_ID=wG:p1 PATH="$TEST_TMP/empty:/usr/bin:/bin" \
     "$CHILD_SCRIPT" wG:p1 completed body
 }
 
 cli_failure_is_propagated() {
-  expect_rc 17 env HERDR_TEST_RC=17 "$PARENT_SCRIPT" child-agent prompt
+  expect_rc 17 env HERDR_TEST_RC=17 "$PARENT_SCRIPT" wG:p2 prompt
   expect_rc 17 env HERDR_TEST_RC=17 "$CHILD_SCRIPT" wG:p1 completed body
 }
 
@@ -105,12 +115,25 @@ wrappers_are_thin() {
     "$PARENT_SCRIPT" "$CHILD_SCRIPT"
 }
 
-parent_success && pass parent_success
-child_success && pass child_success
-child_blocked && pass child_blocked
-invalid_arguments && pass invalid_arguments
-preflight_failures && pass preflight_failures
-cli_failure_is_propagated && pass cli_failure_is_propagated
-wrappers_are_thin && pass wrappers_are_thin
+run_test() {
+  local test_name="$1"
+  "$test_name"
+  pass "$test_name"
+}
+
+expected_count=7
+
+run_test parent_success
+run_test child_success
+run_test child_blocked
+run_test invalid_arguments
+run_test preflight_failures
+run_test cli_failure_is_propagated
+run_test wrappers_are_thin
+
+[ "$pass_count" -eq "$expected_count" ] || {
+  printf 'FAIL: expected %s tests, got %s\n' "$expected_count" "$pass_count" >&2
+  exit 1
+}
 
 printf 'PASS: %s Herdr async wrapper tests\n' "$pass_count"

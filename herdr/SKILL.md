@@ -23,11 +23,13 @@ Normal delegation is fire-and-forget. Do not use `--wait`. Send the task to an e
 Use the thin wrappers for the direct-parent result flow:
 
 ```bash
-herdr/scripts/parent-delegate-async.sh <agent-or-pane> "<prompt>"
+herdr/scripts/parent-delegate-async.sh <child-pane> "<prompt>"
 herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<body>"
 ```
 
-The parent wrapper adds the current `$HERDR_PANE_ID` to the child prompt. The child wrapper returns one status and free-form body to that pane. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for multi-stage, parallel, state, and worktree rules.
+Before calling the parent wrapper, resolve the target from `herdr pane list --workspace "$HERDR_WORKSPACE_ID"`. Pass the returned pane ID, never an agent name. If the requested agent is absent, start it in the current workspace as described in [Pane operations](#pane-operations), then use its returned pane ID.
+
+The parent wrapper verifies that both panes belong to `$HERDR_WORKSPACE_ID` and adds the current `$HERDR_PANE_ID` plus the absolute child-wrapper path to the prompt. The child wrapper returns one status and free-form body to that pane. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for multi-stage, parallel, state, and worktree rules.
 
 The wrappers validate their arguments and environment, call only the existing `herdr agent prompt` command, and propagate its result. They do not wait, retry, queue, persist state, or create Herdr resources.
 
@@ -42,7 +44,7 @@ herdr pane list --workspace "$HERDR_WORKSPACE_ID"
 herdr pane get <pane-id>
 ```
 
-When starting an agent, use an existing interactive pane and a responsibility-based name. Read the returned pane and agent IDs from JSON, then prompt it without `--wait`.
+When starting an agent, use an existing interactive pane in `$HERDR_WORKSPACE_ID` and a responsibility-based name. If none is available, split from `$HERDR_PANE_ID` without changing focus. Read the returned pane and agent IDs from JSON, then prompt the pane ID without `--wait`.
 
 ## Rules
 

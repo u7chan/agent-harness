@@ -4,22 +4,28 @@ This reference defines the small protocol used by the two Herdr helper scripts. 
 
 ## Parent to child
 
-The parent must know its current pane ID in `$HERDR_PANE_ID` and must delegate to an existing agent or pane:
+The parent must know its current pane ID in `$HERDR_PANE_ID`. Resolve the child from the current workspace before delegation:
 
 ```bash
-herdr/scripts/parent-delegate-async.sh <agent-or-pane> "<prompt>"
+herdr pane list --workspace "$HERDR_WORKSPACE_ID"
 ```
 
-The wrapper sends one `herdr agent prompt` call without waiting. It appends the current pane ID to the prompt as the child's direct return destination. The child can then return its final answer with:
+Select the child pane ID from that response. Do not pass an agent name or a pane from another workspace. If the requested agent is absent, start it in a pane in `$HERDR_WORKSPACE_ID`, then use the pane ID returned by Herdr:
 
 ```bash
-herdr/scripts/child-return-result.sh "<direct-parent-pane>" completed "<body>"
+herdr/scripts/parent-delegate-async.sh <child-pane> "<prompt>"
+```
+
+The wrapper rejects child and parent panes outside `$HERDR_WORKSPACE_ID`, then sends one `herdr agent prompt` call without waiting. It appends the current pane ID and an absolute path to the child helper to the prompt. The child can then return its final answer with that exact helper path:
+
+```bash
+"<absolute-child-helper-path>" "<direct-parent-pane>" completed "<body>"
 ```
 
 Use `blocked` when the child cannot continue without a decision or input from the parent:
 
 ```bash
-herdr/scripts/child-return-result.sh "<direct-parent-pane>" blocked "<reason and required input>"
+"<absolute-child-helper-path>" "<direct-parent-pane>" blocked "<reason and required input>"
 ```
 
 The body is free-form text and must be passed as one shell argument. Quote it when it contains spaces or newlines. It is delivered to the parent in this form:
