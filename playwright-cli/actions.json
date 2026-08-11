@@ -1,0 +1,889 @@
+{
+  "schema_version": 1,
+  "limits": {
+    "inline_bytes": 32768,
+    "snapshot_bytes": 10485760,
+    "screenshot_bytes": 52428800
+  },
+  "compatibility": {
+    "default_runtime": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+    "runtimes": {
+      "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05": {
+        "cli_package": "@playwright/cli",
+        "cli_version": "0.1.18",
+        "embedded_playwright_version": "1.63.0-alpha-2026-08-05",
+        "embedded_playwright_core_version": "1.63.0-alpha-2026-08-05",
+        "upstream_repository": "https://github.com/microsoft/playwright-cli",
+        "upstream_commit": "ca196c297169a494ee5517584883eada60dc8d0e",
+        "npm_integrity": "sha512-ggNfYYH+GsZTGUiBEL8f6N5j0seYEUE52v+fIWqK/A36QG36cL0EJ79qWTXYO2uZMUU7vm+jk3x0fKCPL6UuIw==",
+        "help_fingerprint_sha256": "4e775c126f056b1b3dc5655af8b6c8df27eb209635b5934605326e8330209fa0",
+        "help_fingerprint_commands": [
+          "open",
+          "list",
+          "close",
+          "goto",
+          "go-back",
+          "go-forward",
+          "reload",
+          "snapshot",
+          "find",
+          "tab-list",
+          "tab-new",
+          "tab-select",
+          "tab-close",
+          "console",
+          "click",
+          "fill",
+          "select",
+          "check",
+          "uncheck",
+          "hover",
+          "screenshot"
+        ]
+      }
+    }
+  },
+  "actions": [
+    {
+      "name": "actions.list",
+      "description": "List catalog actions filtered by categories, permissions, or query",
+      "category": "catalog",
+      "permission": "read",
+      "grant": "none",
+      "session": "forbidden",
+      "handler": "internal",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "categories": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "permissions": {"type": "array", "items": {"type": "string", "enum": ["read", "write", "sensitive-write"]}, "uniqueItems": true},
+          "query": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      }
+    },
+    {
+      "name": "actions.describe",
+      "description": "Return the full catalog definition of a single action",
+      "category": "catalog",
+      "permission": "read",
+      "grant": "none",
+      "session": "forbidden",
+      "handler": "internal",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "properties": {
+          "action": {"type": "string", "minLength": 1, "maxLength": 64}
+        }
+      }
+    },
+    {
+      "name": "runtime.check",
+      "description": "Report CLI executable, package, embedded Playwright versions, sessions, and allowlist compatibility",
+      "category": "runtime",
+      "permission": "read",
+      "grant": "none",
+      "session": "forbidden",
+      "handler": "internal",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "browser.list",
+      "description": "List live browser sessions with version and compatibility (sessionless)",
+      "category": "browser",
+      "permission": "read",
+      "grant": "none",
+      "session": "forbidden",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 30,
+      "cli_command": "list",
+      "cli_arguments": [],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "list"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "browser.open",
+      "description": "Open a new browser session and reserve ownership of it",
+      "category": "browser",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 120,
+      "cli_command": "open",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "open"},
+      "precondition_error_codes": ["SESSION_ALREADY_LIVE"],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "browser.close",
+      "description": "Close a harness-owned browser session",
+      "category": "browser",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 120,
+      "cli_command": "close",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "close"},
+      "precondition_error_codes": [],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "page.goto",
+      "description": "Navigate the current page to a URL and verify the navigation",
+      "category": "page",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "goto",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--url", "from": "field", "field": "url"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["url"],
+        "properties": {
+          "url": {"type": "string", "format": "http-url", "maxLength": 2048}
+        }
+      }
+    },
+    {
+      "name": "page.back",
+      "description": "Navigate the current page back and verify the navigation",
+      "category": "page",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "go-back",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "page.forward",
+      "description": "Navigate the current page forward and verify the navigation",
+      "category": "page",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "go-forward",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "page.reload",
+      "description": "Reload the current page and verify the navigation",
+      "category": "page",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "reload",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "page.snapshot",
+      "description": "Capture a snapshot of the current page; large output is stored as an artifact",
+      "category": "page",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "snapshot",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "snapshot"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "page.find",
+      "description": "Find elements on the current page by ref or selector",
+      "category": "page",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "find",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--kind", "from": "field", "field": "target.kind"},
+        {"flag": "--value", "from": "field", "field": "target.value"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target"],
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value", "observation_id"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "ref"},
+                    "value": {"type": "string", "format": "element-ref"},
+                    "observation_id": {"type": "string", "format": "uuid"}
+                  }
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "selector"},
+                    "value": {"type": "string", "format": "selector", "maxLength": 512}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "tab.list",
+      "description": "List the tabs of the current session",
+      "category": "tab",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "tab-list",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "tab.new",
+      "description": "Create a new tab, optionally with a URL and activation",
+      "category": "tab",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "tab-new",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--url", "from": "field", "field": "url", "optional": true},
+        {"flag": "--activate", "from": "field", "field": "activate", "optional": true}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": [],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {"type": "string", "format": "http-url", "maxLength": 2048},
+          "activate": {"type": "boolean"}
+        },
+        "dependentRequired": {"activate": ["url"]}
+      }
+    },
+    {
+      "name": "tab.select",
+      "description": "Select the tab at the given index",
+      "category": "tab",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "tab-select",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--index", "from": "field", "field": "index"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": ["TAB_NOT_FOUND"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    {
+      "name": "tab.close",
+      "description": "Close the tab at the given index",
+      "category": "tab",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "tab-close",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--index", "from": "field", "field": "index"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": ["TAB_NOT_FOUND"],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    {
+      "name": "debug.console",
+      "description": "Read console messages from the current session",
+      "category": "debug",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "console",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "page.click",
+      "description": "Click a target element and verify the interaction",
+      "category": "interaction",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "click",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--kind", "from": "field", "field": "target.kind"},
+        {"flag": "--value", "from": "field", "field": "target.value"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": ["TARGET_NOT_FOUND"],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target"],
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value", "observation_id"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "ref"},
+                    "value": {"type": "string", "format": "element-ref"},
+                    "observation_id": {"type": "string", "format": "uuid"}
+                  }
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "selector"},
+                    "value": {"type": "string", "format": "selector", "maxLength": 512}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "page.fill",
+      "description": "Fill a target element with text and verify the interaction",
+      "category": "interaction",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "fill",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--kind", "from": "field", "field": "target.kind"},
+        {"flag": "--value", "from": "field", "field": "target.value"},
+        {"flag": "--text", "from": "field", "field": "value"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": ["TARGET_NOT_FOUND"],
+      "failure_semantics": "uncertain",
+      "sensitive_fields": ["value"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target", "value"],
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value", "observation_id"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "ref"},
+                    "value": {"type": "string", "format": "element-ref"},
+                    "observation_id": {"type": "string", "format": "uuid"}
+                  }
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "selector"},
+                    "value": {"type": "string", "format": "selector", "maxLength": 512}
+                  }
+                }
+              }
+            }
+          },
+          "value": {"type": "string", "maxLength": 1000000}
+        }
+      }
+    },
+    {
+      "name": "page.select",
+      "description": "Select an option in a target select element and verify the interaction",
+      "category": "interaction",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "select",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--kind", "from": "field", "field": "target.kind"},
+        {"flag": "--value", "from": "field", "field": "target.value"},
+        {"flag": "--option", "from": "field", "field": "option"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": ["TARGET_NOT_FOUND"],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target", "option"],
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value", "observation_id"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "ref"},
+                    "value": {"type": "string", "format": "element-ref"},
+                    "observation_id": {"type": "string", "format": "uuid"}
+                  }
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "selector"},
+                    "value": {"type": "string", "format": "selector", "maxLength": 512}
+                  }
+                }
+              }
+            }
+          },
+          "option": {"type": "string", "minLength": 1, "maxLength": 1024}
+        }
+      }
+    },
+    {
+      "name": "page.check",
+      "description": "Check a target checkbox and verify the interaction",
+      "category": "interaction",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "check",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--kind", "from": "field", "field": "target.kind"},
+        {"flag": "--value", "from": "field", "field": "target.value"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": ["TARGET_NOT_FOUND"],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target"],
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value", "observation_id"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "ref"},
+                    "value": {"type": "string", "format": "element-ref"},
+                    "observation_id": {"type": "string", "format": "uuid"}
+                  }
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "selector"},
+                    "value": {"type": "string", "format": "selector", "maxLength": 512}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "page.uncheck",
+      "description": "Uncheck a target checkbox and verify the interaction",
+      "category": "interaction",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "uncheck",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--kind", "from": "field", "field": "target.kind"},
+        {"flag": "--value", "from": "field", "field": "target.value"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": ["TARGET_NOT_FOUND"],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target"],
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value", "observation_id"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "ref"},
+                    "value": {"type": "string", "format": "element-ref"},
+                    "observation_id": {"type": "string", "format": "uuid"}
+                  }
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "selector"},
+                    "value": {"type": "string", "format": "selector", "maxLength": 512}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "page.hover",
+      "description": "Hover over a target element and verify the interaction",
+      "category": "interaction",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "hover",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--kind", "from": "field", "field": "target.kind"},
+        {"flag": "--value", "from": "field", "field": "target.value"}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "tool-result"},
+      "precondition_error_codes": ["TARGET_NOT_FOUND"],
+      "failure_semantics": "uncertain",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target"],
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value", "observation_id"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "ref"},
+                    "value": {"type": "string", "format": "element-ref"},
+                    "observation_id": {"type": "string", "format": "uuid"}
+                  }
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "selector"},
+                    "value": {"type": "string", "format": "selector", "maxLength": 512}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "artifact.screenshot",
+      "description": "Capture a screenshot of a target element or the full page as a managed artifact",
+      "category": "artifact",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "cli",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "timeout_seconds": 60,
+      "cli_command": "screenshot",
+      "cli_arguments": [
+        {"flag": "--name", "from": "session"},
+        {"flag": "--output", "from": "runtime", "field": "output_path"},
+        {"flag": "--kind", "from": "field", "field": "target.kind", "optional": true},
+        {"flag": "--value", "from": "field", "field": "target.value", "optional": true}
+      ],
+      "cli_flags": ["--json"],
+      "output_adapter": {"kind": "screenshot"},
+      "precondition_error_codes": ["TARGET_NOT_FOUND"],
+      "failure_semantics": "definite",
+      "sensitive_artifact_kinds": ["screenshot"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOfFields": ["target", "full_page"],
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value", "observation_id"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "ref"},
+                    "value": {"type": "string", "format": "element-ref"},
+                    "observation_id": {"type": "string", "format": "uuid"}
+                  }
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "value"],
+                  "properties": {
+                    "kind": {"type": "string", "const": "selector"},
+                    "value": {"type": "string", "format": "selector", "maxLength": 512}
+                  }
+                }
+              }
+            }
+          },
+          "full_page": {"type": "boolean", "const": true}
+        }
+      }
+    },
+    {
+      "name": "recovery.observe",
+      "description": "Observe recovery evidence for a quarantined or opening session without resolving it",
+      "category": "recovery",
+      "permission": "read",
+      "grant": "none",
+      "session": "required",
+      "handler": "internal",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "recovery.resolve",
+      "description": "Resolve the outcome of a subject request bound to the latest recovery observation",
+      "category": "recovery",
+      "permission": "write",
+      "grant": "write",
+      "session": "required",
+      "handler": "internal",
+      "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject_request_id", "observation_id", "resolution"],
+        "properties": {
+          "subject_request_id": {"type": "string", "format": "uuid"},
+          "observation_id": {"type": "string", "format": "uuid"},
+          "resolution": {"type": "string", "enum": ["applied", "not_applied", "indeterminate"]}
+        }
+      }
+    }
+  ]
+}

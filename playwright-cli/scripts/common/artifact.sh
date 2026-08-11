@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+pw_artifact_sanitize_segment() {
+  local value="$1"
+  if [[ "$value" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]]; then
+    printf '%s' "$value"
+  else
+    printf 'invalid'
+  fi
+}
+
+# Compute a unique artifact path under the artifact root.
+# Path: artifacts/<session>/<request_id_or_read>/<seq>-<kind>.<ext>
+pw_new_artifact_path() {
+  local session="$1"
+  local request_segment="$2"
+  local kind="$3"
+  local ext="$4"
+  local session_dir
+  session_dir="$(pw_artifact_sanitize_segment "$session")"
+  local req_dir
+  req_dir="$(pw_artifact_sanitize_segment "$request_segment")"
+  local base="$PWD/.playwright-cli/agent-harness/artifacts/$session_dir/$req_dir"
+  pw_ensure_dir "$base"
+  local seq=1
+  local candidate
+  while :; do
+    candidate="$base/$(printf '%03d' "$seq")-$kind.$ext"
+    if [ ! -e "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+    seq=$((seq + 1))
+  done
+}
+
+pw_artifact_id() {
+  local path="$1"
+  basename "$path"
+}
+
+pw_artifact_metadata() {
+  local path="$1" kind="$2" media_type="$3" sensitive="$4"
+  local size_bytes sha256
+  size_bytes="$(stat -c%s "$path")"
+  sha256="$(sha256sum -b "$path" | cut -d' ' -f1)"
+  local relative
+  relative="${path#$PWD/}"
+  jq -nc \
+    --arg id "$(basename "$path")" \
+    --arg kind "$kind" \
+    --arg relative "$relative" \
+    --argjson size "$size_bytes" \
+    --arg sha256 "$sha256" \
+    --arg media_type "$media_type" \
+    --argjson sensitive "$sensitive" \
+    '{id: $id, kind: $kind, relative_path: $relative, size_bytes: $size, sha256: $sha256, media_type: $media_type, sensitive: $sensitive, retention: "caller-managed"}'
+}
+
+# Write a stream to a runtime-generated artifact path. Never overwrites.
+pw_artifact_store() {
+  local session="$1" request_segment="$2" kind="$3" ext="$4" media_type="$5" sensitive="$6"
+  local path
+  path="$(pw_new_artifact_path "$session" "$request_segment" "$kind" "$ext")"
+  umask 077
+  cat > "$path"
+  chmod 0600 "$path"
+  pw_artifact_metadata "$path" "$kind" "$media_type" "$sensitive"
+}
+
+# Remove an artifact file if it exists (partial artifact cleanup).
+pw_artifact_remove() {
+  local path="$1"
+  [ -n "$path" ] || return 0
+  [ -e "$path" ] || return 0
+  rm -f "$path"
+}
+
+pw_artifact_cleanup_dir() {
+  local session="$1" request_segment="$2"
+  local session_dir req_dir
+  session_dir="$(pw_artifact_sanitize_segment "$session")"
+  req_dir="$(pw_artifact_sanitize_segment "$request_segment")"
+  local dir="$PWD/.playwright-cli/agent-harness/artifacts/$session_dir/$req_dir"
+  [ -d "$dir" ] || return 0
+  rm -f "$dir"/* 2>/dev/null || true
+}
