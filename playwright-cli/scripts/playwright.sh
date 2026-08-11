@@ -393,7 +393,13 @@ pw_run_cli_action_flow() {
   local runtime_fields="{}"
   local screenshot_path=""
   if [ "$adapter_kind" = "screenshot" ]; then
-    screenshot_path="$(pw_new_artifact_path "$session" "$request_id" "screenshot" "png")"
+    if ! screenshot_path="$(pw_new_artifact_path "$session" "$request_id" "screenshot" "png")"; then
+      if [ "$is_write" = "true" ]; then
+        pw_terminal_journal "$session" "$journal" "failed"
+      fi
+      pw_emit_failure "dispatch" "ARTIFACT_PATH_REJECTED" "artifact path contains symlinks" "$session" "$request_id" "$action_name" "$permission"
+      exit 1
+    fi
     runtime_fields="$(jq -cn --arg p "$screenshot_path" '{output_path: $p}')"
   fi
 
@@ -441,54 +447,47 @@ pw_run_cli_action_flow() {
   fi
 
   if [ "$adapter_kind" = "screenshot" ]; then
-    local file=""
+    # The CLI-returned path is contractually ignored for filesystem access:
+    # only the runtime-generated path is ever stat'd, hashed, or removed,
+    # and it must be a non-symlink regular file inside the canonical
+    # artifact root.
     if [ "$terminal_status" = "ok" ]; then
       local cli_file
       cli_file="$(jq -r '.file // empty' <<< "$PW_RESULT_DATA")"
-      if [ -n "$cli_file" ]; then
-        if [ "$cli_file" != "$screenshot_path" ]; then
-          terminal_status="unknown_outcome"
-          PW_RESULT_PHASE="verification"
-          PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
-          PW_RESULT_MESSAGE="playwright-cli returned a path that does not match the expected runtime artifact path"
-          pw_artifact_remove "$screenshot_path"
-          file=""
-        else
-          file="$screenshot_path"
-        fi
-      fi
-      if [ -z "$file" ]; then
-        file="$screenshot_path"
-      fi
-    fi
-    if [ "$terminal_status" = "ok" ] && [ -L "$file" ]; then
-      terminal_status="unknown_outcome"
-      PW_RESULT_PHASE="verification"
-      PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
-      PW_RESULT_MESSAGE="screenshot artifact path is a symlink"
-      pw_artifact_remove "$screenshot_path"
-    elif [ "$terminal_status" = "ok" ] && [ ! -f "$file" ]; then
-      terminal_status="unknown_outcome"
-      PW_RESULT_PHASE="verification"
-      PW_RESULT_CODE="ARTIFACT_MISSING"
-      PW_RESULT_MESSAGE="playwright-cli reported success but no screenshot artifact exists"
-      pw_artifact_remove "$screenshot_path"
-    elif [ "$terminal_status" = "ok" ]; then
-      local size_limit
-      size_limit="$(jq -r '.limits.screenshot_bytes' "$ACTIONS_JSON")"
-      local size_bytes
-      size_bytes="$(stat -c%s "$file" 2>/dev/null || echo 0)"
-      if [ "$size_bytes" -gt "$size_limit" ]; then
+      if [ -n "$cli_file" ] && [ "$cli_file" != "$screenshot_path" ]; then
         terminal_status="unknown_outcome"
         PW_RESULT_PHASE="verification"
-        PW_RESULT_CODE="ARTIFACT_TOO_LARGE"
-        PW_RESULT_MESSAGE="screenshot artifact exceeds the size limit"
-        pw_artifact_remove "$file"
+        PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
+        PW_RESULT_MESSAGE="playwright-cli returned a path that does not match the expected runtime artifact path"
+        pw_artifact_remove "$screenshot_path"
+      elif ! pw_artifact_path_symlink_free "$screenshot_path"; then
+        terminal_status="unknown_outcome"
+        PW_RESULT_PHASE="verification"
+        PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
+        PW_RESULT_MESSAGE="screenshot artifact is not a canonical non-symlink regular file in the artifact root"
+        pw_artifact_remove "$screenshot_path"
+      elif [ ! -f "$screenshot_path" ]; then
+        terminal_status="unknown_outcome"
+        PW_RESULT_PHASE="verification"
+        PW_RESULT_CODE="ARTIFACT_MISSING"
+        PW_RESULT_MESSAGE="playwright-cli reported success but no screenshot artifact exists"
+        pw_artifact_remove "$screenshot_path"
       else
-        local meta
-        meta="$(pw_artifact_metadata "$file" "screenshot" "image/png" "true")"
-        pw_result_add_artifact "$meta"
-        PW_RESULT_DATA="$(jq -nc --arg ref "$(jq -r '.id' <<< "$meta")" '{artifact_ref: $ref}')"
+        local size_limit size_bytes
+        size_limit="$(jq -r '.limits.screenshot_bytes' "$ACTIONS_JSON")"
+        size_bytes="$(stat -c%s "$screenshot_path")"
+        if [ "$size_bytes" -gt "$size_limit" ]; then
+          terminal_status="unknown_outcome"
+          PW_RESULT_PHASE="verification"
+          PW_RESULT_CODE="ARTIFACT_TOO_LARGE"
+          PW_RESULT_MESSAGE="screenshot artifact exceeds the size limit"
+          pw_artifact_remove "$screenshot_path"
+        else
+          local meta
+          meta="$(pw_artifact_metadata "$screenshot_path" "screenshot" "image/png" "true")"
+          pw_result_add_artifact "$meta"
+          PW_RESULT_DATA="$(jq -nc --arg ref "$(jq -r '.id' <<< "$meta")" '{artifact_ref: $ref}')"
+        fi
       fi
     else
       pw_artifact_remove "$screenshot_path"
@@ -496,7 +495,7 @@ pw_run_cli_action_flow() {
   fi
 
   if [ "$terminal_status" = "ok" ] && [ "$adapter_kind" = "snapshot" ]; then
-    local out_size inline_limit snapshot_limit
+    local out_size inline_limit snapshot_limit meta
     out_size="$(stat -c%s "$PW_SPAWN_STDOUT")"
     inline_limit="$(jq -r '.limits.inline_bytes' "$ACTIONS_JSON")"
     snapshot_limit="$(jq -r '.limits.snapshot_bytes' "$ACTIONS_JSON")"
@@ -507,10 +506,15 @@ pw_run_cli_action_flow() {
         PW_RESULT_CODE="ARTIFACT_TOO_LARGE"
         PW_RESULT_MESSAGE="snapshot output exceeds the snapshot size limit"
       else
-        local meta
-        meta="$(pw_artifact_store "$session" "read" "snapshot" "json" "application/json" "true" < "$PW_SPAWN_STDOUT")"
-        pw_result_add_artifact "$meta"
-        PW_RESULT_DATA="$(jq -nc --arg ref "$(jq -r '.id' <<< "$meta")" '{artifact_ref: $ref}')"
+        if ! meta="$(pw_artifact_store "$session" "read" "snapshot" "json" "application/json" "true" < "$PW_SPAWN_STDOUT")"; then
+          terminal_status="unknown_outcome"
+          PW_RESULT_PHASE="verification"
+          PW_RESULT_CODE="ARTIFACT_PATH_REJECTED"
+          PW_RESULT_MESSAGE="artifact path contains symlinks"
+        else
+          pw_result_add_artifact "$meta"
+          PW_RESULT_DATA="$(jq -nc --arg ref "$(jq -r '.id' <<< "$meta")" '{artifact_ref: $ref}')"
+        fi
       fi
     fi
   fi

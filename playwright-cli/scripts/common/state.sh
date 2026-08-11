@@ -36,6 +36,16 @@ pw_artifact_root() {
   printf '%s/artifacts' "$(pw_harness_root)"
 }
 
+# Normalize a session/request segment into a safe artifact path component.
+pw_artifact_sanitize_segment() {
+  local value="$1"
+  if [[ "$value" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]]; then
+    printf '%s' "$value"
+  else
+    printf 'invalid'
+  fi
+}
+
 pw_cache_dir() {
   printf '%s/cache' "$(pw_harness_root)"
 }
@@ -109,11 +119,13 @@ pw_durable_write() {
   sync -f "$dir"
 }
 
-# Remove orphaned temp files while holding the session lock.
+# Remove orphaned temp files while holding the session lock. Refuses to
+# descend through symlinks, so deletion can never reach outside the state tree.
 pw_cleanup_orphan_temps() {
   local session="$1"
   local dir
   dir="$(pw_session_dir "$session")"
+  pw_reject_symlinks "$dir" || return 0
   local f
   find "$dir" -name '.pwcli-tmp-*' -type f -delete 2>/dev/null || true
 }
@@ -157,8 +169,13 @@ pw_journals_read() {
   local dir
   dir="$(pw_session_dir "$session")/requests"
   pw_reject_symlinks "$dir" || { printf '[]'; return 0; }
+  local files=()
+  local f
   shopt -s nullglob
-  local files=("$dir"/*.json)
+  for f in "$dir"/*.json; do
+    pw_reject_symlinks "$f" || { printf '[]'; return 0; }
+    files+=("$f")
+  done
   if [ "${#files[@]}" -eq 0 ]; then
     printf '[]'
     return 0
@@ -272,11 +289,20 @@ pw_journal_set_state() {
 }
 
 # Acquire the exclusive session lock. Returns 0 on success; 1 on busy.
+# Symlinks anywhere under the session path are rejected before any directory
+# creation or file open, so the lock fd can never point outside the state tree.
 pw_acquire_lock() {
   local session="$1"
+  local session_dir lock_file
+  session_dir="$(pw_session_dir "$session")"
+  lock_file="$(pw_lock_file "$session")"
+  pw_reject_symlinks "$session_dir" || return 1
+  pw_reject_symlinks "$lock_file" || return 1
   pw_ensure_session_dirs "$session"
+  pw_reject_symlinks "$session_dir" || return 1
+  pw_reject_symlinks "$lock_file" || return 1
   exec 9>&-
-  exec 9>"$(pw_lock_file "$session")"
+  exec 9>"$lock_file"
   if ! flock -n "$PW_LOCK_FD" 2>/dev/null; then
     return 1
   fi
@@ -297,25 +323,49 @@ pw_lock_file() {
 pw_state_validate() {
   local session="$1"
   PW_STATE_ERROR=""
-  local owner ledger
-  owner="$(pw_owner_read "$session")"
-  ledger="$(pw_ledger_read "$session")"
 
   local fail
   fail() {
     PW_STATE_ERROR="$(jq -nc --arg code "$1" --arg message "$2" '{code: $code, message: $message}')"
   }
 
+  # Symlink rejection runs BEFORE any read or write and covers every
+  # component from the canonical root to the leaf: session dir, lock,
+  # owner.json, ledger.json, requests dir, each journal leaf, and the
+  # artifact session dir. A symlink anywhere lets reads/writes escape the
+  # canonical root, so it is always treated as corrupt state.
   local session_dir
   session_dir="$(pw_session_dir "$session")"
-  if ! pw_reject_symlinks "$session_dir"; then
-    fail "STATE_CORRUPT" "session directory contains symlinks"
+  if ! pw_reject_symlinks "$session_dir" \
+    || ! pw_reject_symlinks "$(pw_lock_file "$session")" \
+    || ! pw_reject_symlinks "$(pw_owner_path "$session")" \
+    || ! pw_reject_symlinks "$(pw_ledger_path "$session")"; then
+    fail "STATE_CORRUPT" "state path contains symlinks"
     return 1
   fi
-  if ! pw_reject_symlinks "$session_dir/requests"; then
+  local requests_dir
+  requests_dir="$session_dir/requests"
+  if ! pw_reject_symlinks "$requests_dir"; then
     fail "STATE_CORRUPT" "requests directory contains symlinks"
     return 1
   fi
+  if [ -d "$requests_dir" ]; then
+    local jf
+    for jf in "$requests_dir"/*.json; do
+      if [ -e "$jf" ] && ! pw_reject_symlinks "$jf"; then
+        fail "STATE_CORRUPT" "request journal path contains symlinks"
+        return 1
+      fi
+    done
+  fi
+  if ! pw_reject_symlinks "$(pw_artifact_root)/$(pw_artifact_sanitize_segment "$session")"; then
+    fail "STATE_CORRUPT" "artifact directory contains symlinks"
+    return 1
+  fi
+
+  local owner ledger
+  owner="$(pw_owner_read "$session")"
+  ledger="$(pw_ledger_read "$session")"
 
   if [ -n "$owner" ]; then
     if ! jq empty <<< "$owner" >/dev/null 2>&1; then fail "STATE_CORRUPT" "owner.json is not valid JSON"; return 1; fi

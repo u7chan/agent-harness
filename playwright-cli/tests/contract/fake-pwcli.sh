@@ -267,6 +267,37 @@ main() {
     no-file)
       jq -nc '{ok: true, file: ""}'
       ;;
+    bad-path)
+      local out_arg=""
+      local prev=""
+      local arg
+      for arg in "$@"; do
+        if [ "$prev" = "--output" ]; then
+          out_arg="$arg"
+        fi
+        prev="$arg"
+      done
+      if [ -n "$out_arg" ]; then
+        printf 'fake-png-bytes-%s' "$(basename "$out_arg")" > "$out_arg"
+      fi
+      jq -nc --arg file "${FAKE_PWCLI_BAD_PATH:-/tmp/pwcli-evil.png}" '{ok: true, file: $file}'
+      ;;
+    symlink-attack)
+      local out_arg=""
+      local prev=""
+      local arg
+      for arg in "$@"; do
+        if [ "$prev" = "--output" ]; then
+          out_arg="$arg"
+        fi
+        prev="$arg"
+      done
+      if [ -n "$out_arg" ]; then
+        rm -f "$out_arg"
+        ln -s "${FAKE_PWCLI_ATTACK_TARGET:?missing attack target}" "$out_arg"
+      fi
+      jq -nc --arg file "$out_arg" '{ok: true, file: $file}'
+      ;;
     hang)
       if [ "${FAKE_PWCLI_SURVIVING_CHILD:-0}" = "1" ]; then
         setsid sleep 300 >/dev/null 2>&1 &

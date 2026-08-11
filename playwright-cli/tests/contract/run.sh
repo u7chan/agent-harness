@@ -707,6 +707,70 @@ test_full_page_screenshot() {
   rm -f "$argv_file"
 }
 
+test_screenshot_symlink_attack_rejected() {
+  local ws ext
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  # External file larger than the screenshot limit: a harness that trusts the
+  # runtime path through a symlink would metadata the external file and remove
+  # it on size overflow.
+  ext="$(mktemp /tmp/pwcli-ext-XXXXXX)"
+  truncate -s 62914560 "$ext"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_SCENARIO_screenshot=symlink-attack FAKE_PWCLI_ATTACK_TARGET="$ext" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"}}" 2>&1)"
+  assert_json_eq "$out" '.status' "unknown_outcome" || return 1
+  assert_json_eq "$out" '.error.phase' "verification" || return 1
+  assert_json_eq "$out" '.error.code' "ARTIFACT_PATH_MISMATCH" || return 1
+  [ -f "$ext" ] || { echo "external file was removed through symlink"; return 1; }
+  rm -f "$ext"
+}
+
+test_screenshot_cli_path_not_trusted() {
+  local ws ext
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  ext="$(mktemp /tmp/pwcli-extpath-XXXXXX)"
+  printf 'precious data' > "$ext"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_SCENARIO_screenshot=bad-path FAKE_PWCLI_BAD_PATH="$ext" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"}}" 2>&1)"
+  assert_json_eq "$out" '.status' "unknown_outcome" || return 1
+  assert_json_eq "$out" '.error.code' "ARTIFACT_PATH_MISMATCH" || return 1
+  assert_eq "$(cat "$ext")" "precious data" || return 1
+  rm -f "$ext"
+}
+
+test_artifact_dir_symlink_rejected() {
+  local ws ext_dir
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  ext_dir="$(mktemp -d /tmp/pwcli-extdir-XXXXXX)"
+  local artifacts_dir="$ws/.playwright-cli/agent-harness/artifacts"
+  mkdir -p "$artifacts_dir"
+  ln -s "$ext_dir" "$artifacts_dir/demo"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"}}" 2>&1)"
+  assert_json_eq "$out" '.error.code' "STATE_CORRUPT" || return 1
+  assert_json_eq "$out" '.error.phase' "recovery" || return 1
+  [ -z "$(ls -A "$ext_dir")" ] || { echo "external dir was written through symlink"; return 1; }
+  rm -rf "$ext_dir"
+}
+
+test_artifact_request_dir_symlink_rejected() {
+  local ws ext_dir
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  ext_dir="$(mktemp -d /tmp/pwcli-extreq-XXXXXX)"
+  local artifacts_dir="$ws/.playwright-cli/agent-harness/artifacts"
+  mkdir -p "$artifacts_dir/demo"
+  ln -s "$ext_dir" "$artifacts_dir/demo/$REQ2"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"}}" 2>&1)"
+  assert_json_eq "$out" '.error.code' "ARTIFACT_PATH_REJECTED" || return 1
+  assert_json_eq "$out" '.error.phase' "dispatch" || return 1
+  [ -z "$(ls -A "$ext_dir")" ] || { echo "external dir was written through symlink"; return 1; }
+  rm -rf "$ext_dir"
+}
+
 # ============================ Group E: state & recovery =====================
 
 test_prepared_ownerless_recovery() {
@@ -853,6 +917,71 @@ test_state_corrupt_blocks_and_observe_ok() {
   assert_json_eq "$out" '.data.state_corrupt' "true" || return 1
 }
 
+test_state_owner_symlink_rejected() {
+  local ws ext
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  local dir="$ws/.playwright-cli/agent-harness/state/demo"
+  ext="$(mktemp /tmp/pwcli-extowner-XXXXXX)"
+  cp "$dir/owner.json" "$ext"
+  rm "$dir/owner.json"
+  ln -s "$ext" "$dir/owner.json"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.goto '{"session":"demo","url":"https://example.com/"}' 2>&1)"
+  assert_json_eq "$out" '.error.code' "STATE_CORRUPT" || return 1
+  assert_json_eq "$out" '.error.phase' "recovery" || return 1
+  rm -f "$ext" "$dir/owner.json"
+}
+
+test_state_ledger_symlink_rejected() {
+  local ws ext
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  local dir="$ws/.playwright-cli/agent-harness/state/demo"
+  ext="$(mktemp /tmp/pwcli-extledger-XXXXXX)"
+  cp "$dir/ledger.json" "$ext"
+  rm "$dir/ledger.json"
+  ln -s "$ext" "$dir/ledger.json"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.goto '{"session":"demo","url":"https://example.com/"}' 2>&1)"
+  assert_json_eq "$out" '.error.code' "STATE_CORRUPT" || return 1
+  assert_json_eq "$out" '.error.phase' "recovery" || return 1
+  rm -f "$ext" "$dir/ledger.json"
+}
+
+test_state_journal_symlink_rejected() {
+  local ws ext
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  local jdir="$ws/.playwright-cli/agent-harness/state/demo/requests"
+  ext="$(mktemp /tmp/pwcli-extjournal-XXXXXX)"
+  cp "$jdir/$REQ1.json" "$ext"
+  rm "$jdir/$REQ1.json"
+  ln -s "$ext" "$jdir/$REQ1.json"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.goto '{"session":"demo","url":"https://example.com/"}' 2>&1)"
+  assert_json_eq "$out" '.error.code' "STATE_CORRUPT" || return 1
+  assert_json_eq "$out" '.error.phase' "recovery" || return 1
+  rm -f "$ext" "$jdir/$REQ1.json"
+}
+
+test_state_lock_symlink_rejected() {
+  local ws ext
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  local dir="$ws/.playwright-cli/agent-harness/state/demo"
+  ext="$(mktemp /tmp/pwcli-extlock-XXXXXX)"
+  printf 'precious lock target' > "$ext"
+  rm "$dir/lock"
+  ln -s "$ext" "$dir/lock"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.goto '{"session":"demo","url":"https://example.com/"}' 2>&1)"
+  assert_json_eq "$out" '.error.code' "LOCK_BUSY" || return 1
+  assert_json_eq "$out" '.error.phase' "lock" || return 1
+  assert_eq "$(cat "$ext")" "precious lock target" || return 1
+  rm -f "$ext" "$dir/lock"
+}
+
 test_recovery_not_required() {
   local ws
   ws="$(new_workspace)"
@@ -976,6 +1105,10 @@ main() {
   run_test test_large_snapshot_artifact
   run_test test_screenshot_artifact
   run_test test_screenshot_missing_artifact
+  run_test test_screenshot_symlink_attack_rejected
+  run_test test_screenshot_cli_path_not_trusted
+  run_test test_artifact_dir_symlink_rejected
+  run_test test_artifact_request_dir_symlink_rejected
   run_test test_artifacts_never_overwrite
   run_test test_full_page_screenshot
 
@@ -991,6 +1124,10 @@ main() {
   run_test test_stale_evidence_rejected
   run_test test_unknown_outcome_blocks_writes_snapshot_allowed
   run_test test_state_corrupt_blocks_and_observe_ok
+  run_test test_state_owner_symlink_rejected
+  run_test test_state_ledger_symlink_rejected
+  run_test test_state_journal_symlink_rejected
+  run_test test_state_lock_symlink_rejected
   run_test test_recovery_not_required
   run_test test_unresolved_history_blocks_new_generation
   run_test test_stale_reference_rejected
