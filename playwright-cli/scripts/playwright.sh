@@ -69,7 +69,8 @@ pw_set_runtime_context() {
 pw_emit_failure() {
   local phase="$1" code="$2" message="$3" session="$4" request_id="$5" action="$6" permission="$7"
   local stderr_excerpt="${8:-null}"
-  pw_envelope_fail "$phase" "$code" "$message" false null null "$stderr_excerpt" null "[]" "${PW_RUNTIME_ENV:-null}"
+  local exit_code="${9:-null}"
+  pw_envelope_fail "$phase" "$code" "$message" false "$exit_code" null "$stderr_excerpt" null "[]" "${PW_RUNTIME_ENV:-null}"
 }
 
 pw_emit_already_applied() {
@@ -105,7 +106,7 @@ pw_run_cli_action() {
   setsid bash -c '
     mapfile -t _b64 < "$1"
     _args=()
-    local _b
+    _b
     for _b in "${_b64[@]}"; do
       _args+=("$(base64 -d <<< "$_b")")
     done
@@ -225,7 +226,7 @@ pw_run_cli_action_flow() {
       pw_emit_envelope "$(pw_envelope_ok "$PW_RESULT_DATA" "$PW_RESULT_ARTIFACTS" "${PW_RUNTIME_ENV:-null}")"
       exit 0
     fi
-    pw_emit_failure "$PW_RESULT_PHASE" "$PW_RESULT_CODE" "$PW_RESULT_MESSAGE" "null" "$request_id" "$action_name" "$permission"
+    pw_emit_failure "$PW_RESULT_PHASE" "$PW_RESULT_CODE" "$PW_RESULT_MESSAGE" "null" "$request_id" "$action_name" "$permission" "null" "$PW_SPAWN_RC"
     exit 1
   fi
 
@@ -357,6 +358,22 @@ pw_run_cli_action_flow() {
       ;;
   esac
 
+  # fresh target verification: ref observation_id must match the latest ledger observation
+  local ledger
+  ledger="$(pw_ledger_read "$session")"
+  if [ -n "$ledger" ]; then
+    local ref_observation_id
+    ref_observation_id="$(jq -r '.target.observation_id // empty' <<< "$input")"
+    if [ -n "$ref_observation_id" ]; then
+      local latest_obs
+      latest_obs="$(jq -r '.latest_observation_id // ""' <<< "$ledger")"
+      if [ "$ref_observation_id" != "$latest_obs" ]; then
+        pw_emit_failure "preflight" "STALE_REFERENCE" "target observation_id does not match the latest recorded observation; take a new snapshot first" "$session" "$request_id" "$action_name" "$permission"
+        exit 1
+      fi
+    fi
+  fi
+
   # journal lifecycle and spawn
   local generation=""
   if [ "$action_name" = "browser.open" ]; then
@@ -420,14 +437,31 @@ pw_run_cli_action_flow() {
       pw_emit_envelope "$(pw_envelope_already_applied "$(jq -nc --arg s "$session" '{reason: "session_already_closed", session: $s}')")"
       exit 0
     fi
-    pw_emit_failure "execution" "SESSION_NOT_OWNED" "close reported not-open for an unowned session" "$session" "$request_id" "$action_name" "$permission" "$stderr_excerpt"
+    pw_emit_failure "execution" "SESSION_NOT_OWNED" "close reported not-open for an unowned session" "$session" "$request_id" "$action_name" "$permission" "$stderr_excerpt" "$PW_SPAWN_RC"
     exit 1
   fi
 
   if [ "$adapter_kind" = "screenshot" ]; then
     local file=""
     if [ "$terminal_status" = "ok" ]; then
-      file="$(jq -r '.file // empty' <<< "$PW_RESULT_DATA")"
+      local cli_file
+      cli_file="$(jq -r '.file // empty' <<< "$PW_RESULT_DATA")"
+      if [ -n "$cli_file" ]; then
+        local cli_canon
+        cli_canon="$(realpath "$cli_file" 2>/dev/null || true)"
+        local expected_canon
+        expected_canon="$(realpath "$screenshot_path" 2>/dev/null || true)"
+        if [ "$cli_canon" != "$expected_canon" ]; then
+          terminal_status="unknown_outcome"
+          PW_RESULT_PHASE="verification"
+          PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
+          PW_RESULT_MESSAGE="playwright-cli returned a path that does not match the expected runtime artifact path"
+          pw_artifact_remove "$screenshot_path"
+          file=""
+        else
+          file="$cli_canon"
+        fi
+      fi
       if [ -z "$file" ]; then
         file="$screenshot_path"
       fi
@@ -455,6 +489,8 @@ pw_run_cli_action_flow() {
         pw_result_add_artifact "$meta"
         PW_RESULT_DATA="$(jq -nc --arg ref "$(jq -r '.id' <<< "$meta")" '{artifact_ref: $ref}')"
       fi
+    else
+      pw_artifact_remove "$screenshot_path"
     fi
   fi
 
@@ -498,10 +534,10 @@ pw_run_cli_action_flow() {
       pw_emit_envelope "$(pw_envelope_ok "$PW_RESULT_DATA" "$PW_RESULT_ARTIFACTS" "${PW_RUNTIME_ENV:-null}")"
       ;;
     unknown_outcome)
-      pw_emit_envelope "$(pw_envelope_unknown_outcome "$PW_RESULT_PHASE" "$PW_RESULT_CODE" "$PW_RESULT_MESSAGE" "null" "$PW_RESULT_SIGNAL" "$stderr_excerpt" "$PW_RESULT_DATA" "$PW_RESULT_ARTIFACTS" "${PW_RUNTIME_ENV:-null}")"
+      pw_emit_envelope "$(pw_envelope_unknown_outcome "$PW_RESULT_PHASE" "$PW_RESULT_CODE" "$PW_RESULT_MESSAGE" "$PW_SPAWN_RC" "$PW_RESULT_SIGNAL" "$stderr_excerpt" "$PW_RESULT_DATA" "$PW_RESULT_ARTIFACTS" "${PW_RUNTIME_ENV:-null}")"
       ;;
     failed)
-      pw_emit_envelope "$(pw_envelope_fail "$PW_RESULT_PHASE" "$PW_RESULT_CODE" "$PW_RESULT_MESSAGE" "$PW_RESULT_RETRYABLE" "null" "$PW_RESULT_SIGNAL" "$stderr_excerpt" "$PW_RESULT_DATA" "$PW_RESULT_ARTIFACTS" "${PW_RUNTIME_ENV:-null}")"
+      pw_emit_envelope "$(pw_envelope_fail "$PW_RESULT_PHASE" "$PW_RESULT_CODE" "$PW_RESULT_MESSAGE" "$PW_RESULT_RETRYABLE" "$PW_SPAWN_RC" "$PW_RESULT_SIGNAL" "$stderr_excerpt" "$PW_RESULT_DATA" "$PW_RESULT_ARTIFACTS" "${PW_RUNTIME_ENV:-null}")"
       ;;
   esac
 }

@@ -13,11 +13,12 @@ main() {
     input='{}'
   fi
 
-  local session subject_request_id observation_id resolution
+  local session subject_request_id observation_id resolution resolver_request_id
   session="$(jq -r '.session // ""' <<< "$input")"
   subject_request_id="$(jq -r '.subject_request_id // ""' <<< "$input")"
   observation_id="$(jq -r '.observation_id // ""' <<< "$input")"
   resolution="$(jq -r '.resolution // ""' <<< "$input")"
+  resolver_request_id="$(jq -r '.request_id // ""' <<< "$input")"
 
   if ! pw_workspace_check; then
     pw_envelope_fail "preflight" "WORKSPACE_INVALID" "the working directory is not canonical" false
@@ -100,8 +101,42 @@ main() {
     exit 1
   fi
 
+  # Resolver request journal gate: prevent duplicate resolution under the same request_id.
+  if [ -n "$resolver_request_id" ]; then
+    local resolver_digest
+    resolver_digest="$(pw_input_digest "recovery.resolve" "$input")"
+    local resolver_journals
+    resolver_journals="$(pw_journals_read "$session")"
+    local resolver_match
+    resolver_match="$(jq -c --arg id "$resolver_request_id" '[.[] | select(.request_id == $id)] | if length > 0 then .[0] else null end' <<< "$resolver_journals")"
+    if [ "$resolver_match" != "null" ]; then
+      local resolver_match_state resolver_match_digest
+      resolver_match_state="$(jq -r '.state' <<< "$resolver_match")"
+      resolver_match_digest="$(jq -r '.digest' <<< "$resolver_match")"
+      if [ "$resolver_match_digest" = "$resolver_digest" ]; then
+        if [ "$resolver_match_state" = "ok" ]; then
+          pw_envelope_already_applied "$(jq -cn --arg id "$resolver_request_id" '{resolver_request_id: $id, reason: "resolver_already_applied"}')"
+          exit 0
+        fi
+      else
+        pw_envelope_fail "recovery" "REQUEST_ID_CONFLICT" "resolver request_id was already used with a different binding" false
+        exit 1
+      fi
+    fi
+    local resolver_generation
+    resolver_generation="$(jq -r '.current_generation' <<< "$owner")"
+    local resolver_journal
+    resolver_journal="$(pw_build_journal "$session" "$resolver_request_id" "$resolver_generation" "recovery.resolve" "write" "$resolver_digest" "prepared")"
+    pw_journal_write "$session" "$resolver_journal"
+  fi
+
   # Resolve the subject journal.
   pw_journal_write "$session" "$(pw_journal_set_state "$session" "$subject" "resolved" "$resolution" "null")"
+
+  # Finalize the resolver journal.
+  if [ -n "$resolver_request_id" ]; then
+    pw_journal_write "$session" "$(pw_journal_set_state "$session" "$resolver_journal" "ok" "null" "null")"
+  fi
 
   # Owner transition bound to the resolution and the latest evidence.
   local new_phase="quarantined"
@@ -122,6 +157,9 @@ main() {
       ;;
   esac
   pw_owner_write "$session" "$(pw_build_owner "$session" "$owner_generation" "$new_phase" "$PWD" "$(pw_default_runtime_id)" "$(jq -r '.created_request_id' <<< "$owner")")"
+  if [ "$new_phase" = "active" ]; then
+    pw_ledger_write "$session" "$(pw_build_ledger "$session" "$owner_generation" "\"$observation_id\"" "$(jq -c '.recovery // null' <<< "$ledger")")"
+  fi
 
   pw_envelope_ok "$(jq -cn \
     --arg id "$subject_request_id" \

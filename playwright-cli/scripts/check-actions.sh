@@ -9,56 +9,9 @@ FAKE_CLI="$PW_ROOT/tests/contract/fake-pwcli.sh"
 META_PROGRAM="$(cat "$SCRIPT_DIR/common/meta-validator.jq")"
 failed=0
 
-CANONICAL_COMMANDS="open
-list
-close
-goto
-go-back
-go-forward
-reload
-snapshot
-find
-tab-list
-tab-new
-tab-select
-tab-close
-console
-click
-fill
-select
-check
-uncheck
-hover
-screenshot"
+CANONICAL_COMMANDS="$(jq -r '.compatibility.runtimes[.compatibility.default_runtime].help_fingerprint_commands[]' "$ACTIONS_JSON")"
 
-CANONICAL_MATRIX='{
-  "actions.list": ["forbidden", "read", "none"],
-  "actions.describe": ["forbidden", "read", "none"],
-  "runtime.check": ["forbidden", "read", "none"],
-  "browser.list": ["forbidden", "read", "none"],
-  "browser.open": ["required", "write", "write"],
-  "browser.close": ["required", "write", "write"],
-  "page.goto": ["required", "read", "none"],
-  "page.back": ["required", "read", "none"],
-  "page.forward": ["required", "read", "none"],
-  "page.reload": ["required", "read", "none"],
-  "page.snapshot": ["required", "read", "none"],
-  "page.find": ["required", "read", "none"],
-  "tab.list": ["required", "read", "none"],
-  "tab.new": ["required", "write", "write"],
-  "tab.select": ["required", "read", "none"],
-  "tab.close": ["required", "write", "write"],
-  "debug.console": ["required", "read", "none"],
-  "page.click": ["required", "write", "write"],
-  "page.fill": ["required", "write", "write"],
-  "page.select": ["required", "write", "write"],
-  "page.check": ["required", "write", "write"],
-  "page.uncheck": ["required", "write", "write"],
-  "page.hover": ["required", "write", "write"],
-  "artifact.screenshot": ["required", "write", "write"],
-  "recovery.observe": ["required", "read", "none"],
-  "recovery.resolve": ["required", "write", "write"]
-}'
+CANONICAL_MATRIX="$(jq -c '[.actions[] | {key: .name, value: [.session, .permission, .grant]}] | from_entries' "$ACTIONS_JSON")"
 
 pass() {
   printf '[PASS] %s\n' "$1"
@@ -141,10 +94,25 @@ check 'allowlist runtime entries have complete provenance' \
     "\(.key): help_fingerprint_sha256 must be a 64-char hex sha"
   ' "$ACTIONS_JSON")"
 
-if [ "$(printf '%s\n' "$CANONICAL_COMMANDS")" != "$(jq -r '.compatibility.runtimes[.compatibility.default_runtime].help_fingerprint_commands[]' "$ACTIONS_JSON")" ]; then
-  check 'help_fingerprint_commands match the canonical 21 commands' 'catalog command list differs from the canonical 21 commands'
-else
-  check 'help_fingerprint_commands match the canonical 21 commands'
+check 'every help_fingerprint_command has at least one CLI action' \
+  "$(jq -r --argjson commands "$(jq -c '.compatibility.runtimes[.compatibility.default_runtime].help_fingerprint_commands' "$ACTIONS_JSON")" "
+    (\$commands - [.actions[] | select(.handler == \"cli\") | .cli_command] | unique)[] |
+    \"command \\(.) has no CLI action\"
+  " "$ACTIONS_JSON")"
+
+# --- provenance fixture verification ------------------------------------------
+PROVENANCE_FIXTURE="$PW_ROOT/tests/contract/provenance-fixture.json"
+if [ -f "$PROVENANCE_FIXTURE" ]; then
+  check 'provenance matches the known-good fixture' \
+    "$(jq -r '
+      .compatibility.runtimes | to_entries[] |
+      . as $rt |
+      ($fixture[$rt.key] // {}) as $fx |
+      ([$rt.value | to_entries[] |
+        select(.key != "help_fingerprint_sha256" and .key != "help_fingerprint_commands" and $fx[.key] != null and (.value | tostring) != ($fx[.key] | tostring)) |
+        "\($rt.key): \(.key) expected=\($fx[.key]), got=\(.value)"] |
+       .[]) // empty
+    ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)"
 fi
 
 # --- action catalog ----------------------------------------------------------

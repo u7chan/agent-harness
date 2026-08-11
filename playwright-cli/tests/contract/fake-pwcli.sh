@@ -17,7 +17,7 @@ help_payload() {
 
 default_response() {
   local cmd="$1"
-  local name="" url="" kind="" value="" index="" text="" option="" output=""
+  local name="" url="" kind="" value="" index="" text="" option="" output="" full_page="false"
   local prev=""
   local arg
   for arg in "$@"; do
@@ -30,9 +30,10 @@ default_response() {
       --text) text="$arg" ;;
       --option) option="$arg" ;;
       --output) output="$arg" ;;
+      --full-page) full_page="$arg" ;; 
     esac
     case "$arg" in
-      --name|--url|--kind|--value|--index|--text|--option|--output) prev="$arg" ;;
+      --name|--url|--kind|--value|--index|--text|--option|--output|--full-page) prev="$arg" ;;
       *) prev="" ;;
     esac
   done

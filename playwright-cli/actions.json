@@ -807,7 +807,8 @@
         {"flag": "--name", "from": "session"},
         {"flag": "--output", "from": "runtime", "field": "output_path"},
         {"flag": "--kind", "from": "field", "field": "target.kind", "optional": true},
-        {"flag": "--value", "from": "field", "field": "target.value", "optional": true}
+        {"flag": "--value", "from": "field", "field": "target.value", "optional": true},
+        {"flag": "--full-page", "from": "field", "field": "full_page", "optional": true}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "screenshot"},

@@ -569,6 +569,20 @@ test_stderr_excerpt_on_failure() {
   assert_contains "$(jq -r '.error.stderr_excerpt' <<< "$out")" "diagnostic stderr noise" || return 1
 }
 
+test_harness_stderr_not_in_cli_excerpt() {
+  local ws
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_SCENARIO_fill=error pw_run "$ws" page.fill "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"},\"value\":\"x\"}" 2>&1)"
+  local excerpt
+  excerpt="$(jq -r '.error.stderr_excerpt // ""' <<< "$out")"
+  if [[ "$excerpt" == *"local:"* ]]; then
+    echo "  harness stderr leaked into excerpt: $excerpt"
+    return 1
+  fi
+}
+
 test_sensitive_redaction() {
   local ws
   ws="$(new_workspace)"
@@ -664,6 +678,16 @@ test_artifacts_never_overwrite() {
   local count
   count="$(ls "$ws/.playwright-cli/agent-harness/artifacts/demo/read/" | wc -l)"
   assert_eq "$count" "2" || return 1
+}
+
+test_full_page_screenshot() {
+  local ws
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"full_page\":true}" 2>&1)"
+  assert_json_eq "$out" '.status' "ok" || return 1
+  assert_json_eq "$out" '.artifacts[0].kind' "screenshot" || return 1
 }
 
 # ============================ Group E: state & recovery =====================
@@ -834,6 +858,35 @@ test_unresolved_history_blocks_new_generation() {
   assert_json_eq "$out" '.error.code' "STATE_CORRUPT" || return 1
 }
 
+test_stale_reference_rejected() {
+  local ws gen obs_id_known ref_value
+  ws="$(new_workspace)"
+  gen="$(cat /proc/sys/kernel/random/uuid)"
+  obs_id_known="$(cat /proc/sys/kernel/random/uuid)"
+  ref_value="ref:$(printf 'a%.0s' $(seq 1 64))"
+  seed_owner "$ws" demo "$gen" active "$REQ1"
+  seed_journal "$ws" demo "$REQ1" "$gen" ok browser.open "$(test_digest a)" null
+  seed_ledger "$ws" demo "$gen" "\"$obs_id_known\""
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.click "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"ref\",\"value\":\"$ref_value\",\"observation_id\":\"11111111-1111-4111-8111-111111111111\"}}" 2>&1)"
+  assert_json_eq "$out" '.error.code' "STALE_REFERENCE" || return 1
+  assert_json_eq "$out" '.error.phase' "preflight" || return 1
+}
+
+test_stale_reference_ok() {
+  local ws gen obs_id_known ref_value
+  ws="$(new_workspace)"
+  gen="$(cat /proc/sys/kernel/random/uuid)"
+  obs_id_known="$(cat /proc/sys/kernel/random/uuid)"
+  ref_value="ref:$(printf 'b%.0s' $(seq 1 64))"
+  seed_owner "$ws" demo "$gen" active "$REQ1"
+  seed_journal "$ws" demo "$REQ1" "$gen" ok browser.open "$(test_digest a)" null
+  seed_ledger "$ws" demo "$gen" "\"$obs_id_known\""
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.click "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"ref\",\"value\":\"$ref_value\",\"observation_id\":\"$obs_id_known\"}}" 2>&1)"
+  assert_json_eq "$out" '.status' "ok" || return 1
+}
+
 main() {
   echo "=== playwright-cli dispatcher contract tests ==="
   echo
@@ -898,6 +951,7 @@ main() {
   run_test test_timeout_surviving_child
   run_test test_stderr_does_not_fail
   run_test test_stderr_excerpt_on_failure
+  run_test test_harness_stderr_not_in_cli_excerpt
   run_test test_sensitive_redaction
   run_test test_write_uncertain_error
   run_test test_precondition_error_definite
@@ -905,6 +959,7 @@ main() {
   run_test test_screenshot_artifact
   run_test test_screenshot_missing_artifact
   run_test test_artifacts_never_overwrite
+  run_test test_full_page_screenshot
 
   # Group E: state and recovery
   run_test test_prepared_ownerless_recovery
@@ -920,6 +975,8 @@ main() {
   run_test test_state_corrupt_blocks_and_observe_ok
   run_test test_recovery_not_required
   run_test test_unresolved_history_blocks_new_generation
+  run_test test_stale_reference_rejected
+  run_test test_stale_reference_ok
 
   teardown_fixture
   trap - EXIT

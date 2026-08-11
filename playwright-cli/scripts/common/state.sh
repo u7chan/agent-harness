@@ -302,6 +302,17 @@ pw_state_validate() {
     PW_STATE_ERROR="$(jq -nc --arg code "$1" --arg message "$2" '{code: $code, message: $message}')"
   }
 
+  local session_dir
+  session_dir="$(pw_session_dir "$session")"
+  if ! pw_reject_symlinks "$session_dir"; then
+    fail "STATE_CORRUPT" "session directory contains symlinks"
+    return 1
+  fi
+  if ! pw_reject_symlinks "$session_dir/requests"; then
+    fail "STATE_CORRUPT" "requests directory contains symlinks"
+    return 1
+  fi
+
   if [ -n "$owner" ]; then
     if ! jq empty <<< "$owner" >/dev/null 2>&1; then fail "STATE_CORRUPT" "owner.json is not valid JSON"; return 1; fi
     local owner_ok
