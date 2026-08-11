@@ -94,6 +94,7 @@ pw_durable_write() {
   local content="$2"
   local dir
   dir="$(dirname "$file")"
+  pw_reject_symlinks "$dir" || return 1
   pw_ensure_dir "$dir"
   local tmp
   tmp="$(mktemp "$dir/.pwcli-tmp-XXXXXX")"
@@ -132,6 +133,7 @@ pw_journal_path() {
 pw_owner_read() {
   local file
   file="$(pw_owner_path "$1")"
+  pw_reject_symlinks "$file" || { printf ''; return 0; }
   if [ -f "$file" ]; then
     cat "$file"
   else
@@ -142,6 +144,7 @@ pw_owner_read() {
 pw_ledger_read() {
   local file
   file="$(pw_ledger_path "$1")"
+  pw_reject_symlinks "$file" || { printf ''; return 0; }
   if [ -f "$file" ]; then
     cat "$file"
   else
@@ -153,6 +156,7 @@ pw_journals_read() {
   local session="$1"
   local dir
   dir="$(pw_session_dir "$session")/requests"
+  pw_reject_symlinks "$dir" || { printf '[]'; return 0; }
   shopt -s nullglob
   local files=("$dir"/*.json)
   if [ "${#files[@]}" -eq 0 ]; then

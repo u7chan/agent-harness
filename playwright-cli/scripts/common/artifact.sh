@@ -74,6 +74,7 @@ pw_artifact_remove() {
   local path="$1"
   [ -n "$path" ] || return 0
   [ -e "$path" ] || return 0
+  [ ! -L "$path" ] || return 0
   rm -f "$path"
 }
 

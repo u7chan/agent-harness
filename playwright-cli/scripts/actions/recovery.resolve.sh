@@ -156,10 +156,10 @@ main() {
       new_phase="quarantined"
       ;;
   esac
-  pw_owner_write "$session" "$(pw_build_owner "$session" "$owner_generation" "$new_phase" "$PWD" "$(pw_default_runtime_id)" "$(jq -r '.created_request_id' <<< "$owner")")"
   if [ "$new_phase" = "active" ]; then
     pw_ledger_write "$session" "$(pw_build_ledger "$session" "$owner_generation" "\"$observation_id\"" "$(jq -c '.recovery // null' <<< "$ledger")")"
   fi
+  pw_owner_write "$session" "$(pw_build_owner "$session" "$owner_generation" "$new_phase" "$PWD" "$(pw_default_runtime_id)" "$(jq -r '.created_request_id' <<< "$owner")")"
 
   pw_envelope_ok "$(jq -cn \
     --arg id "$subject_request_id" \

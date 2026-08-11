@@ -106,7 +106,6 @@ pw_run_cli_action() {
   setsid bash -c '
     mapfile -t _b64 < "$1"
     _args=()
-    _b
     for _b in "${_b64[@]}"; do
       _args+=("$(base64 -d <<< "$_b")")
     done
@@ -447,11 +446,7 @@ pw_run_cli_action_flow() {
       local cli_file
       cli_file="$(jq -r '.file // empty' <<< "$PW_RESULT_DATA")"
       if [ -n "$cli_file" ]; then
-        local cli_canon
-        cli_canon="$(realpath "$cli_file" 2>/dev/null || true)"
-        local expected_canon
-        expected_canon="$(realpath "$screenshot_path" 2>/dev/null || true)"
-        if [ "$cli_canon" != "$expected_canon" ]; then
+        if [ "$cli_file" != "$screenshot_path" ]; then
           terminal_status="unknown_outcome"
           PW_RESULT_PHASE="verification"
           PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
@@ -459,19 +454,25 @@ pw_run_cli_action_flow() {
           pw_artifact_remove "$screenshot_path"
           file=""
         else
-          file="$cli_canon"
+          file="$screenshot_path"
         fi
       fi
       if [ -z "$file" ]; then
         file="$screenshot_path"
       fi
     fi
-    if [ "$terminal_status" = "ok" ] && [ ! -e "$file" ]; then
+    if [ "$terminal_status" = "ok" ] && [ -L "$file" ]; then
+      terminal_status="unknown_outcome"
+      PW_RESULT_PHASE="verification"
+      PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
+      PW_RESULT_MESSAGE="screenshot artifact path is a symlink"
+      pw_artifact_remove "$screenshot_path"
+    elif [ "$terminal_status" = "ok" ] && [ ! -f "$file" ]; then
       terminal_status="unknown_outcome"
       PW_RESULT_PHASE="verification"
       PW_RESULT_CODE="ARTIFACT_MISSING"
       PW_RESULT_MESSAGE="playwright-cli reported success but no screenshot artifact exists"
-      pw_artifact_remove "$file"
+      pw_artifact_remove "$screenshot_path"
     elif [ "$terminal_status" = "ok" ]; then
       local size_limit
       size_limit="$(jq -r '.limits.screenshot_bytes' "$ACTIONS_JSON")"

@@ -102,15 +102,38 @@ check 'every help_fingerprint_command has at least one CLI action' \
 
 # --- provenance fixture verification ------------------------------------------
 PROVENANCE_FIXTURE="$PW_ROOT/tests/contract/provenance-fixture.json"
-if [ -f "$PROVENANCE_FIXTURE" ]; then
-  check 'provenance matches the known-good fixture' \
+if [ ! -f "$PROVENANCE_FIXTURE" ]; then
+  fail 'provenance matches the known-good fixture' "provenance fixture is missing: $PROVENANCE_FIXTURE"
+else
+  check 'provenance matches the known-good fixture - every runtime has a fixture entry' \
+    "$(jq -r '
+      (.compatibility.runtimes | keys) -
+      ($fixture | keys) as $missing |
+      $missing[] | "\(.): missing from provenance fixture"
+    ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)" \
+    "$(jq -r '
+      ($fixture | keys) -
+      (.compatibility.runtimes | keys) as $extra |
+      $extra[] | "\(.): in fixture but not in runtimes"
+    ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)"
+
+  check 'provenance matches the known-good fixture - field values match' \
     "$(jq -r '
       .compatibility.runtimes | to_entries[] |
       . as $rt |
       ($fixture[$rt.key] // {}) as $fx |
       ([$rt.value | to_entries[] |
-        select(.key != "help_fingerprint_sha256" and .key != "help_fingerprint_commands" and $fx[.key] != null and (.value | tostring) != ($fx[.key] | tostring)) |
+        select($fx[.key] != null and (.value | tostring) != ($fx[.key] | tostring)) |
         "\($rt.key): \(.key) expected=\($fx[.key]), got=\(.value)"] |
+       .[]) // empty
+    ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)" \
+    "$(jq -r '
+      .compatibility.runtimes | to_entries[] |
+      . as $rt |
+      ($fixture[$rt.key] // {}) as $fx |
+      ([$rt.value | to_entries[] |
+        select($fx[.key] == null) |
+        "\($rt.key): \(.key) not present in fixture"] |
        .[]) // empty
     ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)"
 fi

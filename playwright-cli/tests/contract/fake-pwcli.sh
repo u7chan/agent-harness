@@ -131,6 +131,11 @@ error_response() {
 
 main() {
   local args=("$@")
+
+  if [ -n "${FAKE_PWCLI_ARGV_FILE:-}" ]; then
+    printf '%s\n' "${args[@]}" >> "$FAKE_PWCLI_ARGV_FILE"
+  fi
+
   local cmd="" help_cmd=""
   local i=0
   for arg in "${args[@]}"; do

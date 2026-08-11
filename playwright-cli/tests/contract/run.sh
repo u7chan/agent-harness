@@ -129,6 +129,20 @@ test_envelope_shape() {
   assert_json_true "$out" 'has("request_id") and has("permission") and has("session") and has("runtime") and has("error")' || return 1
 }
 
+test_internal_action_envelope_context() {
+  local ws
+  ws="$(new_workspace)"
+  local out
+  out="$(pw_run "$ws" actions.list '{"categories":["catalog"],"grant":"read"}' 2>&1)"
+  assert_json_eq "$out" '.action' "actions.list" || return 1
+  assert_json_eq "$out" '.permission' "read" || return 1
+  assert_json_eq "$out" '.session' "null" || return 1
+  assert_json_eq "$out" '.request_id' "null" || return 1
+  out="$(pw_run "$ws" recovery.observe '{"session":"demo"}' 2>&1)"
+  assert_json_eq "$out" '.action' "recovery.observe" || return 1
+  assert_json_eq "$out" '.permission' "read" || return 1
+}
+
 test_catalog_list_filters() {
   local ws
   ws="$(new_workspace)"
@@ -681,13 +695,16 @@ test_artifacts_never_overwrite() {
 }
 
 test_full_page_screenshot() {
-  local ws
+  local ws argv_file
   ws="$(new_workspace)"
+  argv_file="$(mktemp /tmp/pwcli-argv-XXXXXX)"
   open_demo "$ws" "$REQ1" >/dev/null 2>&1
   local out
-  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"full_page\":true}" 2>&1)"
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_ARGV_FILE="$argv_file" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"full_page\":true}" 2>&1)"
   assert_json_eq "$out" '.status' "ok" || return 1
   assert_json_eq "$out" '.artifacts[0].kind' "screenshot" || return 1
+  assert_contains "$(cat "$argv_file")" "--full-page" || return 1
+  rm -f "$argv_file"
 }
 
 # ============================ Group E: state & recovery =====================
@@ -907,6 +924,7 @@ main() {
   run_test test_oneof_violation
   run_test test_dependent_required_violation
   run_test test_envelope_shape
+  run_test test_internal_action_envelope_context
   run_test test_catalog_list_filters
   run_test test_actions_describe
 

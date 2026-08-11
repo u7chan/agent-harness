@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-_pw_env_action=""
-_pw_env_permission=""
-_pw_env_session="null"
-_pw_env_request_id="null"
-_pw_env_runtime="null"
+_pw_env_action="${_pw_env_action:-}"
+_pw_env_permission="${_pw_env_permission:-}"
+_pw_env_session="${_pw_env_session:-null}"
+_pw_env_request_id="${_pw_env_request_id:-null}"
+_pw_env_runtime="${_pw_env_runtime:-null}"
 
 pw_envelope_set_context() {
   _pw_env_action="$1"
@@ -13,6 +13,7 @@ pw_envelope_set_context() {
   _pw_env_session="$3"
   _pw_env_request_id="$4"
   _pw_env_runtime="$5"
+  export _pw_env_action _pw_env_permission _pw_env_session _pw_env_request_id _pw_env_runtime
 }
 
 pw_envelope_base() {
