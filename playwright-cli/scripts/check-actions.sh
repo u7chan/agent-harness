@@ -141,6 +141,15 @@ else
         select($fx[.key] == null) |
         "\($rt.key): \(.key) not present in fixture"] |
        .[]) // empty
+    ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")" \
+    "$(jq -r '
+      .compatibility.runtimes | to_entries[] |
+      . as $rt |
+      ($fixture[$rt.key] // {}) as $fx |
+      ([$fx | to_entries[] | .key as $k |
+        select(($rt.value[$k] // null) == null) |
+        "\($rt.key): \($k) in fixture but not in runtime entry"] |
+       .[]) // empty
     ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")"
 fi
 
