@@ -106,6 +106,10 @@ if [ ! -f "$PROVENANCE_FIXTURE" ]; then
   fail 'provenance matches the known-good fixture' "provenance fixture is missing: $PROVENANCE_FIXTURE"
 elif ! fixture_json="$(jq -c '.' "$PROVENANCE_FIXTURE" 2>/dev/null)" || [ -z "$fixture_json" ]; then
   fail 'provenance matches the known-good fixture' "provenance fixture is not valid JSON: $PROVENANCE_FIXTURE"
+elif ! fixture_type="$(jq -r 'type' <<< "$fixture_json")" || [ "$fixture_type" != "object" ]; then
+  fail 'provenance matches the known-good fixture' "provenance fixture must be a JSON object, got: ${fixture_type:-invalid}"
+elif ! jq -e 'to_entries | map(select(.value | type != "object")) | if length > 0 then error("non-object runtime entry") else "ok" end' >/dev/null 2>&1 <<< "$fixture_json"; then
+  fail 'provenance matches the known-good fixture' "provenance fixture runtime entries must be objects"
 else
   check 'provenance matches the known-good fixture - every runtime has a fixture entry' \
     "$(jq -r '

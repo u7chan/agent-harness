@@ -35,6 +35,20 @@ main() {
   local owner ledger journals state_corrupt="false"
   owner="$(pw_owner_read "$session")"
   ledger="$(pw_ledger_read "$session")"
+  local requests_dir
+  requests_dir="$(pw_session_dir "$session")/requests"
+  if ! pw_reject_symlinks "$requests_dir"; then
+    state_corrupt="true"
+  fi
+  if [ "$state_corrupt" = "false" ] && [ -d "$requests_dir" ]; then
+    local jf
+    for jf in "$requests_dir"/*.json; do
+      if { [ -e "$jf" ] || [ -L "$jf" ]; } && ! pw_reject_symlinks "$jf"; then
+        state_corrupt="true"
+        break
+      fi
+    done
+  fi
   journals="$(pw_journals_read "$session")"
   if [ -n "$ledger" ] && ! jq empty <<< "$ledger" >/dev/null 2>&1; then
     state_corrupt="true"
