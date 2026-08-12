@@ -104,18 +104,20 @@ check 'every help_fingerprint_command has at least one CLI action' \
 PROVENANCE_FIXTURE="$PW_ROOT/tests/contract/provenance-fixture.json"
 if [ ! -f "$PROVENANCE_FIXTURE" ]; then
   fail 'provenance matches the known-good fixture' "provenance fixture is missing: $PROVENANCE_FIXTURE"
+elif ! fixture_json="$(jq -c '.' "$PROVENANCE_FIXTURE" 2>/dev/null)" || [ -z "$fixture_json" ]; then
+  fail 'provenance matches the known-good fixture' "provenance fixture is not valid JSON: $PROVENANCE_FIXTURE"
 else
   check 'provenance matches the known-good fixture - every runtime has a fixture entry' \
     "$(jq -r '
       (.compatibility.runtimes | keys) -
       ($fixture | keys) as $missing |
       $missing[] | "\(.): missing from provenance fixture"
-    ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)" \
+    ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")" \
     "$(jq -r '
       ($fixture | keys) -
       (.compatibility.runtimes | keys) as $extra |
       $extra[] | "\(.): in fixture but not in runtimes"
-    ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)"
+    ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")"
 
   check 'provenance matches the known-good fixture - field values match' \
     "$(jq -r '
@@ -126,7 +128,7 @@ else
         select($fx[.key] != null and (.value | tostring) != ($fx[.key] | tostring)) |
         "\($rt.key): \(.key) expected=\($fx[.key]), got=\(.value)"] |
        .[]) // empty
-    ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)" \
+    ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")" \
     "$(jq -r '
       .compatibility.runtimes | to_entries[] |
       . as $rt |
@@ -135,7 +137,7 @@ else
         select($fx[.key] == null) |
         "\($rt.key): \(.key) not present in fixture"] |
        .[]) // empty
-    ' --argjson fixture "$(jq -c '.' "$PROVENANCE_FIXTURE")" "$ACTIONS_JSON" 2>/dev/null)"
+    ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")"
 fi
 
 # --- action catalog ----------------------------------------------------------
