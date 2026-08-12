@@ -327,6 +327,9 @@ main() {
       jq -nc --arg file "$FAKE_OUTPUT" '{result: ("- [Screenshot](" + $file + ")")}'
       ;;
     hang)
+      if [ -n "${FAKE_PWCLI_SECRET:-}" ]; then
+        printf 'hang secret: %s\n' "$FAKE_PWCLI_SECRET" >&2
+      fi
       if [ "${FAKE_PWCLI_SURVIVING_CHILD:-0}" = "1" ]; then
         setsid sleep 300 >/dev/null 2>&1 &
         if [ -n "${FAKE_PWCLI_CHILD_PID_FILE:-}" ]; then

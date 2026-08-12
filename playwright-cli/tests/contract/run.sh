@@ -102,6 +102,15 @@ test_discriminated_target_variant() {
   assert_json_eq "$out" '.error.code' "DISCRIMINATOR_VIOLATION" || return 1
 }
 
+test_selector_cannot_bypass_ref_freshness() {
+  local ws out
+  ws="$(new_workspace)"
+  out="$(pw_run "$ws" page.click "{\"session\":\"demo\",\"request_id\":\"$REQ1\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"e15\"}}" 2>&1)"
+  assert_json_eq "$out" '.error.code' "FORMAT_VIOLATION" || return 1
+  out="$(pw_run "$ws" page.click "{\"session\":\"demo\",\"request_id\":\"$REQ1\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"f1e2\"}}" 2>&1)"
+  assert_json_eq "$out" '.error.code' "FORMAT_VIOLATION" || return 1
+}
+
 test_oneof_violation() {
   local ws
   ws="$(new_workspace)"
@@ -500,6 +509,21 @@ test_finalized_history_reopen() {
   fi
 }
 
+test_closed_owner_foreign_prepared_reopen_recovery() {
+  local ws gen_old gen_new
+  ws="$(new_workspace)"
+  gen_old="$(cat /proc/sys/kernel/random/uuid)"
+  gen_new="$(cat /proc/sys/kernel/random/uuid)"
+  seed_owner "$ws" demo "$gen_old" closed "$REQ1"
+  seed_journal "$ws" demo "$REQ1" "$gen_old" ok browser.open "$(test_digest a)"
+  seed_journal "$ws" demo "$REQ2" "$gen_new" prepared browser.open "$(test_digest b)"
+  local out
+  out="$(open_demo "$ws" "$REQ3" 2>&1)"
+  assert_json_eq "$out" '.status' "ok" || return 1
+  assert_eq "$(journal_state "$ws" demo "$REQ2")" "failed" || return 1
+  assert_eq "$(owner_phase "$ws" demo)" "active" || return 1
+}
+
 test_cross_generation_replay() {
   local ws
   ws="$(new_workspace)"
@@ -685,6 +709,51 @@ test_timeout_surviving_child() {
   rm -f "$child_pid_file"
 }
 
+test_signal_cleans_active_cli_temps() {
+  local ws before after secret dispatcher rc i secret_seen="false"
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  before="$(find /tmp -maxdepth 1 -type f \( -name 'pwcli-input-*' -o -name 'pwcli-out-*' -o -name 'pwcli-err-*' \) -printf '%f\n' | sort)"
+  secret="signal-cleanup-secret-$REQ2"
+  (
+    cd "$ws" || exit 1
+    exec env \
+      PWCLI_BIN="$FIXTURE_DIR/bin/playwright-cli" \
+      PW_ACTIONS_JSON="$FIXTURE_DIR/actions.json" \
+      PWCLI_CACHE_DIR="$FIXTURE_DIR/cache" \
+      FAKE_PWCLI_SESSIONS="$LIVE_DEMO" \
+      FAKE_PWCLI_SCENARIO_fill=hang \
+      FAKE_PWCLI_SECRET="$secret" \
+      "$PW_SKILL_DIR/scripts/playwright.sh" page.fill \
+      "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"},\"value\":\"$secret\"}"
+  ) >/dev/null 2>&1 &
+  dispatcher=$!
+  i=0
+  while [ "$i" -lt 100 ]; do
+    local err_file err_content
+    for err_file in /tmp/pwcli-err-*; do
+      [ -f "$err_file" ] || continue
+      err_content="$(<"$err_file")"
+      case "$err_content" in
+        *"$secret"*) secret_seen="true"; break ;;
+      esac
+    done
+    [ "$secret_seen" = "true" ] && break
+    kill -0 "$dispatcher" 2>/dev/null || break
+    sleep 0.05
+    i=$((i + 1))
+  done
+  kill -TERM "$dispatcher" 2>/dev/null || true
+  set +e
+  wait "$dispatcher"
+  rc=$?
+  set -e
+  assert_eq "$secret_seen" "true" || return 1
+  assert_eq "$rc" "143" || return 1
+  after="$(find /tmp -maxdepth 1 -type f \( -name 'pwcli-input-*' -o -name 'pwcli-out-*' -o -name 'pwcli-err-*' \) -printf '%f\n' | sort)"
+  assert_eq "$after" "$before" || return 1
+}
+
 test_stderr_does_not_fail() {
   local ws
   ws="$(new_workspace)"
@@ -790,6 +859,7 @@ test_screenshot_artifact() {
   assert_json_eq "$out" '.artifacts[0].sensitive' "true" || return 1
   assert_json_true "$out" '.data.artifact_ref != null' || return 1
   assert_eq "$(journal_state "$ws" demo "$REQ2")" "ok" || return 1
+  assert_eq "$(stat -c '%a' "$ws/.playwright-cli/agent-harness/artifacts/demo/$REQ2/001-screenshot.png")" "600" || return 1
 }
 
 test_screenshot_missing_artifact() {
@@ -847,7 +917,7 @@ test_screenshot_target_argv_variants() {
   fi
 
   obs="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.snapshot '{"session":"demo"}' | jq -r '.data.observation_id')"
-  ref_value="ref:$(printf 'c%.0s' $(seq 1 64))"
+  ref_value="f1e2"
   : > "$argv_file"
   out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_ARGV_FILE="$argv_file" \
     pw_run "$ws" artifact.screenshot \
@@ -1240,7 +1310,7 @@ test_stale_reference_rejected() {
   ws="$(new_workspace)"
   gen="$(cat /proc/sys/kernel/random/uuid)"
   obs_id_known="$(cat /proc/sys/kernel/random/uuid)"
-  ref_value="ref:$(printf 'a%.0s' $(seq 1 64))"
+  ref_value="e15"
   seed_owner "$ws" demo "$gen" active "$REQ1"
   seed_journal "$ws" demo "$REQ1" "$gen" ok browser.open "$(test_digest a)" null
   seed_ledger "$ws" demo "$gen" "\"$obs_id_known\""
@@ -1255,7 +1325,7 @@ test_stale_reference_ok() {
   ws="$(new_workspace)"
   gen="$(cat /proc/sys/kernel/random/uuid)"
   obs_id_known="$(cat /proc/sys/kernel/random/uuid)"
-  ref_value="ref:$(printf 'b%.0s' $(seq 1 64))"
+  ref_value="f1e2"
   seed_owner "$ws" demo "$gen" active "$REQ1"
   seed_journal "$ws" demo "$REQ1" "$gen" ok browser.open "$(test_digest a)" null
   seed_ledger "$ws" demo "$gen" "\"$obs_id_known\""
@@ -1275,7 +1345,7 @@ test_snapshot_observation_ref_flow() {
   ledger_obs="$(jq -r '.latest_observation_id' "$ws/.playwright-cli/agent-harness/state/demo/ledger.json")"
   assert_eq "$ledger_obs" "$obs" || return 1
 
-  ref_value="ref:$(printf 'd%.0s' $(seq 1 64))"
+  ref_value="e42"
   out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.click \
     "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"ref\",\"value\":\"$ref_value\",\"observation_id\":\"$obs\"}}" 2>&1)"
   assert_json_eq "$out" '.status' "ok" || return 1
@@ -1317,6 +1387,44 @@ test_resolve_replay_repairs_partial_completion() {
   assert_eq "$(owner_phase "$ws" demo)" "active" || return 1
 }
 
+test_resolve_complete_replay_preserves_owner() {
+  local ws observe obs input first replay
+  ws="$(new_workspace)"
+  FAKE_PWCLI_SCENARIO_open=hang PWCLI_TIMEOUT_SECONDS=1 pw_run "$ws" browser.open \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ1\",\"grant\":\"write\"}" >/dev/null 2>&1
+  observe="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.observe '{"session":"demo"}' 2>&1)"
+  obs="$(jq -r '.data.observation_id' <<< "$observe")"
+  input="{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"subject_request_id\":\"$REQ1\",\"observation_id\":\"$obs\",\"resolution\":\"applied\"}"
+  first="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.resolve "$input" 2>&1)"
+  assert_json_eq "$first" '.data.owner_phase' "active" || return 1
+  replay="$(FAKE_PWCLI_SCENARIO_version=hang PWCLI_TIMEOUT_SECONDS=1 pw_run "$ws" recovery.resolve "$input" 2>&1)"
+  assert_json_eq "$replay" '.status' "already_applied" || return 1
+  assert_json_eq "$replay" '.data.reason' "resolver_already_applied" || return 1
+  assert_eq "$(owner_phase "$ws" demo)" "active" || return 1
+}
+
+test_snapshot_and_recovery_observations_are_independent() {
+  local ws snapshot_id out observe recovery_id snapshot_after_id
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_SCENARIO_fill=hang PWCLI_TIMEOUT_SECONDS=1 pw_run "$ws" page.fill \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"},\"value\":\"x\"}" >/dev/null 2>&1
+
+  snapshot_id="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.snapshot '{"session":"demo"}' | jq -r '.data.observation_id')"
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.resolve \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ3\",\"grant\":\"write\",\"subject_request_id\":\"$REQ2\",\"observation_id\":\"$snapshot_id\",\"resolution\":\"applied\"}" 2>&1)"
+  assert_json_eq "$out" '.error.code' "STALE_EVIDENCE" || return 1
+
+  observe="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.observe '{"session":"demo"}' 2>&1)"
+  recovery_id="$(jq -r '.data.observation_id' <<< "$observe")"
+  assert_eq "$(jq -r '.latest_observation_id' "$ws/.playwright-cli/agent-harness/state/demo/ledger.json")" "$snapshot_id" || return 1
+  snapshot_after_id="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.snapshot '{"session":"demo"}' | jq -r '.data.observation_id')"
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.resolve \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ4\",\"grant\":\"write\",\"subject_request_id\":\"$REQ2\",\"observation_id\":\"$recovery_id\",\"resolution\":\"applied\"}" 2>&1)"
+  assert_json_eq "$out" '.status' "ok" || return 1
+  assert_eq "$(jq -r '.latest_observation_id' "$ws/.playwright-cli/agent-harness/state/demo/ledger.json")" "$snapshot_after_id" || return 1
+}
+
 main() {
   echo "=== playwright-cli dispatcher contract tests ==="
   echo
@@ -1334,6 +1442,7 @@ main() {
   run_test test_metacharacter_session_rejected
   run_test test_bad_url_rejected
   run_test test_discriminated_target_variant
+  run_test test_selector_cannot_bypass_ref_freshness
   run_test test_oneof_violation
   run_test test_dependent_required_violation
   run_test test_envelope_shape
@@ -1368,6 +1477,7 @@ main() {
   run_test test_request_id_conflict
   run_test test_request_id_retired
   run_test test_finalized_history_reopen
+  run_test test_closed_owner_foreign_prepared_reopen_recovery
   run_test test_cross_generation_replay
   run_test test_lock_busy
 
@@ -1385,6 +1495,7 @@ main() {
   run_test test_timeout_write_unknown
   run_test test_signal_classification
   run_test test_timeout_surviving_child
+  run_test test_signal_cleans_active_cli_temps
   run_test test_stderr_does_not_fail
   run_test test_stderr_excerpt_on_failure
   run_test test_harness_stderr_not_in_cli_excerpt
@@ -1429,6 +1540,8 @@ main() {
   run_test test_stale_reference_ok
   run_test test_snapshot_observation_ref_flow
   run_test test_resolve_replay_repairs_partial_completion
+  run_test test_resolve_complete_replay_preserves_owner
+  run_test test_snapshot_and_recovery_observations_are_independent
 
   teardown_fixture
   trap - EXIT

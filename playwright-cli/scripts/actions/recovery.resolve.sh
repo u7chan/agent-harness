@@ -85,15 +85,6 @@ main() {
     pw_envelope_fail "recovery" "RECOVERY_NOT_REQUIRED" "session is not quarantined" false
     exit 1
   fi
-  if [ -z "$ledger" ]; then
-    pw_envelope_fail "recovery" "STALE_EVIDENCE" "no recovery observation is recorded" false
-    exit 1
-  fi
-  if [ "$(jq -r '.latest_observation_id // ""' <<< "$ledger")" != "$observation_id" ]; then
-    pw_envelope_fail "recovery" "STALE_EVIDENCE" "observation_id is not the latest recorded observation" false
-    exit 1
-  fi
-
   if [ "$subject" = "null" ]; then
     pw_envelope_fail "recovery" "SUBJECT_REQUEST_NOT_FOUND" "no journal exists for subject_request_id" false
     exit 1
@@ -115,6 +106,37 @@ main() {
     exit 1
   fi
 
+  # Recovery evidence is independent from page snapshot observations used by
+  # element refs. It must be the exact recovery.observe record that included
+  # this subject in the owner's current generation.
+  if [ -z "$ledger" ]; then
+    pw_envelope_fail "recovery" "STALE_EVIDENCE" "no recovery observation is recorded" false
+    exit 1
+  fi
+  local recovery_record
+  recovery_record="$(jq -c '.recovery // null' <<< "$ledger")"
+  if [ "$recovery_record" = "null" ]; then
+    pw_envelope_fail "recovery" "STALE_EVIDENCE" "no recovery observation is recorded" false
+    exit 1
+  fi
+  if [ "$(jq -r '.observation_id // ""' <<< "$recovery_record")" != "$observation_id" ]; then
+    pw_envelope_fail "recovery" "STALE_EVIDENCE" "observation_id is not the latest recovery observation" false
+    exit 1
+  fi
+  if [ "$(jq -r '.generation // ""' <<< "$recovery_record")" != "$owner_generation" ] \
+    || [ "$subject_generation" != "$owner_generation" ]; then
+    pw_envelope_fail "recovery" "STALE_EVIDENCE" "recovery observation belongs to a different generation" false
+    exit 1
+  fi
+  if ! jq -e \
+    --arg id "$subject_request_id" \
+    --arg generation "$subject_generation" \
+    '.journals | any(.[]; .request_id == $id and .generation == $generation and (.state == "unknown" or .state == "dispatched"))' \
+    <<< "$recovery_record" >/dev/null 2>&1; then
+    pw_envelope_fail "recovery" "STALE_EVIDENCE" "recovery observation is not bound to the subject request and generation" false
+    exit 1
+  fi
+
   # Resolver request journal gate: prevent duplicate resolution under the same request_id.
   local resolver_journal=""
   if [ -n "$resolver_request_id" ]; then
@@ -129,14 +151,41 @@ main() {
       resolver_match_state="$(jq -r '.state' <<< "$resolver_match")"
       resolver_match_digest="$(jq -r '.digest' <<< "$resolver_match")"
       if [ "$resolver_match_digest" = "$resolver_digest" ]; then
-        if [ "$resolver_match_state" = "ok" ]; then
-          if [ "$subject_replay" = "true" ]; then
+        case "$resolver_match_state" in
+          ok)
+            if [ "$subject_replay" != "true" ]; then
+              pw_envelope_fail "recovery" "STATE_CORRUPT" "resolver is complete but subject is not resolved" false
+              exit 1
+            fi
+            case "$resolution:$owner_phase" in
+              applied:active|applied:closed|not_applied:closed|indeterminate:quarantined)
+                pw_envelope_already_applied "$(jq -cn \
+                  --arg id "$subject_request_id" \
+                  --arg r "$resolution" \
+                  --arg phase "$owner_phase" \
+                  '{subject_request_id: $id, resolution: $r, owner_phase: $phase, reason: "resolver_already_applied"}')"
+                exit 0
+                ;;
+            esac
             resolver_journal="$resolver_match"
-          else
-            pw_envelope_already_applied "$(jq -cn --arg id "$resolver_request_id" '{resolver_request_id: $id, reason: "resolver_already_applied"}')"
-            exit 0
-          fi
-        fi
+            ;;
+          prepared)
+            resolver_journal="$resolver_match"
+            ;;
+          failed)
+            if [ "$subject_replay" = "true" ] \
+              && [ "$(jq -r '.error.code // ""' <<< "$resolver_match")" = "RECOVERY_FINALIZED" ]; then
+              resolver_journal="$(pw_journal_set_state "$session" "$resolver_match" "prepared" "null" "null")"
+            else
+              pw_envelope_fail "recovery" "REQUEST_ID_RETIRED" "resolver request is finalized as failed" false
+              exit 1
+            fi
+            ;;
+          *)
+            pw_envelope_fail "recovery" "REQUEST_OUTCOME_UNKNOWN" "resolver request is not safely replayable" false
+            exit 1
+            ;;
+        esac
       else
         pw_envelope_fail "recovery" "REQUEST_ID_CONFLICT" "resolver request_id was already used with a different binding" false
         exit 1
@@ -161,25 +210,27 @@ main() {
   fi
 
   # Owner transition bound to the resolution and the latest evidence.
-  local new_phase="quarantined"
-  case "$resolution" in
-    applied)
-      new_phase="closed"
-      if pw_resolve_cli && pw_read_versions && pw_session_list; then
-        if pw_session_is_live "$session" && pw_session_compatible "$session"; then
-          new_phase="active"
+  local new_phase="$owner_phase"
+  if [ "$subject_replay" != "true" ] || [ "$owner_phase" = "quarantined" ]; then
+    case "$resolution" in
+      applied)
+        new_phase="closed"
+        if pw_resolve_cli && pw_read_versions && pw_session_list; then
+          if pw_session_is_live "$session" && pw_session_compatible "$session"; then
+            new_phase="active"
+          fi
         fi
-      fi
-      ;;
-    not_applied)
-      new_phase="closed"
-      ;;
-    indeterminate)
-      new_phase="quarantined"
-      ;;
-  esac
+        ;;
+      not_applied)
+        new_phase="closed"
+        ;;
+      indeterminate)
+        new_phase="quarantined"
+        ;;
+    esac
+  fi
   if [ "$new_phase" = "active" ]; then
-    pw_ledger_write "$session" "$(pw_build_ledger "$session" "$owner_generation" "\"$observation_id\"" "$(jq -c '.recovery // null' <<< "$ledger")")"
+    pw_ledger_write "$session" "$(pw_build_ledger "$session" "$owner_generation" "$(jq -c '.latest_observation_id // null' <<< "$ledger")" "$recovery_record")"
   fi
   pw_owner_write "$session" "$(pw_build_owner "$session" "$owner_generation" "$new_phase" "$PWD" "$(pw_default_runtime_id)" "$(jq -r '.created_request_id' <<< "$owner")")"
 

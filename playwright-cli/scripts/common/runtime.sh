@@ -18,6 +18,7 @@ PW_SPAWN_TIMED_OUT=0
 PW_SPAWN_SIGNAL=""
 PW_SPAWN_STDOUT=""
 PW_SPAWN_STDERR=""
+PW_SPAWN_PID=""
 PW_CLI_CAPTURE_STDOUT=""
 PW_CLI_CAPTURE_STDERR=""
 
@@ -62,6 +63,38 @@ pw_descendant_pids() {
   printf '%s' "$descendants"
 }
 
+pw_stop_spawn_pid() {
+  local child="$1"
+  [ -n "$child" ] || return 0
+  local descendants
+  descendants="$(pw_descendant_pids "$child")"
+  kill -TERM -- "-$child" 2>/dev/null || true
+  if [ -n "$descendants" ]; then
+    kill -TERM $descendants 2>/dev/null || true
+  fi
+  local i=0
+  while [ "$i" -lt 20 ]; do
+    kill -0 "$child" 2>/dev/null || break
+    sleep 0.05
+    i=$((i + 1))
+  done
+  kill -KILL -- "-$child" 2>/dev/null || true
+  if [ -n "$descendants" ]; then
+    kill -KILL $descendants 2>/dev/null || true
+  fi
+  set +e
+  wait "$child" 2>/dev/null
+  set -e
+}
+
+pw_terminate_active_spawn() {
+  local child="${PW_SPAWN_PID:-}"
+  if [ -n "$child" ]; then
+    pw_stop_spawn_pid "$child"
+    PW_SPAWN_PID=""
+  fi
+}
+
 # Run every CLI process, including version/help/list probes, in an isolated
 # process group with the same timeout and termination boundary as actions.
 pw_spawn_cli() {
@@ -70,9 +103,12 @@ pw_spawn_cli() {
   pw_cleanup_spawn_files
   local out_file err_file
   out_file="$(mktemp /tmp/pwcli-out-XXXXXX)"
+  PW_SPAWN_STDOUT="$out_file"
   err_file="$(mktemp /tmp/pwcli-err-XXXXXX)"
+  PW_SPAWN_STDERR="$err_file"
   setsid "$@" >"$out_file" 2>"$err_file" &
   local child=$!
+  PW_SPAWN_PID="$child"
   local rc=0 timed_out=0
   local deadline=$(( $(date +%s) + timeout_seconds ))
   while kill -0 "$child" 2>/dev/null; do
@@ -83,31 +119,17 @@ pw_spawn_cli() {
     sleep 0.05
   done
   if [ "$timed_out" = "1" ]; then
-    local descendants
-    descendants="$(pw_descendant_pids "$child")"
-    kill -TERM -- "-$child" 2>/dev/null || true
-    if [ -n "$descendants" ]; then
-      kill -TERM $descendants 2>/dev/null || true
-    fi
-    sleep 1
-    kill -KILL -- "-$child" 2>/dev/null || true
-    if [ -n "$descendants" ]; then
-      kill -KILL $descendants 2>/dev/null || true
-    fi
-    set +e
-    wait "$child" 2>/dev/null
+    pw_stop_spawn_pid "$child"
     rc=124
-    set -e
   else
     set +e
     wait "$child" 2>/dev/null
     rc=$?
     set -e
   fi
+  PW_SPAWN_PID=""
   PW_SPAWN_RC="$rc"
   PW_SPAWN_TIMED_OUT="$timed_out"
-  PW_SPAWN_STDOUT="$out_file"
-  PW_SPAWN_STDERR="$err_file"
   if [ "$rc" -ge 128 ] && [ "$timed_out" = "0" ]; then
     PW_SPAWN_SIGNAL="$(pw_signal_name $((rc - 128)))"
   else

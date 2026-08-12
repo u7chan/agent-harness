@@ -394,7 +394,16 @@ pw_state_validate() {
       .session == $session and
       (.generation | test($uuid)) and
       (.latest_observation_id == null or (.latest_observation_id | test($uuid))) and
-      (.recovery == null or (.recovery | type == "object"))
+      (.recovery == null or (
+        (.recovery | type == "object") and
+        (.recovery.observation_id | test($uuid)) and
+        (.recovery.generation | test($uuid)) and
+        (.recovery.owner_phase | type == "string") and
+        (.recovery.live_session | type == "boolean") and
+        (.recovery.cli_available | type == "boolean") and
+        (.recovery.state_corrupt | type == "boolean") and
+        (.recovery.journals | type == "array")
+      ))
     ' --arg session "$session" --arg uuid "$pw_uuid_re" <<< "$ledger" 2>/dev/null)"
     if [ "$ledger_ok" != "true" ]; then
       fail "STATE_CORRUPT" "ledger.json failed role-specific validation"
@@ -408,7 +417,7 @@ pw_state_validate() {
   journal_ok="$(jq -e '
     (. | length) as $total |
     . as $all |
-    all(.[]; 
+    all(.[];
       .schema_version == 1 and
       .session == $session and
       (.request_id | test($uuid)) and
@@ -519,6 +528,24 @@ pw_startup_recovery() {
   local phase generation
   phase="$(jq -r '.phase' <<< "$owner")"
   generation="$(jq -r '.current_generation' <<< "$owner")"
+
+  # A reopen writes its new-generation browser.open/prepared journal before
+  # replacing the closed owner with an opening reservation. If the process
+  # stops in that interval, the new generation never spawned and is safe to
+  # finalize as failed while preserving the closed owner generation.
+  if [ "$phase" = "closed" ]; then
+    local foreign_reopen_prepared
+    foreign_reopen_prepared="$(jq -c '[.[] | select(.generation != $gen and .action == "browser.open" and .state == "prepared")]' --arg gen "$generation" <<< "$journals")"
+    local reopen_i reopen_journal reopen_failed
+    reopen_i=0
+    while jq -e ".[$reopen_i]" <<< "$foreign_reopen_prepared" >/dev/null 2>&1; do
+      reopen_journal="$(jq -c ".[$reopen_i]" <<< "$foreign_reopen_prepared")"
+      reopen_failed="$(pw_journal_set_state "$session" "$reopen_journal" "failed" "null" "$(jq -nc --arg code "RECOVERY_FINALIZED" --arg phase "recovery" '{code: $code, phase: $phase}')")"
+      pw_journal_write "$session" "$reopen_failed"
+      reopen_i=$((reopen_i + 1))
+    done
+    journals="$(pw_journals_read "$session")"
+  fi
 
   # Best-effort live-session refresh for the opening+ok recovery branch.
   # Recovery runs before preflight, so resolve the CLI here if needed.

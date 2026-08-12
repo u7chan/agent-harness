@@ -115,12 +115,13 @@ main() {
   # Record the observation in the ledger (creating it when missing).
   if [ "$state_corrupt" = "false" ]; then
     local recovery_record latest_json ledger_gen
-    recovery_record="$(jq -c '{observation_id, owner_phase, live_session, cli_available, state_corrupt, journals}' <<< "$evidence")"
-    latest_json="$(jq -nc --arg v "$observation_id" '$v')"
+    recovery_record="$(jq -c '{observation_id, generation, owner_phase, live_session, cli_available, state_corrupt, journals}' <<< "$evidence")"
     if [ -n "$ledger" ]; then
       ledger_gen="$(jq -r '.generation' <<< "$ledger")"
+      latest_json="$(jq -c '.latest_observation_id // null' <<< "$ledger")"
     else
       ledger_gen="$generation"
+      latest_json="null"
     fi
     pw_ledger_write "$session" "$(pw_build_ledger "$session" "$ledger_gen" "$latest_json" "$recovery_record")" || true
   fi

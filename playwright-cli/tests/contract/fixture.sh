@@ -124,20 +124,21 @@ seed_owner() {
 }
 
 seed_ledger() {
-  local ws="$1" session="$2" generation="$3" latest="${4:-null}"
+  local ws="$1" session="$2" generation="$3" latest="${4:-null}" recovery="${5:-null}"
   local dir="$ws/.playwright-cli/agent-harness/state/$session"
   mkdir -p -m 0700 "$dir"
   jq -nc \
     --arg session "$session" \
     --arg generation "$generation" \
     --argjson latest "$latest" \
+    --argjson recovery "$recovery" \
     --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{
       schema_version: 1,
       session: $session,
       generation: $generation,
       latest_observation_id: $latest,
-      recovery: null,
+      recovery: $recovery,
       updated: $updated
     }' > "$dir/ledger.json"
   chmod 0600 "$dir/ledger.json"

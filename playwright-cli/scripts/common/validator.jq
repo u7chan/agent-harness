@@ -10,6 +10,9 @@ def pw_is_int($v): ($v | type) == "number" and ($v | floor) == $v;
 def pw_is_ascii($s):
   (($s | explode) | map(select(. > 127)) | length) == 0;
 
+def pw_is_element_ref($s):
+  $s | test("^(f[0-9]+)?e[0-9]+$");
+
 def pw_format_violation($v; $format; $path):
   if $format == "uuid" then
     if ($v | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
@@ -24,10 +27,10 @@ def pw_format_violation($v; $format; $path):
     if ($v | test("^https?://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$"))
       then [] else [pw_err($path; "FORMAT_VIOLATION"; "invalid origin")] end
   elif $format == "element-ref" then
-    if ($v | test("^ref:[0-9a-f]{64}$"))
+    if pw_is_element_ref($v)
       then [] else [pw_err($path; "FORMAT_VIOLATION"; "invalid element ref")] end
   elif $format == "selector" then
-    if pw_is_ascii($v) and ($v | length) > 0 and ($v | test("^[ -~]*$"))
+    if pw_is_ascii($v) and ($v | length) > 0 and ($v | test("^[ -~]*$")) and (pw_is_element_ref($v) | not)
       then [] else [pw_err($path; "FORMAT_VIOLATION"; "invalid selector")] end
   elif $format == "sha256" then
     if ($v | test("^[0-9a-f]{64}$"))

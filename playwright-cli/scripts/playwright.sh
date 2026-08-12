@@ -43,6 +43,7 @@ pw_check_dependencies() {
 }
 
 pw_cleanup_runtime_temps() {
+  pw_terminate_active_spawn
   case "${PW_INPUT_TEMP:-}" in
     /tmp/pwcli-input-*) rm -f -- "$PW_INPUT_TEMP" ;;
   esac
@@ -52,6 +53,18 @@ pw_cleanup_runtime_temps() {
   PW_INPUT_TEMP=""
   PW_SENSITIVE_TEMP=""
   pw_cleanup_spawn_files
+}
+
+pw_handle_runtime_signal() {
+  local signal="$1" exit_code
+  trap - HUP INT TERM
+  pw_cleanup_runtime_temps
+  case "$signal" in
+    HUP) exit_code=129 ;;
+    INT) exit_code=130 ;;
+    TERM) exit_code=143 ;;
+  esac
+  exit "$exit_code"
 }
 
 pw_permission_level() {
@@ -438,6 +451,12 @@ pw_run_cli_action_flow() {
         PW_RESULT_CODE="ARTIFACT_MISSING"
         PW_RESULT_MESSAGE="playwright-cli reported success but no screenshot artifact exists"
         pw_artifact_remove "$screenshot_path"
+      elif ! chmod 0600 -- "$screenshot_path" || [ "$(stat -c '%a' "$screenshot_path" 2>/dev/null || true)" != "600" ]; then
+        terminal_status="unknown_outcome"
+        PW_RESULT_PHASE="verification"
+        PW_RESULT_CODE="ARTIFACT_MODE_INVALID"
+        PW_RESULT_MESSAGE="screenshot artifact mode could not be restricted to 0600"
+        pw_artifact_remove "$screenshot_path"
       else
         local size_limit size_bytes
         size_limit="$(jq -r '.limits.screenshot_bytes' "$ACTIONS_JSON")"
@@ -547,6 +566,9 @@ main() {
   shift
 
   trap 'pw_cleanup_runtime_temps' EXIT
+  trap 'pw_handle_runtime_signal HUP' HUP
+  trap 'pw_handle_runtime_signal INT' INT
+  trap 'pw_handle_runtime_signal TERM' TERM
   local input_file=""
   if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
     if [ -f "$1" ]; then
