@@ -289,6 +289,10 @@ pw_run_cli_action_flow() {
         pw_emit_failure "dispatch" "$PW_JOURNAL_GATE_ERROR" "this request id is retired; use a new request id" "$session" "$request_id" "$action_name" "$permission"
         exit 1
         ;;
+      corrupt)
+        pw_emit_failure "recovery" "$PW_JOURNAL_GATE_ERROR" "request journal path contains symlinks" "$session" "$request_id" "$action_name" "$permission"
+        exit 1
+        ;;
       ok)
         :
         ;;

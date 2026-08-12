@@ -771,6 +771,41 @@ test_artifact_request_dir_symlink_rejected() {
   rm -rf "$ext_dir"
 }
 
+test_screenshot_dangling_leaf_rejected() {
+  local ws ext_target
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  # A dangling symlink looks "free" to `[ ! -e ]`; the candidate must be
+  # rejected so the CLI can never create the external target through it.
+  ext_target="$(mktemp -u /tmp/pwcli-dangle-shot-XXXXXX)"
+  local adir="$ws/.playwright-cli/agent-harness/artifacts/demo/$REQ2"
+  mkdir -p "$adir"
+  ln -s "$ext_target" "$adir/001-screenshot.png"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"}}" 2>&1)"
+  assert_json_eq "$out" '.error.code' "ARTIFACT_PATH_REJECTED" || return 1
+  assert_json_eq "$out" '.error.phase' "dispatch" || return 1
+  [ ! -e "$ext_target" ] || { echo "external target was created through dangling symlink"; return 1; }
+  [ -L "$adir/001-screenshot.png" ] || { echo "dangling symlink was removed"; return 1; }
+}
+
+test_snapshot_dangling_leaf_rejected() {
+  local ws ext_target
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  ext_target="$(mktemp -u /tmp/pwcli-dangle-snap-XXXXXX)"
+  local adir="$ws/.playwright-cli/agent-harness/artifacts/demo/read"
+  mkdir -p "$adir"
+  ln -s "$ext_target" "$adir/001-snapshot.json"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_SCENARIO_snapshot=large pw_run "$ws" page.snapshot '{"session":"demo"}' 2>&1)"
+  assert_json_eq "$out" '.status' "unknown_outcome" || return 1
+  assert_json_eq "$out" '.error.phase' "verification" || return 1
+  assert_json_eq "$out" '.error.code' "ARTIFACT_PATH_REJECTED" || return 1
+  [ ! -e "$ext_target" ] || { echo "external target was created through dangling symlink"; return 1; }
+  [ -L "$adir/001-snapshot.json" ] || { echo "dangling symlink was removed"; return 1; }
+}
+
 # ============================ Group E: state & recovery =====================
 
 test_prepared_ownerless_recovery() {
@@ -965,6 +1000,37 @@ test_state_journal_symlink_rejected() {
   rm -f "$ext" "$jdir/$REQ1.json"
 }
 
+test_state_journal_dangling_symlink_rejected() {
+  local ws ext_target
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  local jdir="$ws/.playwright-cli/agent-harness/state/demo/requests"
+  ext_target="$(mktemp -u /tmp/pwcli-dangle-journal-XXXXXX)"
+  rm "$jdir/$REQ1.json"
+  ln -s "$ext_target" "$jdir/$REQ1.json"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.goto '{"session":"demo","url":"https://example.com/"}' 2>&1)"
+  assert_json_eq "$out" '.error.code' "STATE_CORRUPT" || return 1
+  assert_json_eq "$out" '.error.phase' "recovery" || return 1
+  [ ! -e "$ext_target" ] || { echo "external target was created through dangling journal symlink"; return 1; }
+}
+
+test_dangling_journal_gate_blocked() {
+  local ws ext_target
+  ws="$(new_workspace)"
+  # Finalized history must not be hidable: replacing the ok journal for REQ1
+  # with a dangling symlink must block the same request_id from running again.
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  local jdir="$ws/.playwright-cli/agent-harness/state/demo/requests"
+  ext_target="$(mktemp -u /tmp/pwcli-dangle-gate-XXXXXX)"
+  rm "$jdir/$REQ1.json"
+  ln -s "$ext_target" "$jdir/$REQ1.json"
+  local out
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.fill "{\"session\":\"demo\",\"request_id\":\"$REQ1\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"},\"value\":\"x\"}" 2>&1)"
+  assert_json_eq "$out" '.error.code' "STATE_CORRUPT" || return 1
+  assert_json_eq "$out" '.error.phase' "recovery" || return 1
+}
+
 test_state_lock_symlink_rejected() {
   local ws ext
   ws="$(new_workspace)"
@@ -1109,6 +1175,8 @@ main() {
   run_test test_screenshot_cli_path_not_trusted
   run_test test_artifact_dir_symlink_rejected
   run_test test_artifact_request_dir_symlink_rejected
+  run_test test_screenshot_dangling_leaf_rejected
+  run_test test_snapshot_dangling_leaf_rejected
   run_test test_artifacts_never_overwrite
   run_test test_full_page_screenshot
 
@@ -1127,6 +1195,8 @@ main() {
   run_test test_state_owner_symlink_rejected
   run_test test_state_ledger_symlink_rejected
   run_test test_state_journal_symlink_rejected
+  run_test test_state_journal_dangling_symlink_rejected
+  run_test test_dangling_journal_gate_blocked
   run_test test_state_lock_symlink_rejected
   run_test test_recovery_not_required
   run_test test_unresolved_history_blocks_new_generation

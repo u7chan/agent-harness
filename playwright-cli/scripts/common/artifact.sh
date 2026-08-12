@@ -16,6 +16,9 @@ pw_artifact_path_symlink_free() {
 
 # Compute a unique artifact path under the artifact root.
 # Path: artifacts/<session>/<request_id_or_read>/<seq>-<kind>.<ext>
+# A candidate that exists as a symlink (including a dangling one) is an
+# indicator of tampering: writing through it would create an external file,
+# so it is rejected instead of being skipped.
 pw_new_artifact_path() {
   local session="$1"
   local request_segment="$2"
@@ -32,6 +35,9 @@ pw_new_artifact_path() {
   local candidate
   while :; do
     candidate="$base/$(printf '%03d' "$seq")-$kind.$ext"
+    if [ -L "$candidate" ]; then
+      return 1
+    fi
     if [ ! -e "$candidate" ]; then
       printf '%s' "$candidate"
       return 0
@@ -65,11 +71,17 @@ pw_artifact_metadata() {
 }
 
 # Write a stream to a runtime-generated artifact path. Never overwrites.
+# Re-checks the leaf immediately before writing so a symlink created between
+# path assignment and the write (dangling included) can never redirect the
+# stream to an external target.
 pw_artifact_store() {
   local session="$1" request_segment="$2" kind="$3" ext="$4" media_type="$5" sensitive="$6"
   local path
   path="$(pw_new_artifact_path "$session" "$request_segment" "$kind" "$ext")" || return 1
   pw_reject_symlinks "$(dirname "$path")" || return 1
+  if [ -L "$path" ] || [ -e "$path" ]; then
+    return 1
+  fi
   umask 077
   cat > "$path"
   chmod 0600 "$path"

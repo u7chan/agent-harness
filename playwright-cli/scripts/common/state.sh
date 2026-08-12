@@ -352,7 +352,8 @@ pw_state_validate() {
   if [ -d "$requests_dir" ]; then
     local jf
     for jf in "$requests_dir"/*.json; do
-      if [ -e "$jf" ] && ! pw_reject_symlinks "$jf"; then
+      # -L catches dangling symlinks that -e would skip.
+      if { [ -e "$jf" ] || [ -L "$jf" ]; } && ! pw_reject_symlinks "$jf"; then
         fail "STATE_CORRUPT" "request journal path contains symlinks"
         return 1
       fi
@@ -626,11 +627,32 @@ pw_startup_recovery() {
 #   "unknown"     - outcome unknown; error in PW_JOURNAL_GATE_ERROR
 #   "conflict"    - request id reused with a different binding
 #   "retired"     - request id retired
+#   "corrupt"     - journal path contains symlinks; error in PW_JOURNAL_GATE_ERROR
 pw_journal_gate() {
   local session="$1" request_id="$2" action="$3" permission="$4" digest="$5"
   PW_JOURNAL_GATE_RESULT=""
   PW_JOURNAL_GATE_DATA="null"
   PW_JOURNAL_GATE_ERROR=""
+  # Reject symlinked journal leaves (dangling included) before reading any
+  # journal: otherwise a finalized history entry could be hidden and the same
+  # request_id would pass the gate as if it had never run.
+  local requests_dir
+  requests_dir="$(pw_session_dir "$session")/requests"
+  if ! pw_reject_symlinks "$requests_dir"; then
+    PW_JOURNAL_GATE_RESULT="corrupt"
+    PW_JOURNAL_GATE_ERROR="STATE_CORRUPT"
+    return 0
+  fi
+  if [ -d "$requests_dir" ]; then
+    local jf
+    for jf in "$requests_dir"/*.json; do
+      if { [ -e "$jf" ] || [ -L "$jf" ]; } && ! pw_reject_symlinks "$jf"; then
+        PW_JOURNAL_GATE_RESULT="corrupt"
+        PW_JOURNAL_GATE_ERROR="STATE_CORRUPT"
+        return 0
+      fi
+    done
+  fi
   local journals
   journals="$(pw_journals_read "$session")"
   local match
