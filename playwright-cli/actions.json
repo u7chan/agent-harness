@@ -16,7 +16,7 @@
         "upstream_repository": "https://github.com/microsoft/playwright-cli",
         "upstream_commit": "ca196c297169a494ee5517584883eada60dc8d0e",
         "npm_integrity": "sha512-ggNfYYH+GsZTGUiBEL8f6N5j0seYEUE52v+fIWqK/A36QG36cL0EJ79qWTXYO2uZMUU7vm+jk3x0fKCPL6UuIw==",
-        "help_fingerprint_sha256": "4e775c126f056b1b3dc5655af8b6c8df27eb209635b5934605326e8330209fa0",
+        "help_fingerprint_sha256": "47b2d3666147ab00babfe082d21acea729e187db82cf22e3e948de173cc81815",
         "help_fingerprint_commands": [
           "open",
           "list",
@@ -125,9 +125,7 @@
       "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
       "timeout_seconds": 120,
       "cli_command": "open",
-      "cli_arguments": [
-        {"flag": "--name", "from": "session"}
-      ],
+      "cli_arguments": [],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "open"},
       "precondition_error_codes": ["SESSION_ALREADY_LIVE"],
@@ -148,9 +146,7 @@
       "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
       "timeout_seconds": 120,
       "cli_command": "close",
-      "cli_arguments": [
-        {"flag": "--name", "from": "session"}
-      ],
+      "cli_arguments": [],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "close"},
       "precondition_error_codes": [],
@@ -172,8 +168,7 @@
       "timeout_seconds": 60,
       "cli_command": "goto",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--url", "from": "field", "field": "url"}
+        {"from": "field", "field": "url"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -197,9 +192,7 @@
       "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
       "timeout_seconds": 60,
       "cli_command": "go-back",
-      "cli_arguments": [
-        {"flag": "--name", "from": "session"}
-      ],
+      "cli_arguments": [],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
       "input_schema": {
@@ -218,9 +211,7 @@
       "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
       "timeout_seconds": 60,
       "cli_command": "go-forward",
-      "cli_arguments": [
-        {"flag": "--name", "from": "session"}
-      ],
+      "cli_arguments": [],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
       "input_schema": {
@@ -239,9 +230,7 @@
       "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
       "timeout_seconds": 60,
       "cli_command": "reload",
-      "cli_arguments": [
-        {"flag": "--name", "from": "session"}
-      ],
+      "cli_arguments": [],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
       "input_schema": {
@@ -260,9 +249,7 @@
       "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
       "timeout_seconds": 60,
       "cli_command": "snapshot",
-      "cli_arguments": [
-        {"flag": "--name", "from": "session"}
-      ],
+      "cli_arguments": [],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "snapshot"},
       "input_schema": {
@@ -272,7 +259,7 @@
     },
     {
       "name": "page.find",
-      "description": "Find elements on the current page by ref or selector",
+      "description": "Search the current page snapshot for text",
       "category": "page",
       "permission": "read",
       "grant": "none",
@@ -282,45 +269,16 @@
       "timeout_seconds": 60,
       "cli_command": "find",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--kind", "from": "field", "field": "target.kind"},
-        {"flag": "--value", "from": "field", "field": "target.value"}
+        {"from": "field", "field": "text"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target"],
+        "required": ["text"],
         "properties": {
-          "target": {
-            "type": "object",
-            "additionalProperties": false,
-            "discriminator": {
-              "propertyName": "kind",
-              "mapping": {
-                "ref": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["kind", "value", "observation_id"],
-                  "properties": {
-                    "kind": {"type": "string", "const": "ref"},
-                    "value": {"type": "string", "format": "element-ref"},
-                    "observation_id": {"type": "string", "format": "uuid"}
-                  }
-                },
-                "selector": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["kind", "value"],
-                  "properties": {
-                    "kind": {"type": "string", "const": "selector"},
-                    "value": {"type": "string", "format": "selector", "maxLength": 512}
-                  }
-                }
-              }
-            }
-          }
+          "text": {"type": "string", "minLength": 1, "maxLength": 512}
         }
       }
     },
@@ -335,9 +293,7 @@
       "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
       "timeout_seconds": 60,
       "cli_command": "tab-list",
-      "cli_arguments": [
-        {"flag": "--name", "from": "session"}
-      ],
+      "cli_arguments": [],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
       "input_schema": {
@@ -357,9 +313,7 @@
       "timeout_seconds": 60,
       "cli_command": "tab-new",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--url", "from": "field", "field": "url", "optional": true},
-        {"flag": "--activate", "from": "field", "field": "activate", "optional": true}
+        {"from": "field", "field": "url", "optional": true}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -369,10 +323,8 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "url": {"type": "string", "format": "http-url", "maxLength": 2048},
-          "activate": {"type": "boolean"}
-        },
-        "dependentRequired": {"activate": ["url"]}
+          "url": {"type": "string", "format": "http-url", "maxLength": 2048}
+        }
       }
     },
     {
@@ -387,8 +339,7 @@
       "timeout_seconds": 60,
       "cli_command": "tab-select",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--index", "from": "field", "field": "index"}
+        {"from": "field", "field": "index"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -414,8 +365,7 @@
       "timeout_seconds": 60,
       "cli_command": "tab-close",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--index", "from": "field", "field": "index"}
+        {"from": "field", "field": "index"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -441,9 +391,7 @@
       "compatibility_id": "pwcli-0.1.18-pw-1.63.0-alpha-2026-08-05",
       "timeout_seconds": 60,
       "cli_command": "console",
-      "cli_arguments": [
-        {"flag": "--name", "from": "session"}
-      ],
+      "cli_arguments": [],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
       "input_schema": {
@@ -463,9 +411,7 @@
       "timeout_seconds": 60,
       "cli_command": "click",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--kind", "from": "field", "field": "target.kind"},
-        {"flag": "--value", "from": "field", "field": "target.value"}
+        {"from": "field", "field": "target.value"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -519,10 +465,8 @@
       "timeout_seconds": 60,
       "cli_command": "fill",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--kind", "from": "field", "field": "target.kind"},
-        {"flag": "--value", "from": "field", "field": "target.value"},
-        {"flag": "--text", "from": "field", "field": "value"}
+        {"from": "field", "field": "target.value"},
+        {"from": "field", "field": "value"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -578,10 +522,8 @@
       "timeout_seconds": 60,
       "cli_command": "select",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--kind", "from": "field", "field": "target.kind"},
-        {"flag": "--value", "from": "field", "field": "target.value"},
-        {"flag": "--option", "from": "field", "field": "option"}
+        {"from": "field", "field": "target.value"},
+        {"from": "field", "field": "option"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -636,9 +578,7 @@
       "timeout_seconds": 60,
       "cli_command": "check",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--kind", "from": "field", "field": "target.kind"},
-        {"flag": "--value", "from": "field", "field": "target.value"}
+        {"from": "field", "field": "target.value"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -692,9 +632,7 @@
       "timeout_seconds": 60,
       "cli_command": "uncheck",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--kind", "from": "field", "field": "target.kind"},
-        {"flag": "--value", "from": "field", "field": "target.value"}
+        {"from": "field", "field": "target.value"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -748,9 +686,7 @@
       "timeout_seconds": 60,
       "cli_command": "hover",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--kind", "from": "field", "field": "target.kind"},
-        {"flag": "--value", "from": "field", "field": "target.value"}
+        {"from": "field", "field": "target.value"}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "tool-result"},
@@ -804,11 +740,9 @@
       "timeout_seconds": 60,
       "cli_command": "screenshot",
       "cli_arguments": [
-        {"flag": "--name", "from": "session"},
-        {"flag": "--output", "from": "runtime", "field": "output_path"},
-        {"flag": "--kind", "from": "field", "field": "target.kind", "optional": true},
-        {"flag": "--value", "from": "field", "field": "target.value", "optional": true},
-        {"flag": "--full-page", "from": "field", "field": "full_page", "optional": true}
+        {"from": "field", "field": "target.value", "optional": true},
+        {"flag": "--filename", "from": "runtime", "field": "output_path"},
+        {"flag": "--full-page", "from": "field", "field": "full_page", "boolean": true, "optional": true}
       ],
       "cli_flags": ["--json"],
       "output_adapter": {"kind": "screenshot"},

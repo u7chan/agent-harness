@@ -27,19 +27,23 @@ EOF
   export PWCLI_BIN="$FIXTURE_DIR/bin/playwright-cli"
   export PW_ACTIONS_JSON="$FIXTURE_DIR/actions.json"
   export PWCLI_CACHE_DIR="$FIXTURE_DIR/cache"
+  export FAKE_PWCLI_REAL_FIXTURE="$PW_SKILL_DIR/tests/contract/real-cli-fixture.json"
 
-  # Regenerate the help fingerprint for the fake CLI so the allowlist matches.
+  # The fake help payload is captured from the pinned real package and must
+  # produce the catalog fingerprint without rewriting the allowlist.
   local fake_fingerprint
   fake_fingerprint="$(source "$PW_SKILL_DIR/scripts/common/runtime.sh" 2>/dev/null; pw_help_fingerprint_sha256 "$PWCLI_BIN")"
-  jq --arg fp "$fake_fingerprint" \
-    '.compatibility.runtimes[.compatibility.default_runtime].help_fingerprint_sha256 = $fp' \
-    "$FIXTURE_DIR/actions.json" > "$FIXTURE_DIR/actions.json.tmp"
-  mv "$FIXTURE_DIR/actions.json.tmp" "$FIXTURE_DIR/actions.json"
+  local expected_fingerprint
+  expected_fingerprint="$(jq -r '.compatibility.runtimes[.compatibility.default_runtime].help_fingerprint_sha256' "$FIXTURE_DIR/actions.json")"
+  if [ "$fake_fingerprint" != "$expected_fingerprint" ]; then
+    printf 'fake CLI fingerprint mismatch: expected=%s got=%s\n' "$expected_fingerprint" "$fake_fingerprint" >&2
+    return 1
+  fi
 }
 
 teardown_fixture() {
   rm -rf "${FIXTURE_DIR:-}"
-  unset PWCLI_BIN PW_ACTIONS_JSON PWCLI_CACHE_DIR
+  unset PWCLI_BIN PW_ACTIONS_JSON PWCLI_CACHE_DIR FAKE_PWCLI_REAL_FIXTURE
 }
 
 # Run the dispatcher from a fresh workspace directory.
@@ -61,7 +65,7 @@ new_workspace() {
 
 # Standard live-session fixture for a session named demo.
 live_session_json() {
-  printf '[{"name":"demo","version":"1.63.0-alpha-2026-08-05","compatible":true}]'
+  printf '[{"name":"demo","workspace":"fixture","status":"open","browserType":"chromium","userDataDir":null,"headed":false,"persistent":false,"attached":false,"version":"1.63.0-alpha-2026-08-05","compatible":true}]'
 }
 
 # Seed a journal file directly into the session state (simulates a crash residue).

@@ -54,20 +54,34 @@ main() {
     exit 1
   fi
 
-  # Idempotent replay: a subject already resolved with the same resolution is
-  # answered before any owner-phase gate (the owner may already be active).
-  local subject
+  # A replay may arrive after the subject write succeeded but before the
+  # resolver journal or owner transition was durable. Track that partial state
+  # instead of returning before the transition is repaired.
+  local subject subject_replay="false"
   subject="$(jq -c --arg id "$subject_request_id" '[.[] | select(.request_id == $id)] | if length > 0 then .[0] else null end' <<< "$(pw_journals_read "$session")")"
   if [ "$subject" != "null" ] && [ "$(jq -r '.state' <<< "$subject")" = "resolved" ]; then
     if [ "$(jq -r '.resolution' <<< "$subject")" = "$resolution" ]; then
-      pw_envelope_already_applied "$(jq -cn --arg id "$subject_request_id" --arg r "$resolution" '{subject_request_id: $id, resolution: $r, reason: "subject_already_resolved"}')"
-      exit 0
+      subject_replay="true"
+    else
+      pw_envelope_fail "recovery" "SUBJECT_ALREADY_RESOLVED" "subject request was already resolved with a different resolution" false
+      exit 1
     fi
-    pw_envelope_fail "recovery" "SUBJECT_ALREADY_RESOLVED" "subject request was already resolved with a different resolution" false
-    exit 1
   fi
 
-  if [ "$(jq -r '.phase' <<< "$owner")" != "quarantined" ]; then
+  local owner_phase
+  owner_phase="$(jq -r '.phase' <<< "$owner")"
+  if [ "$subject_replay" = "true" ]; then
+    local replay_phase_ok="false"
+    case "$resolution:$owner_phase" in
+      applied:active|applied:closed|applied:quarantined|not_applied:closed|not_applied:quarantined|indeterminate:quarantined)
+        replay_phase_ok="true"
+        ;;
+    esac
+    if [ "$replay_phase_ok" != "true" ]; then
+      pw_envelope_fail "recovery" "STATE_CORRUPT" "resolved subject and owner phase are inconsistent" false
+      exit 1
+    fi
+  elif [ "$owner_phase" != "quarantined" ]; then
     pw_envelope_fail "recovery" "RECOVERY_NOT_REQUIRED" "session is not quarantined" false
     exit 1
   fi
@@ -96,12 +110,13 @@ main() {
   local subject_state subject_resolution
   subject_state="$(jq -r '.state' <<< "$subject")"
   subject_resolution="$(jq -r '.resolution // "null"' <<< "$subject")"
-  if [ "$subject_state" != "unknown" ]; then
+  if [ "$subject_replay" != "true" ] && [ "$subject_state" != "unknown" ]; then
     pw_envelope_fail "recovery" "SUBJECT_NOT_RECOVERABLE" "subject journal is not in an unknown state" false
     exit 1
   fi
 
   # Resolver request journal gate: prevent duplicate resolution under the same request_id.
+  local resolver_journal=""
   if [ -n "$resolver_request_id" ]; then
     local resolver_digest
     resolver_digest="$(pw_input_digest "recovery.resolve" "$input")"
@@ -115,23 +130,30 @@ main() {
       resolver_match_digest="$(jq -r '.digest' <<< "$resolver_match")"
       if [ "$resolver_match_digest" = "$resolver_digest" ]; then
         if [ "$resolver_match_state" = "ok" ]; then
-          pw_envelope_already_applied "$(jq -cn --arg id "$resolver_request_id" '{resolver_request_id: $id, reason: "resolver_already_applied"}')"
-          exit 0
+          if [ "$subject_replay" = "true" ]; then
+            resolver_journal="$resolver_match"
+          else
+            pw_envelope_already_applied "$(jq -cn --arg id "$resolver_request_id" '{resolver_request_id: $id, reason: "resolver_already_applied"}')"
+            exit 0
+          fi
         fi
       else
         pw_envelope_fail "recovery" "REQUEST_ID_CONFLICT" "resolver request_id was already used with a different binding" false
         exit 1
       fi
     fi
-    local resolver_generation
-    resolver_generation="$(jq -r '.current_generation' <<< "$owner")"
-    local resolver_journal
-    resolver_journal="$(pw_build_journal "$session" "$resolver_request_id" "$resolver_generation" "recovery.resolve" "write" "$resolver_digest" "prepared")"
-    pw_journal_write "$session" "$resolver_journal"
+    if [ -z "$resolver_journal" ]; then
+      local resolver_generation
+      resolver_generation="$(jq -r '.current_generation' <<< "$owner")"
+      resolver_journal="$(pw_build_journal "$session" "$resolver_request_id" "$resolver_generation" "recovery.resolve" "write" "$resolver_digest" "prepared")"
+      pw_journal_write "$session" "$resolver_journal"
+    fi
   fi
 
   # Resolve the subject journal.
-  pw_journal_write "$session" "$(pw_journal_set_state "$session" "$subject" "resolved" "$resolution" "null")"
+  if [ "$subject_replay" != "true" ]; then
+    pw_journal_write "$session" "$(pw_journal_set_state "$session" "$subject" "resolved" "$resolution" "null")"
+  fi
 
   # Finalize the resolver journal.
   if [ -n "$resolver_request_id" ]; then
@@ -161,11 +183,19 @@ main() {
   fi
   pw_owner_write "$session" "$(pw_build_owner "$session" "$owner_generation" "$new_phase" "$PWD" "$(pw_default_runtime_id)" "$(jq -r '.created_request_id' <<< "$owner")")"
 
-  pw_envelope_ok "$(jq -cn \
+  local result_data
+  result_data="$(jq -cn \
     --arg id "$subject_request_id" \
     --arg r "$resolution" \
     --arg phase "$new_phase" \
-    '{subject_request_id: $id, resolution: $r, owner_phase: $phase}')" "[]" "null"
+    --argjson replay "$subject_replay" \
+    '{subject_request_id: $id, resolution: $r, owner_phase: $phase} +
+     (if $replay then {reason: "partial_resolution_completed"} else {} end)')"
+  if [ "$subject_replay" = "true" ]; then
+    pw_envelope_already_applied "$result_data" "[]" "null"
+  else
+    pw_envelope_ok "$result_data" "[]" "null"
+  fi
 }
 
 main "$@"

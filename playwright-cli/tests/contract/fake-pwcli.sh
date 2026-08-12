@@ -8,114 +8,134 @@ set -euo pipefail
 #   FAKE_PWCLI_SURVIVING_CHILD=1  spawn a setsid child that outlives a hang
 
 EMBEDDED_VERSION="1.63.0-alpha-2026-08-05"
+REAL_CLI_FIXTURE="${FAKE_PWCLI_REAL_FIXTURE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/real-cli-fixture.json}"
 
 help_payload() {
   local cmd="$1"
-  jq -nc --arg command "$cmd" --arg payload "Usage: playwright-cli $cmd [options]" \
-    '{command: $command, payload: $payload}'
+  jq --indent 2 --arg command "$cmd" '{help: (.help[$command] // "")}' "$REAL_CLI_FIXTURE"
+}
+
+FAKE_POSITIONALS=()
+FAKE_OUTPUT=""
+FAKE_FULL_PAGE="false"
+
+parse_command_args() {
+  local cmd="$1"
+  shift
+  FAKE_POSITIONALS=()
+  FAKE_OUTPUT=""
+  FAKE_FULL_PAGE="false"
+  while (($# > 0)); do
+    case "$1" in
+      --filename)
+        if [ "$cmd" != "screenshot" ] || [ "$#" -lt 2 ]; then
+          jq -nc --arg option "filename" '{isError: true, error: ("Unknown option: --" + $option)}'
+          return 1
+        fi
+        FAKE_OUTPUT="$2"
+        shift 2
+        ;;
+      --full-page)
+        if [ "$cmd" != "screenshot" ]; then
+          jq -nc '{isError: true, error: "Unknown option: --full-page"}'
+          return 1
+        fi
+        FAKE_FULL_PAGE="true"
+        shift
+        ;;
+      --*)
+        jq -nc --arg option "${1#--}" '{isError: true, error: ("Unknown option: --" + $option)}'
+        return 1
+        ;;
+      *)
+        FAKE_POSITIONALS+=("$1")
+        shift
+        ;;
+    esac
+  done
+}
+
+validate_positionals() {
+  local cmd="$1" count="${#FAKE_POSITIONALS[@]}" min=0 max=0
+  case "$cmd" in
+    open|snapshot|find|tab-new|tab-close|console|screenshot) min=0; max=1 ;;
+    goto|tab-select|check|uncheck|hover) min=1; max=1 ;;
+    click) min=1; max=2 ;;
+    fill|select) min=2; max=2 ;;
+    list|close|go-back|go-forward|reload|tab-list) min=0; max=0 ;;
+    *) min=0; max=0 ;;
+  esac
+  if [ "$count" -lt "$min" ] || [ "$count" -gt "$max" ]; then
+    jq -nc --argjson expected "$max" --argjson received "$count" \
+      '{isError: true, error: ("error: invalid argument count: expected " + ($expected|tostring) + ", received " + ($received|tostring))}'
+    return 1
+  fi
 }
 
 default_response() {
-  local cmd="$1"
-  local name="" url="" kind="" value="" index="" text="" option="" output="" full_page="false"
-  local prev=""
-  local arg
-  for arg in "$@"; do
-    case "$prev" in
-      --name) name="$arg" ;;
-      --url) url="$arg" ;;
-      --kind) kind="$arg" ;;
-      --value) value="$arg" ;;
-      --index) index="$arg" ;;
-      --text) text="$arg" ;;
-      --option) option="$arg" ;;
-      --output) output="$arg" ;;
-      --full-page) full_page="$arg" ;; 
-    esac
-    case "$arg" in
-      --name|--url|--kind|--value|--index|--text|--option|--output|--full-page) prev="$arg" ;;
-      *) prev="" ;;
-    esac
-  done
+  local cmd="$1" session="$2"
+  local first="${FAKE_POSITIONALS[0]:-}" second="${FAKE_POSITIONALS[1]:-}"
 
   case "$cmd" in
     open)
-      jq -nc --arg name "$name" --arg v "$EMBEDDED_VERSION" '{status: "open", name: $name, version: $v}'
+      jq -nc --arg session "$session" '{session: $session, pid: 4242, result: {snapshot: "- page"}}'
       ;;
     close)
-      jq -nc --arg name "$name" '{status: "closed", name: $name}'
+      jq -nc --arg session "$session" '{session: $session, status: "closed"}'
       ;;
     goto)
-      jq -nc --arg url "$url" '{ok: true, data: {url: $url, ok: true}}'
+      jq -nc --arg url "$first" '{result: ("Navigated to " + $url), snapshot: "- page"}'
       ;;
-    go-back)
-      jq -nc '{ok: true, data: {ok: true}}'
-      ;;
-    go-forward)
-      jq -nc '{ok: true, data: {ok: true}}'
-      ;;
-    reload)
-      jq -nc '{ok: true, data: {ok: true}}'
+    go-back|go-forward|reload)
+      jq -nc '{result: "Navigation complete", snapshot: "- page"}'
       ;;
     snapshot)
       local size="${FAKE_PWCLI_SNAPSHOT_SIZE:-1000}"
       local html
       html="$(printf 'x%.0s' $(seq 1 "$size"))"
-      jq -nc --arg html "$html" '{ok: true, data: {snapshot: {html: $html}}}'
+      jq -nc --arg snapshot "$html" '{snapshot: $snapshot}'
       ;;
     find)
-      jq -nc --arg kind "$kind" --arg value "$value" '{ok: true, data: {matches: []}}'
+      jq -nc --arg text "$first" '{result: ("No matches for " + $text)}'
       ;;
     tab-list)
-      jq -nc '{ok: true, data: {tabs: []}}'
+      jq -nc '{result: "### Open tabs"}'
       ;;
     tab-new)
-      jq -nc --arg url "$url" '{ok: true, data: {tab: {id: "tab-2", url: ($url // null), active: true}}}'
+      jq -nc --arg url "$first" '{result: ("New tab " + $url), snapshot: "- page"}'
       ;;
     tab-select)
-      jq -nc --arg index "$index" '{ok: true, data: {tab: {index: ($index | tonumber)}}}'
+      jq -nc --arg index "$first" '{result: ("Selected tab " + $index), snapshot: "- page"}'
       ;;
     tab-close)
-      jq -nc --arg index "$index" '{ok: true, data: {closed: ($index | tonumber)}}'
+      jq -nc --arg index "$first" '{result: ("Closed tab " + $index)}'
       ;;
     console)
-      jq -nc '{ok: true, data: {messages: []}}'
+      jq -nc '{result: "### Console messages"}'
       ;;
-    click)
-      jq -nc '{ok: true, data: {verified: true}}'
-      ;;
-    check)
-      jq -nc '{ok: true, data: {verified: true}}'
-      ;;
-    uncheck)
-      jq -nc '{ok: true, data: {verified: true}}'
-      ;;
-    hover)
-      jq -nc '{ok: true, data: {verified: true}}'
+    click|check|uncheck|hover)
+      jq -nc '{result: "Action complete", snapshot: "- page"}'
       ;;
     fill)
       if [ -n "${FAKE_PWCLI_ECHO_FILE:-}" ]; then
-        printf '%s' "$text" >> "$FAKE_PWCLI_ECHO_FILE"
+        printf '%s' "$second" >> "$FAKE_PWCLI_ECHO_FILE"
       fi
-      jq -nc '{ok: true, data: {verified: true}}'
+      jq -nc '{result: "Filled target", snapshot: "- page"}'
       ;;
     select)
-      jq -nc --arg option "$option" '{ok: true, data: {verified: true, option: $option}}'
+      jq -nc --arg option "$second" '{result: ("Selected " + $option), snapshot: "- page"}'
       ;;
     screenshot)
-      if [ -n "$output" ]; then
-        printf 'fake-png-bytes-%s' "$(basename "$output")" > "$output"
+      if [ -n "$FAKE_OUTPUT" ]; then
+        printf 'fake-png-bytes-%s' "$(basename "$FAKE_OUTPUT")" > "$FAKE_OUTPUT"
       fi
-      jq -nc --arg file "$output" '{ok: true, file: $file}'
-      ;;
-    no-file)
-      jq -nc '{ok: true, file: ""}'
+      jq -nc --arg file "$FAKE_OUTPUT" '{result: ("- [Screenshot](" + $file + ")")}'
       ;;
     list)
-      printf '%s\n' "${FAKE_PWCLI_SESSIONS:-[]}"
+      jq -nc --argjson browsers "${FAKE_PWCLI_SESSIONS:-[]}" '{browsers: $browsers}'
       ;;
     *)
-      jq -nc '{ok: true, data: {}}'
+      jq -nc '{result: "ok"}'
       ;;
   esac
 }
@@ -136,32 +156,58 @@ main() {
     printf '%s\n' "${args[@]}" >> "$FAKE_PWCLI_ARGV_FILE"
   fi
 
-  local cmd="" help_cmd=""
+  local cmd="" help_cmd="" session="default"
+  local -a command_args=()
   local i=0
   for arg in "${args[@]}"; do
     if [ "$arg" = "--version" ]; then
+      if [ "${FAKE_PWCLI_SCENARIO_version:-}" = "hang" ]; then
+        trap '' TERM
+        while :; do sleep 1; done
+      fi
       printf '%s\n' "${FAKE_PWCLI_VERSION:-0.1.18}"
       exit 0
     fi
     if [ "$arg" = "--help" ] && [ -z "$help_cmd" ]; then
       help_cmd="${args[$((i + 1))]:-}"
     fi
-    if [ "$arg" = "--json" ]; then
-      :
-    elif [[ "$arg" != --* ]]; then
-      [ -z "$cmd" ] && cmd="$arg"
-    fi
     i=$((i + 1))
   done
 
   if [ -n "$help_cmd" ]; then
+    if [ "${FAKE_PWCLI_SCENARIO_help:-}" = "hang" ]; then
+      trap '' TERM
+      while :; do sleep 1; done
+    fi
     help_payload "$help_cmd"
     exit 0
   fi
 
+  for arg in "${args[@]}"; do
+    case "$arg" in
+      --json|--raw) ;;
+      -s=*) session="${arg#-s=}" ;;
+      --session=*) session="${arg#--session=}" ;;
+      *)
+        if [ -z "$cmd" ]; then
+          cmd="$arg"
+        else
+          command_args+=("$arg")
+        fi
+        ;;
+    esac
+  done
+
   if [ -z "$cmd" ]; then
     echo "playwright-cli: no command" >&2
     exit 2
+  fi
+
+  if ! parse_command_args "$cmd" "${command_args[@]}"; then
+    exit 1
+  fi
+  if ! validate_positionals "$cmd"; then
+    exit 1
   fi
 
   local scenario=""
@@ -175,7 +221,7 @@ main() {
 
   case "$scenario" in
     ok)
-      default_response "$cmd" "$@"
+      default_response "$cmd" "$session"
       ;;
     error)
       error_response "$cmd" "SCENARIO_ERROR" "injected scenario error"
@@ -236,19 +282,19 @@ main() {
       exit 0
       ;;
     nonzero)
-      default_response "$cmd" "$@"
+      default_response "$cmd" "$session"
       exit 3
       ;;
     signal)
       kill -KILL "$$"
       ;;
     not-open)
-      jq -nc --arg name "$(printf '%s' "${args[*]}" | grep -oP '(?<=--name )[^ ]+' || true)" '{status: "not-open", name: $name}'
+      jq -nc --arg session "$session" '{session: $session, status: "not-open"}'
       exit 0
       ;;
     stderr)
       echo "diagnostic stderr noise" >&2
-      default_response "$cmd" "$@"
+      default_response "$cmd" "$session"
       ;;
     stderr-error)
       echo "diagnostic stderr noise" >&2
@@ -262,41 +308,23 @@ main() {
       exit 1
       ;;
     large)
-      FAKE_PWCLI_SNAPSHOT_SIZE=70000 default_response "$cmd" "$@"
+      FAKE_PWCLI_SNAPSHOT_SIZE=70000 default_response "$cmd" "$session"
       ;;
     no-file)
-      jq -nc '{ok: true, file: ""}'
+      jq -nc '{result: "- [Screenshot](missing.png)"}'
       ;;
     bad-path)
-      local out_arg=""
-      local prev=""
-      local arg
-      for arg in "$@"; do
-        if [ "$prev" = "--output" ]; then
-          out_arg="$arg"
-        fi
-        prev="$arg"
-      done
-      if [ -n "$out_arg" ]; then
-        printf 'fake-png-bytes-%s' "$(basename "$out_arg")" > "$out_arg"
+      if [ -n "$FAKE_OUTPUT" ]; then
+        printf 'fake-png-bytes-%s' "$(basename "$FAKE_OUTPUT")" > "$FAKE_OUTPUT"
       fi
-      jq -nc --arg file "${FAKE_PWCLI_BAD_PATH:-/tmp/pwcli-evil.png}" '{ok: true, file: $file}'
+      jq -nc --arg file "${FAKE_PWCLI_BAD_PATH:-/tmp/pwcli-evil.png}" '{result: ("- [Screenshot](" + $file + ")")}'
       ;;
     symlink-attack)
-      local out_arg=""
-      local prev=""
-      local arg
-      for arg in "$@"; do
-        if [ "$prev" = "--output" ]; then
-          out_arg="$arg"
-        fi
-        prev="$arg"
-      done
-      if [ -n "$out_arg" ]; then
-        rm -f "$out_arg"
-        ln -s "${FAKE_PWCLI_ATTACK_TARGET:?missing attack target}" "$out_arg"
+      if [ -n "$FAKE_OUTPUT" ]; then
+        rm -f "$FAKE_OUTPUT"
+        ln -s "${FAKE_PWCLI_ATTACK_TARGET:?missing attack target}" "$FAKE_OUTPUT"
       fi
-      jq -nc --arg file "$out_arg" '{ok: true, file: $file}'
+      jq -nc --arg file "$FAKE_OUTPUT" '{result: ("- [Screenshot](" + $file + ")")}'
       ;;
     hang)
       if [ "${FAKE_PWCLI_SURVIVING_CHILD:-0}" = "1" ]; then

@@ -13,6 +13,124 @@ PW_CLI_CORE_VERSION=""
 PW_CLI_VERSION_OUT=""
 PW_HELP_FINGERPRINT_SHA256=""
 PW_SESSIONS="[]"
+PW_SPAWN_RC=0
+PW_SPAWN_TIMED_OUT=0
+PW_SPAWN_SIGNAL=""
+PW_SPAWN_STDOUT=""
+PW_SPAWN_STDERR=""
+PW_CLI_CAPTURE_STDOUT=""
+PW_CLI_CAPTURE_STDERR=""
+
+pw_signal_name() {
+  local code="$1"
+  local name
+  name="$(kill -l "$code" 2>/dev/null || true)"
+  if [ -n "$name" ]; then
+    printf '%s' "$name"
+  else
+    printf 'UNKNOWN'
+  fi
+}
+
+pw_cleanup_spawn_files() {
+  local file
+  for file in "${PW_SPAWN_STDOUT:-}" "${PW_SPAWN_STDERR:-}"; do
+    case "$file" in
+      /tmp/pwcli-out-*|/tmp/pwcli-err-*) rm -f -- "$file" ;;
+    esac
+  done
+  PW_SPAWN_STDOUT=""
+  PW_SPAWN_STDERR=""
+}
+
+pw_descendant_pids() {
+  local root_pid="$1"
+  local frontier="$root_pid" descendants="" parent pid
+  while [ -n "$frontier" ]; do
+    local next=""
+    while read -r pid parent; do
+      [ -n "$pid" ] && [ -n "$parent" ] || continue
+      case " $frontier " in
+        *" $parent "*)
+          descendants="${descendants:+$descendants }$pid"
+          next="${next:+$next }$pid"
+          ;;
+      esac
+    done < <(ps -eo pid=,ppid=)
+    frontier="$next"
+  done
+  printf '%s' "$descendants"
+}
+
+# Run every CLI process, including version/help/list probes, in an isolated
+# process group with the same timeout and termination boundary as actions.
+pw_spawn_cli() {
+  local timeout_seconds="$1"
+  shift
+  pw_cleanup_spawn_files
+  local out_file err_file
+  out_file="$(mktemp /tmp/pwcli-out-XXXXXX)"
+  err_file="$(mktemp /tmp/pwcli-err-XXXXXX)"
+  setsid "$@" >"$out_file" 2>"$err_file" &
+  local child=$!
+  local rc=0 timed_out=0
+  local deadline=$(( $(date +%s) + timeout_seconds ))
+  while kill -0 "$child" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      timed_out=1
+      break
+    fi
+    sleep 0.05
+  done
+  if [ "$timed_out" = "1" ]; then
+    local descendants
+    descendants="$(pw_descendant_pids "$child")"
+    kill -TERM -- "-$child" 2>/dev/null || true
+    if [ -n "$descendants" ]; then
+      kill -TERM $descendants 2>/dev/null || true
+    fi
+    sleep 1
+    kill -KILL -- "-$child" 2>/dev/null || true
+    if [ -n "$descendants" ]; then
+      kill -KILL $descendants 2>/dev/null || true
+    fi
+    set +e
+    wait "$child" 2>/dev/null
+    rc=124
+    set -e
+  else
+    set +e
+    wait "$child" 2>/dev/null
+    rc=$?
+    set -e
+  fi
+  PW_SPAWN_RC="$rc"
+  PW_SPAWN_TIMED_OUT="$timed_out"
+  PW_SPAWN_STDOUT="$out_file"
+  PW_SPAWN_STDERR="$err_file"
+  if [ "$rc" -ge 128 ] && [ "$timed_out" = "0" ]; then
+    PW_SPAWN_SIGNAL="$(pw_signal_name $((rc - 128)))"
+  else
+    PW_SPAWN_SIGNAL=""
+  fi
+}
+
+pw_runtime_timeout_seconds() {
+  printf '%s' "${PWCLI_TIMEOUT_SECONDS:-30}"
+}
+
+# Capture a short-lived diagnostic invocation and remove its raw files before
+# returning. Action invocations keep the files until result adaptation ends.
+pw_capture_cli() {
+  local timeout_seconds="$1"
+  shift
+  pw_spawn_cli "$timeout_seconds" "$@"
+  PW_CLI_CAPTURE_STDOUT="$(cat "$PW_SPAWN_STDOUT")"
+  PW_CLI_CAPTURE_STDERR="$(cat "$PW_SPAWN_STDERR")"
+  local rc="$PW_SPAWN_RC" timed_out="$PW_SPAWN_TIMED_OUT"
+  pw_cleanup_spawn_files
+  [ "$timed_out" = "0" ] && [ "$rc" = "0" ]
+}
 
 pw_default_runtime_id() {
   jq -r '.compatibility.default_runtime' "$PW_ACTIONS_JSON"
@@ -72,7 +190,10 @@ pw_read_versions() {
   PW_CLI_PACKAGE_VERSION="$(jq -r '.version' <<< "$pkg")"
   PW_CLI_EMBEDDED_VERSION="$(jq -r '.playwright' <<< "$pkg")"
   PW_CLI_CORE_VERSION="$(jq -r '.playwright_core' <<< "$pkg")"
-  PW_CLI_VERSION_OUT="$(NO_UPDATE_NOTIFIER=1 "$PW_CLI_PATH" --version 2>/dev/null || true)"
+  PW_CLI_VERSION_OUT=""
+  if pw_capture_cli "$(pw_runtime_timeout_seconds)" env NO_UPDATE_NOTIFIER=1 "$PW_CLI_PATH" --version; then
+    PW_CLI_VERSION_OUT="$PW_CLI_CAPTURE_STDOUT"
+  fi
   [ -n "$PW_CLI_PACKAGE_NAME" ] || return 1
   [ -n "$PW_CLI_PACKAGE_VERSION" ] || return 1
   [ -n "$PW_CLI_EMBEDDED_VERSION" ] || return 1
@@ -85,12 +206,15 @@ pw_read_versions() {
 # [{"command": ..., "payload": ...}] key-sorted and ordered by command.
 pw_help_fingerprint() {
   local cli="$1"
-  local cmd
+  local cmd payload items="[]"
   while read -r cmd; do
-    local payload
-    payload="$(NO_UPDATE_NOTIFIER=1 "$cli" --help "$cmd" --json 2>/dev/null || true)"
-    jq -nc --arg command "$cmd" --arg payload "$payload" '{command: $command, payload: $payload}'
-  done < <(pw_catalog_commands) | jq -s -S 'sort_by(.command)'
+    if ! pw_capture_cli "$(pw_runtime_timeout_seconds)" env NO_UPDATE_NOTIFIER=1 "$cli" --help "$cmd" --json; then
+      return 1
+    fi
+    payload="$PW_CLI_CAPTURE_STDOUT"
+    items="$(jq -c --arg command "$cmd" --arg payload "$payload" '. + [{command: $command, payload: $payload}]' <<< "$items")"
+  done < <(pw_catalog_commands)
+  jq -S 'sort_by(.command)' <<< "$items"
 }
 
 pw_help_fingerprint_sha256() {
@@ -104,8 +228,9 @@ pw_resolve_help_fingerprint() {
   local cli="$1"
   local mtime
   mtime="$(stat -c%Y "$cli")"
-  local key
-  key="$(printf '%s|%s|%s' "$cli" "$mtime" "${PW_CLI_VERSION_OUT:-}" | sha256sum | cut -c1-16)"
+  local commands_digest key
+  commands_digest="$(pw_catalog_commands | sha256sum | cut -d' ' -f1)"
+  key="$(printf '%s|%s|%s|%s' "$cli" "$mtime" "${PW_CLI_VERSION_OUT:-}" "$commands_digest" | sha256sum | cut -c1-16)"
   local cache_dir="${PWCLI_CACHE_DIR:-$PWD/.playwright-cli/agent-harness/cache}"
   local cache_file="$cache_dir/fingerprint-$key"
   if [ -f "$cache_file" ]; then
@@ -113,7 +238,10 @@ pw_resolve_help_fingerprint() {
     return 0
   fi
   local fp
-  fp="$(pw_help_fingerprint_sha256 "$cli")"
+  if ! fp="$(pw_help_fingerprint_sha256 "$cli")"; then
+    PW_HELP_FINGERPRINT_SHA256=""
+    return 1
+  fi
   PW_HELP_FINGERPRINT_SHA256="$fp"
   mkdir -p -m 0700 "$cache_dir"
   umask 077
@@ -121,16 +249,20 @@ pw_resolve_help_fingerprint() {
   return 0
 }
 
-# Run `playwright-cli --json list` and store the session array in PW_SESSIONS.
-# Returns 0 on valid JSON array output, 1 otherwise.
+# Run `playwright-cli --json list` and normalize its `browsers` array into
+# PW_SESSIONS. @playwright/cli@0.1.18 returns {"browsers": [...]}, not an array.
 pw_session_list() {
   local out
-  out="$(NO_UPDATE_NOTIFIER=1 "$PW_CLI_PATH" --json list 2>/dev/null || true)"
-  if ! jq -e 'type == "array"' <<< "$out" >/dev/null 2>&1; then
+  if ! pw_capture_cli "$(pw_runtime_timeout_seconds)" env NO_UPDATE_NOTIFIER=1 "$PW_CLI_PATH" --json list; then
     PW_SESSIONS="[]"
     return 1
   fi
-  PW_SESSIONS="$out"
+  out="$PW_CLI_CAPTURE_STDOUT"
+  if ! jq -e 'type == "object" and (.browsers | type == "array")' <<< "$out" >/dev/null 2>&1; then
+    PW_SESSIONS="[]"
+    return 1
+  fi
+  PW_SESSIONS="$(jq -c '.browsers' <<< "$out")"
   return 0
 }
 
@@ -203,7 +335,11 @@ pw_preflight() {
     PW_PREFLIGHT_MESSAGE="embedded playwright-core version '$PW_CLI_CORE_VERSION' is not allowlisted (expected '$expected_core')"
     return 1
   fi
-  pw_resolve_help_fingerprint "$PW_CLI_PATH"
+  if ! pw_resolve_help_fingerprint "$PW_CLI_PATH"; then
+    PW_PREFLIGHT_CODE="VERSION_UNVERIFIABLE"
+    PW_PREFLIGHT_MESSAGE="CLI help contract is unavailable"
+    return 1
+  fi
   if [ "$PW_HELP_FINGERPRINT_SHA256" != "$expected_fingerprint" ]; then
     PW_PREFLIGHT_CODE="UNSUPPORTED_RUNTIME_VERSION"
     PW_PREFLIGHT_MESSAGE="CLI help fingerprint does not match the allowlist"

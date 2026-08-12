@@ -12,7 +12,7 @@ REQ3="33333333-3333-4333-8333-333333333333"
 REQ4="44444444-4444-4444-8444-444444444444"
 REQ5="55555555-5555-4555-8555-555555555555"
 REQ6="66666666-6666-4666-8666-666666666666"
-LIVE_DEMO='[{"name":"demo","version":"1.63.0-alpha-2026-08-05","compatible":true}]'
+LIVE_DEMO='[{"name":"demo","workspace":"fixture","status":"open","browserType":"chromium","userDataDir":null,"headed":false,"persistent":false,"attached":false,"version":"1.63.0-alpha-2026-08-05","compatible":true}]'
 
 open_demo() {
   pw_run "$1" browser.open "{\"session\":\"demo\",\"request_id\":\"$2\",\"grant\":\"write\"}" 2>&1
@@ -115,7 +115,7 @@ test_dependent_required_violation() {
   ws="$(new_workspace)"
   local out
   out="$(pw_run "$ws" tab.new "{\"session\":\"demo\",\"request_id\":\"$REQ1\",\"grant\":\"write\",\"activate\":true}" 2>&1)"
-  assert_json_eq "$out" '.error.code' "DEPENDENT_REQUIRED_VIOLATION" || return 1
+  assert_json_eq "$out" '.error.code' "UNKNOWN_FIELD" || return 1
 }
 
 test_envelope_shape() {
@@ -232,6 +232,127 @@ test_session_incompatible() {
   local out
   out="$(FAKE_PWCLI_SESSIONS='[{"name":"demo","version":"9.9.9","compatible":false}]' pw_run "$ws" page.goto '{"session":"demo","url":"https://example.com/"}' 2>&1)"
   assert_json_eq "$out" '.error.code' "SESSION_INCOMPATIBLE" || return 1
+}
+
+test_real_cli_contract_if_available() {
+  local real_cli
+  real_cli="$(command -v playwright-cli 2>/dev/null || true)"
+  [ -n "$real_cli" ] || return 0
+
+  assert_eq "$("$real_cli" --version)" "0.1.18" || return 1
+  local list
+  list="$("$real_cli" --json list)"
+  assert_json_true "$list" 'type == "object" and (.browsers | type == "array")' || return 1
+
+  local fp cache_dir
+  cache_dir="$(mktemp -d /tmp/pwcli-real-cache-XXXXXX)"
+  fp="$(PW_ACTIONS_JSON="$PW_SKILL_DIR/actions.json" PWCLI_CACHE_DIR="$cache_dir" \
+    bash -c 'source "$1/scripts/common/runtime.sh"; PW_CLI_VERSION_OUT=0.1.18; pw_help_fingerprint_sha256 "$2"' \
+    bash "$PW_SKILL_DIR" "$real_cli")"
+  assert_eq "$fp" "$(jq -r '.compatibility.runtimes[.compatibility.default_runtime].help_fingerprint_sha256' "$PW_SKILL_DIR/actions.json")" || return 1
+
+  local action_def argv
+  action_def="$(jq -c '.actions[] | select(.name == "page.goto")' "$PW_SKILL_DIR/actions.json")"
+  argv="$(source "$PW_SKILL_DIR/scripts/common/dispatch.sh"; pw_build_argv_json "$action_def" '{"session":"demo","url":"https://example.com/"}' demo '{}' "$real_cli")"
+  assert_json_true "$argv" '.[1:] == ["--json", "-s=demo", "goto", "https://example.com/"]' || return 1
+
+  action_def="$(jq -c '.actions[] | select(.name == "artifact.screenshot")' "$PW_SKILL_DIR/actions.json")"
+  argv="$(source "$PW_SKILL_DIR/scripts/common/dispatch.sh"; pw_build_argv_json "$action_def" '{"session":"demo","target":{"kind":"selector","value":"#a"}}' demo '{"output_path":"/tmp/probe.png"}' "$real_cli")"
+  assert_json_true "$argv" '.[1:] == ["--json", "-s=demo", "screenshot", "#a", "--filename", "/tmp/probe.png"]' || return 1
+
+  # Execute the mapped forms against a deliberately absent session. Reaching
+  # the session error proves the real parser accepted the global and command
+  # arguments (legacy --name/--url/--output forms fail as unknown options).
+  local probe rc probe_session="pwcli-contract-$$" probe_path="$cache_dir/probe.png"
+  probe="$("$real_cli" --json "-s=$probe_session" goto 'https://example.com/' 2>&1)"; rc=$?
+  assert_eq "$rc" "1" || return 1
+  assert_json_true "$probe" '.isError == true and (.error | contains("is not open"))' || return 1
+  probe="$("$real_cli" --json "-s=$probe_session" screenshot '#a' --filename "$probe_path" 2>&1)"; rc=$?
+  assert_eq "$rc" "1" || return 1
+  assert_json_true "$probe" '.isError == true and (.error | contains("is not open"))' || return 1
+  [ ! -e "$probe_path" ] || { echo "  real CLI probe unexpectedly created an artifact"; return 1; }
+  rm -rf "$cache_dir"
+}
+
+test_preflight_list_timeout() {
+  local ws child_pid_file started elapsed out child_pid
+  ws="$(new_workspace)"
+  child_pid_file="$(mktemp /tmp/pwcli-child-XXXXXX)"
+  started="$(date +%s)"
+  out="$(FAKE_PWCLI_SCENARIO_list=hang FAKE_PWCLI_SURVIVING_CHILD=1 \
+    FAKE_PWCLI_CHILD_PID_FILE="$child_pid_file" PWCLI_TIMEOUT_SECONDS=1 \
+    pw_run "$ws" browser.list '{}' 2>&1)"
+  elapsed=$(( $(date +%s) - started ))
+  assert_json_eq "$out" '.error.code' "VERSION_UNVERIFIABLE" || return 1
+  [ "$elapsed" -lt 5 ] || { echo "  preflight list timeout took ${elapsed}s"; return 1; }
+  child_pid="$(cat "$child_pid_file" 2>/dev/null || echo 0)"
+  rm -f "$child_pid_file"
+  if [ "$child_pid" != "0" ] && kill -0 "$child_pid" 2>/dev/null; then
+    echo "  preflight timeout left child $child_pid alive"
+    kill -KILL "$child_pid" 2>/dev/null || true
+    return 1
+  fi
+}
+
+test_diagnostic_version_timeout() {
+  local ws started elapsed out
+  ws="$(new_workspace)"
+  started="$(date +%s)"
+  out="$(FAKE_PWCLI_SCENARIO_version=hang PWCLI_TIMEOUT_SECONDS=1 pw_run "$ws" runtime.check '{}' 2>&1)"
+  elapsed=$(( $(date +%s) - started ))
+  assert_json_eq "$out" '.status' "ok" || return 1
+  assert_json_eq "$out" '.data.compatible' "false" || return 1
+  [ "$elapsed" -lt 5 ] || { echo "  version timeout took ${elapsed}s"; return 1; }
+}
+
+test_diagnostic_help_timeout() {
+  local ws started elapsed out
+  ws="$(new_workspace)"
+  rm -rf "$FIXTURE_DIR/cache"
+  started="$(date +%s)"
+  out="$(FAKE_PWCLI_SCENARIO_help=hang PWCLI_TIMEOUT_SECONDS=1 pw_run "$ws" runtime.check '{}' 2>&1)"
+  elapsed=$(( $(date +%s) - started ))
+  assert_json_eq "$out" '.status' "ok" || return 1
+  assert_json_eq "$out" '.data.compatible' "false" || return 1
+  [ "$elapsed" -lt 5 ] || { echo "  help timeout took ${elapsed}s"; return 1; }
+}
+
+test_provenance_strict_json_mutations() {
+  local variant root out rc
+  for variant in array-vs-json-string null-present false-present; do
+    root="$(mktemp -d /tmp/pwcli-check-copy-XXXXXX)"
+    cp -R "$PW_SKILL_DIR" "$root/playwright-cli"
+    case "$variant" in
+      array-vs-json-string)
+        # `tostring` made these two different JSON types compare equal.
+        jq '(keys[0]) as $key | .[$key].help_fingerprint_commands |= tojson' \
+          "$root/playwright-cli/tests/contract/provenance-fixture.json" > "$root/fixture.tmp"
+        mv "$root/fixture.tmp" "$root/playwright-cli/tests/contract/provenance-fixture.json"
+        ;;
+      null-present)
+        jq '(keys[0]) as $key | .[$key].upstream_repository = null' \
+          "$root/playwright-cli/tests/contract/provenance-fixture.json" > "$root/fixture.tmp"
+        mv "$root/fixture.tmp" "$root/playwright-cli/tests/contract/provenance-fixture.json"
+        ;;
+      false-present)
+        jq '(keys[0]) as $key | .[$key].upstream_repository = false' \
+          "$root/playwright-cli/tests/contract/provenance-fixture.json" > "$root/fixture.tmp"
+        mv "$root/fixture.tmp" "$root/playwright-cli/tests/contract/provenance-fixture.json"
+        ;;
+    esac
+    out="$(bash "$root/playwright-cli/scripts/check-actions.sh" 2>&1)"; rc=$?
+    rm -rf "$root"
+    [ "$rc" -ne 0 ] || { echo "  provenance mutation passed: $variant"; return 1; }
+    assert_contains "$out" "field values match" || return 1
+    case "$variant" in
+      null-present)
+        assert_contains "$out" 'expected=null' || return 1
+        ;;
+      false-present)
+        assert_contains "$out" 'expected=false' || return 1
+        ;;
+    esac
+  done
 }
 
 # ========================== Group C: browser lifecycle ======================
@@ -419,7 +540,7 @@ test_goto_ok() {
   local out
   out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.goto '{"session":"demo","url":"https://example.com/"}' 2>&1)"
   assert_json_eq "$out" '.status' "ok" || return 1
-  assert_json_eq "$out" '.data.url' "https://example.com/" || return 1
+  assert_contains "$(jq -r '.data.result' <<< "$out")" "https://example.com/" || return 1
   assert_json_true "$out" '.runtime.embedded_playwright_version == "1.63.0-alpha-2026-08-05"' || return 1
 }
 
@@ -707,6 +828,50 @@ test_full_page_screenshot() {
   rm -f "$argv_file"
 }
 
+test_screenshot_target_argv_variants() {
+  local ws argv_file out ref_value obs
+  ws="$(new_workspace)"
+  argv_file="$(mktemp /tmp/pwcli-argv-XXXXXX)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+
+  : > "$argv_file"
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_ARGV_FILE="$argv_file" \
+    pw_run "$ws" artifact.screenshot \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#secret-panel\"}}" 2>&1)"
+  assert_json_eq "$out" '.status' "ok" || return 1
+  assert_eq "$(tail -n 6 "$argv_file" | sed -n '4p')" "#secret-panel" || return 1
+  assert_eq "$(tail -n 6 "$argv_file" | sed -n '5p')" "--filename" || return 1
+  if grep -qx -- '--kind\|--value' "$argv_file"; then
+    echo "  legacy target flags were dispatched"
+    return 1
+  fi
+
+  obs="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.snapshot '{"session":"demo"}' | jq -r '.data.observation_id')"
+  ref_value="ref:$(printf 'c%.0s' $(seq 1 64))"
+  : > "$argv_file"
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_ARGV_FILE="$argv_file" \
+    pw_run "$ws" artifact.screenshot \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ3\",\"grant\":\"write\",\"target\":{\"kind\":\"ref\",\"value\":\"$ref_value\",\"observation_id\":\"$obs\"}}" 2>&1)"
+  assert_json_eq "$out" '.status' "ok" || return 1
+  assert_eq "$(tail -n 6 "$argv_file" | sed -n '4p')" "$ref_value" || return 1
+  assert_eq "$(tail -n 6 "$argv_file" | sed -n '5p')" "--filename" || return 1
+  rm -f "$argv_file"
+}
+
+test_cli_temp_files_cleaned() {
+  local ws before after out secret
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  before="$(find /tmp -maxdepth 1 -type f \( -name 'pwcli-input-*' -o -name 'pwcli-out-*' -o -name 'pwcli-err-*' \) -printf '%f\n' | sort)"
+  secret="cleanup-secret-${REQ2}"
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_SCENARIO_fill=stderr-secret \
+    FAKE_PWCLI_SECRET="$secret" pw_run "$ws" page.fill \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"},\"value\":\"$secret\"}" 2>&1)"
+  assert_json_eq "$out" '.status' "unknown_outcome" || return 1
+  after="$(find /tmp -maxdepth 1 -type f \( -name 'pwcli-input-*' -o -name 'pwcli-out-*' -o -name 'pwcli-err-*' \) -printf '%f\n' | sort)"
+  assert_eq "$after" "$before" || return 1
+}
+
 test_screenshot_symlink_attack_rejected() {
   local ws ext
   ws="$(new_workspace)"
@@ -733,8 +898,8 @@ test_screenshot_cli_path_not_trusted() {
   printf 'precious data' > "$ext"
   local out
   out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" FAKE_PWCLI_SCENARIO_screenshot=bad-path FAKE_PWCLI_BAD_PATH="$ext" pw_run "$ws" artifact.screenshot "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"selector\",\"value\":\"#a\"}}" 2>&1)"
-  assert_json_eq "$out" '.status' "unknown_outcome" || return 1
-  assert_json_eq "$out" '.error.code' "ARTIFACT_PATH_MISMATCH" || return 1
+  assert_json_eq "$out" '.status' "ok" || return 1
+  assert_json_eq "$out" '.artifacts[0].kind' "screenshot" || return 1
   assert_eq "$(cat "$ext")" "precious data" || return 1
   rm -f "$ext"
 }
@@ -1099,6 +1264,59 @@ test_stale_reference_ok() {
   assert_json_eq "$out" '.status' "ok" || return 1
 }
 
+test_snapshot_observation_ref_flow() {
+  local ws snapshot obs ledger_obs ref_value out
+  ws="$(new_workspace)"
+  open_demo "$ws" "$REQ1" >/dev/null 2>&1
+  snapshot="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.snapshot '{"session":"demo"}' 2>&1)"
+  assert_json_eq "$snapshot" '.status' "ok" || return 1
+  obs="$(jq -r '.data.observation_id' <<< "$snapshot")"
+  assert_json_true "$snapshot" '.data.observation_id | test("^[0-9a-f-]{36}$")' || return 1
+  ledger_obs="$(jq -r '.latest_observation_id' "$ws/.playwright-cli/agent-harness/state/demo/ledger.json")"
+  assert_eq "$ledger_obs" "$obs" || return 1
+
+  ref_value="ref:$(printf 'd%.0s' $(seq 1 64))"
+  out="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" page.click \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"target\":{\"kind\":\"ref\",\"value\":\"$ref_value\",\"observation_id\":\"$obs\"}}" 2>&1)"
+  assert_json_eq "$out" '.status' "ok" || return 1
+}
+
+test_resolve_replay_repairs_partial_completion() {
+  local ws observe obs input first owner_path resolver_path replay
+  ws="$(new_workspace)"
+  FAKE_PWCLI_SCENARIO_open=hang PWCLI_TIMEOUT_SECONDS=1 pw_run "$ws" browser.open \
+    "{\"session\":\"demo\",\"request_id\":\"$REQ1\",\"grant\":\"write\"}" >/dev/null 2>&1
+  observe="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.observe '{"session":"demo"}' 2>&1)"
+  obs="$(jq -r '.data.observation_id' <<< "$observe")"
+  input="{\"session\":\"demo\",\"request_id\":\"$REQ2\",\"grant\":\"write\",\"subject_request_id\":\"$REQ1\",\"observation_id\":\"$obs\",\"resolution\":\"applied\"}"
+  first="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.resolve "$input" 2>&1)"
+  assert_json_eq "$first" '.data.owner_phase' "active" || return 1
+
+  # Simulate a crash after the subject became durable but before resolver
+  # finalization and the owner transition.
+  resolver_path="$ws/.playwright-cli/agent-harness/state/demo/requests/$REQ2.json"
+  owner_path="$ws/.playwright-cli/agent-harness/state/demo/owner.json"
+  jq '.state = "prepared"' "$resolver_path" > "$resolver_path.tmp"
+  mv "$resolver_path.tmp" "$resolver_path"
+  jq '.phase = "quarantined"' "$owner_path" > "$owner_path.tmp"
+  mv "$owner_path.tmp" "$owner_path"
+  replay="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.resolve "$input" 2>&1)"
+  assert_json_eq "$replay" '.status' "already_applied" || return 1
+  assert_json_eq "$replay" '.data.reason' "partial_resolution_completed" || return 1
+  assert_json_eq "$(cat "$resolver_path")" '.state' "ok" || return 1
+  assert_eq "$(owner_phase "$ws" demo)" "active" || return 1
+
+  # Simulate a crash/failure after subject + resolver finalization but before
+  # the durable owner transition becomes visible.
+  jq '.phase = "quarantined"' "$owner_path" > "$owner_path.tmp"
+  mv "$owner_path.tmp" "$owner_path"
+  replay="$(FAKE_PWCLI_SESSIONS="$LIVE_DEMO" pw_run "$ws" recovery.resolve "$input" 2>&1)"
+  assert_json_eq "$replay" '.status' "already_applied" || return 1
+  assert_json_eq "$replay" '.data.reason' "partial_resolution_completed" || return 1
+  assert_json_eq "$replay" '.data.owner_phase' "active" || return 1
+  assert_eq "$(owner_phase "$ws" demo)" "active" || return 1
+}
+
 main() {
   echo "=== playwright-cli dispatcher contract tests ==="
   echo
@@ -1130,6 +1348,11 @@ main() {
   run_test test_unverified_versions
   run_test test_fingerprint_mismatch_fails_closed
   run_test test_session_incompatible
+  run_test test_real_cli_contract_if_available
+  run_test test_preflight_list_timeout
+  run_test test_diagnostic_version_timeout
+  run_test test_diagnostic_help_timeout
+  run_test test_provenance_strict_json_mutations
 
   # Group C: browser lifecycle
   run_test test_open_ok
@@ -1179,6 +1402,8 @@ main() {
   run_test test_snapshot_dangling_leaf_rejected
   run_test test_artifacts_never_overwrite
   run_test test_full_page_screenshot
+  run_test test_screenshot_target_argv_variants
+  run_test test_cli_temp_files_cleaned
 
   # Group E: state and recovery
   run_test test_prepared_ownerless_recovery
@@ -1202,6 +1427,8 @@ main() {
   run_test test_unresolved_history_blocks_new_generation
   run_test test_stale_reference_rejected
   run_test test_stale_reference_ok
+  run_test test_snapshot_observation_ref_flow
+  run_test test_resolve_replay_repairs_partial_completion
 
   teardown_fixture
   trap - EXIT

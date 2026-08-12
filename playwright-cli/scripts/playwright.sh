@@ -9,6 +9,8 @@ PW_ROOT="$(dirname "$SCRIPT_DIR")"
 COMMON_DIR="$SCRIPT_DIR/common"
 ACTIONS_DIR="$SCRIPT_DIR/actions"
 ACTIONS_JSON="${PW_ACTIONS_JSON:-$PW_ROOT/actions.json}"
+PW_INPUT_TEMP=""
+PW_SENSITIVE_TEMP=""
 
 source "$COMMON_DIR/envelope.sh"
 source "$COMMON_DIR/validate.sh"
@@ -29,7 +31,7 @@ EOF
 pw_check_dependencies() {
   local missing=()
   local dep
-  for dep in jq sha256sum flock sync setsid realpath date; do
+  for dep in jq sha256sum flock sync setsid realpath date base64 ps; do
     if ! command -v "$dep" >/dev/null 2>&1; then
       missing+=("$dep")
     fi
@@ -38,6 +40,18 @@ pw_check_dependencies() {
     pw_envelope_fail "preflight" "MISSING_DEPENDENCY" "missing required commands: ${missing[*]}" false
     exit 1
   fi
+}
+
+pw_cleanup_runtime_temps() {
+  case "${PW_INPUT_TEMP:-}" in
+    /tmp/pwcli-input-*) rm -f -- "$PW_INPUT_TEMP" ;;
+  esac
+  case "${PW_SENSITIVE_TEMP:-}" in
+    /tmp/pwcli-sensitive-*) rm -f -- "$PW_SENSITIVE_TEMP" ;;
+  esac
+  PW_INPUT_TEMP=""
+  PW_SENSITIVE_TEMP=""
+  pw_cleanup_spawn_files
 }
 
 pw_permission_level() {
@@ -95,61 +109,15 @@ pw_run_cli_action() {
   argv="$(pw_build_argv_json "$action_def" "$input" "$session" "$runtime_fields" "$PW_CLI_PATH")"
   timeout_seconds="${PWCLI_TIMEOUT_SECONDS:-$(jq -r '.timeout_seconds // 60' <<< "$action_def")}"
   timeout_seconds="$(( timeout_seconds ))"
-  # Persist the argv array as base64 lines: no string evaluation anywhere.
-  local argv_file
-  argv_file="$(mktemp /tmp/pwcli-argv-XXXXXX)"
-  jq -r '.[] | @base64' <<< "$argv" > "$argv_file"
-  local out_file err_file
-  out_file="$(mktemp /tmp/pwcli-out-XXXXXX)"
-  err_file="$(mktemp /tmp/pwcli-err-XXXXXX)"
-  local child rc=0 timed_out=0
-  setsid bash -c '
-    mapfile -t _b64 < "$1"
-    _args=()
-    for _b in "${_b64[@]}"; do
-      _args+=("$(base64 -d <<< "$_b")")
-    done
-    exec 9>&-
-    exec "${_args[@]}"
-  ' bash "$argv_file" >"$out_file" 2>"$err_file" &
-  child=$!
-  local deadline=$(( $(date +%s) + timeout_seconds ))
-  while kill -0 "$child" 2>/dev/null; do
-    if [ "$(date +%s)" -ge "$deadline" ]; then
-      timed_out=1
-      break
-    fi
-    sleep 0.05
-  done
-  if [ "$timed_out" = "1" ]; then
-    kill -TERM -- "-$child" 2>/dev/null || true
-    sleep 1
-    kill -KILL -- "-$child" 2>/dev/null || true
-    set +e
-    wait "$child" 2>/dev/null
-    rc=124
-    set -e
-  else
-    set +e
-    wait "$child" 2>/dev/null
-    rc=$?
-    set -e
-  fi
-  rm -f "$argv_file"
-  PW_SPAWN_RC="$rc"
-  PW_SPAWN_TIMED_OUT="$timed_out"
-  PW_SPAWN_STDOUT="$out_file"
-  PW_SPAWN_STDERR="$err_file"
-  if [ "$rc" -ge 128 ] && [ "$timed_out" = "0" ]; then
-    PW_SPAWN_SIGNAL="$(pw_signal_name $((rc - 128)))"
-  else
-    PW_SPAWN_SIGNAL=""
-  fi
-  if [ "$(stat -c%s "$out_file")" -gt 0 ]; then
-    PW_RESULT_STDOUT_RAW="$(cat "$out_file")"
-  else
-    PW_RESULT_STDOUT_RAW=""
-  fi
+  # Decode each JSON argv item independently. This preserves embedded
+  # whitespace/newlines without ever evaluating a command string.
+  local encoded
+  local -a cli_argv=()
+  while IFS= read -r encoded; do
+    cli_argv+=("$(printf '%s' "$encoded" | base64 -d)")
+  done < <(jq -r '.[] | @base64' <<< "$argv")
+  pw_spawn_cli "$timeout_seconds" "${cli_argv[@]}"
+  pw_collect_spawn_output
 }
 
 pw_terminal_journal() {
@@ -234,7 +202,7 @@ pw_run_cli_action_flow() {
     pw_emit_failure "lock" "LOCK_BUSY" "another process holds the session lock" "$session" "$request_id" "$action_name" "$permission"
     exit 1
   fi
-  trap 'pw_release_lock' EXIT
+  trap 'pw_release_lock; pw_cleanup_runtime_temps' EXIT
 
   if ! pw_state_validate "$session"; then
     local code message
@@ -430,9 +398,11 @@ pw_run_cli_action_flow() {
   pw_run_cli_action "$action_def" "$input" "$session" "$runtime_fields"
   local sensitive_file stderr_excerpt
   sensitive_file="$(mktemp /tmp/pwcli-sensitive-XXXXXX)"
+  PW_SENSITIVE_TEMP="$sensitive_file"
   pw_sensitive_values_file "$action_def" "$input" "$sensitive_file"
   stderr_excerpt="$(pw_stderr_excerpt "$PW_SPAWN_STDERR" "$sensitive_file")"
-  rm -f "$sensitive_file"
+  rm -f -- "$sensitive_file"
+  PW_SENSITIVE_TEMP=""
   pw_classify_result "$is_write" "$adapter_kind" "$precondition_codes" "$failure_semantics" "$session"
 
   # terminal handling per action
@@ -456,15 +426,7 @@ pw_run_cli_action_flow() {
     # and it must be a non-symlink regular file inside the canonical
     # artifact root.
     if [ "$terminal_status" = "ok" ]; then
-      local cli_file
-      cli_file="$(jq -r '.file // empty' <<< "$PW_RESULT_DATA")"
-      if [ -n "$cli_file" ] && [ "$cli_file" != "$screenshot_path" ]; then
-        terminal_status="unknown_outcome"
-        PW_RESULT_PHASE="verification"
-        PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
-        PW_RESULT_MESSAGE="playwright-cli returned a path that does not match the expected runtime artifact path"
-        pw_artifact_remove "$screenshot_path"
-      elif ! pw_artifact_path_symlink_free "$screenshot_path"; then
+      if ! pw_artifact_path_symlink_free "$screenshot_path"; then
         terminal_status="unknown_outcome"
         PW_RESULT_PHASE="verification"
         PW_RESULT_CODE="ARTIFACT_PATH_MISMATCH"
@@ -523,6 +485,29 @@ pw_run_cli_action_flow() {
     fi
   fi
 
+  # Every successful snapshot establishes a new ref-observation epoch. Return
+  # the same UUID that is durably recorded in the session ledger.
+  if [ "$terminal_status" = "ok" ] && [ "$action_name" = "page.snapshot" ]; then
+    local observation_id recovery_record
+    observation_id="$(pw_new_uuid)"
+    recovery_record="null"
+    if [ -n "$ledger" ]; then
+      recovery_record="$(jq -c '.recovery // null' <<< "$ledger")"
+    fi
+    if pw_ledger_write "$session" "$(pw_build_ledger "$session" "$generation" "\"$observation_id\"" "$recovery_record")"; then
+      PW_RESULT_DATA="$(jq -c --arg observation_id "$observation_id" '
+        if type == "object" then . + {observation_id: $observation_id}
+        else {result: ., observation_id: $observation_id}
+        end
+      ' <<< "$PW_RESULT_DATA")"
+    else
+      terminal_status="failed"
+      PW_RESULT_PHASE="verification"
+      PW_RESULT_CODE="STATE_WRITE_FAILED"
+      PW_RESULT_MESSAGE="failed to record the snapshot observation"
+    fi
+  fi
+
   # terminal journal + owner transitions
   if [ "$is_write" = "true" ]; then
     pw_terminal_journal "$session" "$journal" "$terminal_status"
@@ -561,21 +546,23 @@ main() {
   local action_name="$1"
   shift
 
+  trap 'pw_cleanup_runtime_temps' EXIT
   local input_file=""
   if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
     if [ -f "$1" ]; then
       input_file="$1"
     else
       input_file="$(mktemp /tmp/pwcli-input-XXXXXX)"
+      PW_INPUT_TEMP="$input_file"
       printf '%s\n' "$1" > "$input_file"
     fi
   elif [ ! -t 0 ]; then
     input_file="$(mktemp /tmp/pwcli-input-XXXXXX)"
+    PW_INPUT_TEMP="$input_file"
     cat > "$input_file"
   else
     usage
   fi
-
   if ! jq empty "$input_file" >/dev/null 2>&1; then
     pw_envelope_fail "validation" "INVALID_JSON" "Input is not valid JSON" false
     exit 1

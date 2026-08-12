@@ -6,6 +6,7 @@ PW_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ACTIONS_JSON="$PW_ROOT/actions.json"
 ACTIONS_DIR="$PW_ROOT/scripts/actions"
 FAKE_CLI="$PW_ROOT/tests/contract/fake-pwcli.sh"
+REAL_CLI_FIXTURE="$PW_ROOT/tests/contract/real-cli-fixture.json"
 META_PROGRAM="$(cat "$SCRIPT_DIR/common/meta-validator.jq")"
 failed=0
 
@@ -70,7 +71,11 @@ check 'allowlist runtime entries have complete provenance' \
     . as $entry |
     (["cli_package", "cli_version", "embedded_playwright_version", "embedded_playwright_core_version",
       "upstream_repository", "upstream_commit", "npm_integrity", "help_fingerprint_sha256", "help_fingerprint_commands"] |
-     map(select(. as $k | (($entry.value[$k] // "") | tostring | length) == 0 or ($entry.value[$k] | type) == "array" and ($entry.value[$k] | length) == 0))) as $missing |
+     map(select(. as $k |
+       (($entry.value | has($k)) | not) or
+       ($entry.value[$k] == "") or
+       (($entry.value[$k] | type) == "array" and ($entry.value[$k] | length) == 0)
+     ))) as $missing |
     if ($missing | length) > 0 then "\($entry.key): missing \($missing | join(","))" else empty end
   ' "$ACTIONS_JSON")" \
   "$(jq -r '
@@ -129,8 +134,9 @@ else
       . as $rt |
       ($fixture[$rt.key] // {}) as $fx |
       ([$rt.value | to_entries[] |
-        select($fx[.key] != null and (.value | tostring) != ($fx[.key] | tostring)) |
-        "\($rt.key): \(.key) expected=\($fx[.key]), got=\(.value)"] |
+        .key as $k |
+        select(($fx | has($k)) and .value != $fx[$k]) |
+        "\($rt.key): \($k) expected=\($fx[$k] | tojson), got=\(.value | tojson)"] |
        .[]) // empty
     ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")" \
     "$(jq -r '
@@ -138,8 +144,9 @@ else
       . as $rt |
       ($fixture[$rt.key] // {}) as $fx |
       ([$rt.value | to_entries[] |
-        select($fx[.key] == null) |
-        "\($rt.key): \(.key) not present in fixture"] |
+        .key as $k |
+        select(($fx | has($k)) | not) |
+        "\($rt.key): \($k) not present in fixture"] |
        .[]) // empty
     ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")" \
     "$(jq -r '
@@ -147,7 +154,7 @@ else
       . as $rt |
       ($fixture[$rt.key] // {}) as $fx |
       ([$fx | to_entries[] | .key as $k |
-        select(($rt.value[$k] // null) == null) |
+        select(($rt.value | has($k)) | not) |
         "\($rt.key): \($k) in fixture but not in runtime entry"] |
        .[]) // empty
     ' --argjson fixture "$fixture_json" "$ACTIONS_JSON")"
@@ -229,8 +236,13 @@ check 'cli actions map to canonical commands and valid flags' \
     .actions[] | select(.handler == "cli") |
     . as $a |
     .cli_arguments[]? |
-    select((.flag | type) != "string" or ((.flag | startswith("--")) | not)) |
-    "\($a.name): invalid cli argument flag"
+    select(
+      (.from != "field" and .from != "runtime") or
+      ((.field | type) != "string") or (.field == "") or
+      (has("flag") and ((.flag | type) != "string" or ((.flag | startswith("--")) | not))) or
+      (.boolean == true and (has("flag") | not))
+    ) |
+    "\($a.name): invalid cli argument mapping"
   ' "$ACTIONS_JSON")" \
   "$(jq -r '
     .actions[] | select(.handler == "cli") |
@@ -279,16 +291,20 @@ fi
 check 'internal action implementations are in sync with the catalog' \
   "${MISSING_SCRIPTS[@]}" "${ORPHAN_SCRIPTS[@]}"
 
-if [ -f "$FAKE_CLI" ]; then
-  FAKE_CLI_MISSING=()
-  while read -r cmd; do
-      if ! grep -qE "^[[:space:]]*([a-z-]+\|)*${cmd}\\)" "$FAKE_CLI"; then
-      FAKE_CLI_MISSING+=("missing fake CLI command: $cmd")
-    fi
-  done < <(jq -r '.actions[] | select(.handler == "cli") | .cli_command' "$ACTIONS_JSON")
-  check 'fake CLI fixture implements every catalog cli_command' "${FAKE_CLI_MISSING[@]}"
+if [ -f "$FAKE_CLI" ] && [ -f "$REAL_CLI_FIXTURE" ]; then
+  check 'fake CLI fixture implements every catalog cli_command' \
+    "$(jq -r --argjson commands "$(jq -c '[.actions[] | select(.handler == "cli") | .cli_command] | unique' "$ACTIONS_JSON")" '
+      ($commands - (.help | keys))[] | "missing fake CLI command: \(.)"
+    ' "$REAL_CLI_FIXTURE")"
+  fake_fingerprint="$(PW_ACTIONS_JSON="$ACTIONS_JSON" FAKE_PWCLI_REAL_FIXTURE="$REAL_CLI_FIXTURE" \
+    bash -c 'source "$1/common/runtime.sh"; pw_help_fingerprint_sha256 "$2"' bash "$SCRIPT_DIR" "$FAKE_CLI" 2>/dev/null || true)"
+  check 'fake CLI help matches the pinned real package fingerprint' \
+    "$(jq -nr \
+      --arg expected "$(jq -r '.compatibility.runtimes[.compatibility.default_runtime].help_fingerprint_sha256' "$ACTIONS_JSON")" \
+      --arg actual "$fake_fingerprint" \
+      'if $actual != $expected then "expected=\($expected), got=\($actual)" else empty end')"
 else
-  check 'fake CLI fixture implements every catalog cli_command' "missing: $FAKE_CLI"
+  check 'fake CLI fixture implements every catalog cli_command' "missing fake CLI or real package fixture"
 fi
 
 # --- sensitive fields and precondition codes ---------------------------------

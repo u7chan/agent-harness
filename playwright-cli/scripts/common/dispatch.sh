@@ -21,8 +21,8 @@ PW_RESULT_DATA="null"
 PW_RESULT_ARTIFACTS="[]"
 PW_RESULT_STDERR_EXCERPT="null"
 
-# Build the argv JSON array for an action:
-# [cli-path, <cli_flags>, <cli_command>, <flag, value>, ...]
+# Build the argv JSON array for an action. @playwright/cli@0.1.18 takes the
+# session as a global `-s=<name>` argument and most command inputs positionally.
 pw_build_argv_json() {
   local action_def="$1" input="$2" session="$3" runtime_fields="$4" cli_path="$5"
   jq -cn \
@@ -32,75 +32,38 @@ pw_build_argv_json() {
     --argjson runtime_fields "$runtime_fields" \
     --arg cli "$cli_path" \
     '
+    def haspath($path):
+      if ($path | length) == 0 then true
+      elif type != "object" then false
+      elif (has($path[0]) | not) then false
+      else .[$path[0]] | haspath($path[1:])
+      end;
+    def source_value($arg):
+      if $arg.from == "field" then
+        ($arg.field | split(".")) as $path |
+        if ($input | haspath($path)) then {present: true, value: ($input | getpath($path))}
+        else {present: false, value: null} end
+      elif $arg.from == "runtime" then
+        ($arg.field | split(".")) as $path |
+        if ($runtime_fields | haspath($path)) then {present: true, value: ($runtime_fields | getpath($path))}
+        else {present: false, value: null} end
+      else {present: false, value: null}
+      end;
     [$cli] +
     ($a.cli_flags // ["--json"]) +
+    (if $a.session == "required" then ["-s=" + $session] else [] end) +
     [$a.cli_command] +
     [$a.cli_arguments[] as $arg |
-      (if $arg.from == "session" then [$session]
-       elif $arg.from == "field" then
-         (if ($arg.optional == true) and (($input | has($arg.field)) | not) then []
-          else [$input | getpath(($arg.field | split(".")))] end)
-       elif $arg.from == "runtime" then
-         (if ($runtime_fields | has($arg.field)) then [$runtime_fields[$arg.field]] else [] end)
-       else [] end) as $values |
-      if ($values | length) > 0 then [$arg.flag, $values[0]] else [] end
+      source_value($arg) as $source |
+      if ($source.present | not) then []
+      elif $arg.boolean == true then
+        if $source.value == true then [$arg.flag] else [] end
+      elif $arg.flag != null then [$arg.flag, ($source.value | tostring)]
+      else [($source.value | tostring)]
+      end
       | .[]
     ]
   '
-}
-
-pw_signal_name() {
-  local code="$1"
-  local name
-  name="$(kill -l "$code" 2>/dev/null || true)"
-  if [ -n "$name" ]; then
-    printf '%s' "$name"
-  else
-    printf 'UNKNOWN'
-  fi
-}
-
-# Spawn the CLI process group and wait up to the timeout.
-pw_spawn_cli() {
-  local timeout_seconds="$1"
-  shift
-  local out_file err_file
-  out_file="$(mktemp /tmp/pwcli-out-XXXXXX)"
-  err_file="$(mktemp /tmp/pwcli-err-XXXXXX)"
-  setsid "$@" >"$out_file" 2>"$err_file" &
-  local child=$!
-  local rc=0 timed_out=0
-  local deadline=$(( $(date +%s) + timeout_seconds ))
-  while kill -0 "$child" 2>/dev/null; do
-    if [ "$(date +%s)" -ge "$deadline" ]; then
-      timed_out=1
-      break
-    fi
-    sleep 0.05
-  done
-  if [ "$timed_out" = "1" ]; then
-    kill -TERM -- "-$child" 2>/dev/null || true
-    sleep 1
-    kill -KILL -- "-$child" 2>/dev/null || true
-    set +e
-    wait "$child" 2>/dev/null
-    rc=124
-    set -e
-  else
-    set +e
-    wait "$child"
-    rc=$?
-    set -e
-  fi
-  PW_SPAWN_RC="$rc"
-  PW_SPAWN_TIMED_OUT="$timed_out"
-  PW_SPAWN_STDOUT="$out_file"
-  PW_SPAWN_STDERR="$err_file"
-  if [ "$rc" -ge 128 ] && [ "$timed_out" = "0" ]; then
-    PW_SPAWN_SIGNAL="$(pw_signal_name $((rc - 128)))"
-  else
-    PW_SPAWN_SIGNAL=""
-  fi
 }
 
 # Read the spawn outputs into result fields.
@@ -235,9 +198,9 @@ pw_classify_result() {
   # 4. adapter-specific shape verification
   case "$adapter_kind" in
     list)
-      if jq -e 'type == "array"' <<< "$stdout_json" >/dev/null 2>&1; then
+      if jq -e 'type == "object" and (.browsers | type == "array")' <<< "$stdout_json" >/dev/null 2>&1; then
         PW_RESULT_STATUS="ok"
-        PW_RESULT_DATA="$(jq -c '{sessions: .}' <<< "$stdout_json")"
+        PW_RESULT_DATA="$(jq -c '{sessions: .browsers}' <<< "$stdout_json")"
       else
         PW_RESULT_STATUS="failed"
         PW_RESULT_PHASE="verification"
@@ -246,29 +209,29 @@ pw_classify_result() {
       fi
       ;;
     open)
-      if jq -e '.status == "open"' <<< "$stdout_json" >/dev/null 2>&1; then
+      if jq -e --arg session "$session" '.session == $session and (.pid | type == "number") and has("result")' <<< "$stdout_json" >/dev/null 2>&1; then
         PW_RESULT_STATUS="ok"
-        PW_RESULT_DATA="$(jq -c '{status: .status, name: .name, version: .version}' <<< "$stdout_json")"
+        PW_RESULT_DATA="$(jq -c '{status: "open", name: .session, pid, result}' <<< "$stdout_json")"
       else
         pw_set_execution_error "$is_write" "$stdout_json" "$precondition_codes" "$failure_semantics" "OPEN_FAILED" "playwright-cli open did not report an open session"
       fi
       ;;
     close)
-      if jq -e '.status == "closed"' <<< "$stdout_json" >/dev/null 2>&1; then
+      if jq -e --arg session "$session" '.session == $session and .status == "closed"' <<< "$stdout_json" >/dev/null 2>&1; then
         PW_RESULT_STATUS="ok"
-        PW_RESULT_DATA="$(jq -c '{status: .status, name: .name}' <<< "$stdout_json")"
-      elif jq -e '.status == "not-open"' <<< "$stdout_json" >/dev/null 2>&1; then
+        PW_RESULT_DATA="$(jq -c '{status, name: .session}' <<< "$stdout_json")"
+      elif jq -e --arg session "$session" '.session == $session and .status == "not-open"' <<< "$stdout_json" >/dev/null 2>&1; then
         PW_RESULT_CODE="CLOSE_NOT_OPEN"
         PW_RESULT_MESSAGE="playwright-cli close reported the session is not open"
       else
         pw_set_execution_error "$is_write" "$stdout_json" "$precondition_codes" "$failure_semantics" "CLOSE_FAILED" "playwright-cli close did not report a closed session"
       fi
       ;;
-    tool-result|snapshot)
-      if jq -e '.ok == true and (.isError != true)' <<< "$stdout_json" >/dev/null 2>&1; then
+    tool-result)
+      if jq -e 'type == "object" and (.isError != true) and (has("result") or has("snapshot"))' <<< "$stdout_json" >/dev/null 2>&1; then
         PW_RESULT_STATUS="ok"
-        PW_RESULT_DATA="$(jq -c '.data // null' <<< "$stdout_json")"
-      elif jq -e '(.ok == false) or (.isError == true)' <<< "$stdout_json" >/dev/null 2>&1; then
+        PW_RESULT_DATA="$(jq -c '.' <<< "$stdout_json")"
+      elif jq -e '.isError == true' <<< "$stdout_json" >/dev/null 2>&1; then
         pw_set_execution_error "$is_write" "$stdout_json" "$precondition_codes" "$failure_semantics"
       else
         PW_RESULT_STATUS="failed"
@@ -280,11 +243,24 @@ pw_classify_result() {
         fi
       fi
       ;;
-    screenshot)
-      if jq -e '.ok == true and (.isError != true)' <<< "$stdout_json" >/dev/null 2>&1; then
+    snapshot)
+      if jq -e 'type == "object" and (.isError != true) and has("snapshot")' <<< "$stdout_json" >/dev/null 2>&1; then
         PW_RESULT_STATUS="ok"
-        PW_RESULT_DATA="$(jq -c '{file: (.file // null), error: null}' <<< "$stdout_json")"
-      elif jq -e '(.ok == false) or (.isError == true)' <<< "$stdout_json" >/dev/null 2>&1; then
+        PW_RESULT_DATA="$(jq -c '.' <<< "$stdout_json")"
+      elif jq -e '.isError == true' <<< "$stdout_json" >/dev/null 2>&1; then
+        pw_set_execution_error "$is_write" "$stdout_json" "$precondition_codes" "$failure_semantics"
+      else
+        PW_RESULT_STATUS="failed"
+        PW_RESULT_PHASE="verification"
+        PW_RESULT_CODE="SHAPE_MISMATCH"
+        PW_RESULT_MESSAGE="playwright-cli output does not match the snapshot shape"
+      fi
+      ;;
+    screenshot)
+      if jq -e 'type == "object" and (.isError != true) and has("result")' <<< "$stdout_json" >/dev/null 2>&1; then
+        PW_RESULT_STATUS="ok"
+        PW_RESULT_DATA="$(jq -c '.' <<< "$stdout_json")"
+      elif jq -e '.isError == true' <<< "$stdout_json" >/dev/null 2>&1; then
         pw_set_execution_error "$is_write" "$stdout_json" "$precondition_codes" "$failure_semantics"
       else
         PW_RESULT_STATUS="failed"
@@ -305,10 +281,10 @@ pw_set_execution_error() {
   local is_write="$1" stdout_json="$2" precondition_codes="$3" failure_semantics="$4"
   local fallback_code="${5:-CLI_ERROR}" fallback_message="${6:-playwright-cli reported an error}"
   local cli_code
-  cli_code="$(jq -r '.error.code // empty' <<< "$stdout_json" 2>/dev/null || true)"
+  cli_code="$(jq -r 'if (.error | type) == "object" then .error.code // empty else empty end' <<< "$stdout_json" 2>/dev/null || true)"
   [ -n "$cli_code" ] || cli_code="$fallback_code"
   local message
-  message="$(jq -r '.error.message // empty' <<< "$stdout_json" 2>/dev/null || true)"
+  message="$(jq -r 'if (.error | type) == "string" then .error elif (.error | type) == "object" then .error.message // empty else empty end' <<< "$stdout_json" 2>/dev/null || true)"
   [ -n "$message" ] || message="$fallback_message"
 
   local is_precondition="false"

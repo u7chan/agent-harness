@@ -7,7 +7,7 @@
     "upstream_repository": "https://github.com/microsoft/playwright-cli",
     "upstream_commit": "ca196c297169a494ee5517584883eada60dc8d0e",
     "npm_integrity": "sha512-ggNfYYH+GsZTGUiBEL8f6N5j0seYEUE52v+fIWqK/A36QG36cL0EJ79qWTXYO2uZMUU7vm+jk3x0fKCPL6UuIw==",
-    "help_fingerprint_sha256": "4e775c126f056b1b3dc5655af8b6c8df27eb209635b5934605326e8330209fa0",
+    "help_fingerprint_sha256": "47b2d3666147ab00babfe082d21acea729e187db82cf22e3e948de173cc81815",
     "help_fingerprint_commands": [
       "open", "list", "close", "goto", "go-back", "go-forward",
       "reload", "snapshot", "find", "tab-list", "tab-new", "tab-select",

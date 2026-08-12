@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.1.18",
+  "list_shape": {
+    "browsers": []
+  },
+  "help": {
+    "open": "playwright-cli open [url]\n\nOpen the browser\n\nArguments:\n  [url]                       the url to navigate to\nOptions:\n  --browser                   browser or chrome channel to use, possible values: chrome, firefox, webkit, msedge.\n  --config                    path to the configuration file, defaults to .playwright/cli.config.json\n  --device                    emulate a specific device, for example \"iphone 15\".\n  --headed                    run browser in headed mode\n  --mobile                    emulate a generic mobile device (pixel 10 for chromium, iphone 17 for webkit). mobile pages are usually lighter, which saves tokens.\n  --persistent                use persistent browser profile\n  --profile                   path to a persistent user data directory.",
+    "close": "playwright-cli close \n\nClose the browser\n",
+    "goto": "playwright-cli goto <url>\n\nNavigate to a URL\n\nArguments:\n  <url>                       the url to navigate to",
+    "click": "playwright-cli click <target> [button]\n\nPerform click on a web page\n\nArguments:\n  <target>                    exact target element reference from the page snapshot, or a unique element selector\n  [button]                    button to click, defaults to left\nOptions:\n  --modifiers                 modifier key to press (repeatable)",
+    "fill": "playwright-cli fill <target> <text>\n\nFill text into editable element\n\nArguments:\n  <target>                    exact target element reference from the page snapshot, or a unique element selector\n  <text>                      text to fill into the element\nOptions:\n  --submit                    whether to submit entered text (press enter after)",
+    "hover": "playwright-cli hover <target>\n\nHover over element on page\n\nArguments:\n  <target>                    exact target element reference from the page snapshot, or a unique element selector",
+    "select": "playwright-cli select <target> <val>\n\nSelect an option in a dropdown\n\nArguments:\n  <target>                    exact target element reference from the page snapshot, or a unique element selector\n  <val>                       value to select in the dropdown",
+    "check": "playwright-cli check <target>\n\nCheck a checkbox or radio button\n\nArguments:\n  <target>                    exact target element reference from the page snapshot, or a unique element selector",
+    "uncheck": "playwright-cli uncheck <target>\n\nUncheck a checkbox or radio button\n\nArguments:\n  <target>                    exact target element reference from the page snapshot, or a unique element selector",
+    "snapshot": "playwright-cli snapshot [target]\n\nCapture page snapshot to obtain element ref\n\nArguments:\n  [target]                    element reference from the previous page snapshot, or a unique element selector for the root element to capture a partial snapshot instead of the whole page\nOptions:\n  --filename                  save snapshot to markdown file instead of returning it in the response.\n  --depth                     limit snapshot depth, unlimited by default.\n  --boxes                     include each element's bounding box as [box=x,y,width,height] in the snapshot. coordinates are viewport-relative, in css pixels (element.getboundingclientrect).",
+    "find": "playwright-cli find [text]\n\nSearch the page snapshot for text or a regexp, returning matching nodes with surrounding context (like search snippets)\n\nArguments:\n  [text]                      plain text to search for in the page snapshot (case-insensitive substring match)\nOptions:\n  --regex                     regular expression to search for in the page snapshot. provide either a text argument or --regex, not both.",
+    "console": "playwright-cli console [min-level]\n\nList console messages\n\nArguments:\n  [min-level]                 level of the console messages to return. each level includes the messages of more severe levels. defaults to \"info\".\nOptions:\n  --clear                     whether to clear the console list",
+    "go-back": "playwright-cli go-back \n\nGo back to the previous page\n",
+    "go-forward": "playwright-cli go-forward \n\nGo forward to the next page\n",
+    "reload": "playwright-cli reload \n\nReload the current page\n",
+    "screenshot": "playwright-cli screenshot [target]\n\nscreenshot of the current page or element\n\nArguments:\n  [target]                    exact target element reference from the page snapshot, or a unique element selector\nOptions:\n  --filename                  file name to save the screenshot to. defaults to `page-{timestamp}.{png|jpeg|webp}` if not specified.\n  --type                      image format. if unset, inferred from the filename extension, otherwise png. (one of: png, jpeg, webp)\n  --full-page                 when true, takes a screenshot of the full scrollable page, instead of the currently visible viewport.\n  --hires                     when true, captures a high-resolution screenshot using device pixels (accounts for the device pixel ratio), instead of css pixels.",
+    "tab-list": "playwright-cli tab-list \n\nList all tabs\n",
+    "tab-new": "playwright-cli tab-new [url]\n\nCreate a new tab\n\nArguments:\n  [url]                       the url to navigate to in the new tab. if omitted, the new tab will be blank.",
+    "tab-close": "playwright-cli tab-close [index]\n\nClose a browser tab\n\nArguments:\n  [index]                     tab index. if omitted, current tab is closed.",
+    "tab-select": "playwright-cli tab-select <index>\n\nSelect a browser tab\n\nArguments:\n  <index>                     tab index",
+    "list": "playwright-cli list \n\nList browser sessions\n\nOptions:\n  --all                       list all browser sessions across all workspaces"
+  }
+}
