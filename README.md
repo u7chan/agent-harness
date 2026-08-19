@@ -3,6 +3,8 @@
 [![Bash](https://badgen.net/static/Shell/Bash/4EAA25)](https://www.gnu.org/software/bash/)
 [![GitHub CLI](https://badgen.net/static/GitHub%20CLI/gh/181717?icon=github)](https://cli.github.com/)
 [![jq](https://badgen.net/static/JSON/jq/0C7BDC)](https://jqlang.org/)
+[![Herdr](https://badgen.net/static/Agent%20Runtime/Herdr/4A9EFF)](https://herdr.dev/)
+[![Pi](https://badgen.net/static/Agent/Pi/6A9FCC)](https://pi.dev/)
 
 Minimal, reusable skills and constrained tool harnesses for coding agents.
 
