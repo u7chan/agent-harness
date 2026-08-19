@@ -4,6 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALIDATOR="$SCRIPT_DIR/../scripts/validate-review-payload.sh"
 FIXTURES="$SCRIPT_DIR/fixtures"
+REVIEW_SKILL="$SCRIPT_DIR/../SKILL.md"
+RECHECK_REFERENCE="$SCRIPT_DIR/../references/recheck.md"
+POSTING_REFERENCE="$SCRIPT_DIR/../references/posting-api.md"
+WORKFLOW_SKILL="$SCRIPT_DIR/../../pi-issue-pr-workflow/SKILL.md"
 TEST_TMP="$(mktemp -d /tmp/review-validator-XXXXXX)"
 trap 'rm -rf "$TEST_TMP"' EXIT
 
@@ -27,6 +31,46 @@ expect_invalid() {
   jq "$filter" "$source" > "$candidate"
   if "$VALIDATOR" "$action" "$candidate" >/dev/null 2>&1; then
     echo "FAIL: $name was accepted" >&2
+    exit 1
+  fi
+  pass_count=$((pass_count + 1))
+}
+
+expect_doc_contains() {
+  local name="$1"
+  local file="$2"
+  local text="$3"
+
+  if ! grep -Fq -- "$text" "$file"; then
+    echo "FAIL: $name is missing from $file" >&2
+    exit 1
+  fi
+  pass_count=$((pass_count + 1))
+}
+
+expect_doc_absent() {
+  local name="$1"
+  local file="$2"
+  local text="$3"
+
+  if grep -Fq -- "$text" "$file"; then
+    echo "FAIL: $name is still present in $file" >&2
+    exit 1
+  fi
+  pass_count=$((pass_count + 1))
+}
+
+expect_doc_order() {
+  local name="$1"
+  local file="$2"
+  local first="$3"
+  local second="$4"
+  local first_line second_line
+
+  first_line="$(awk -v needle="$first" 'index($0, needle) { print NR; exit }' "$file")"
+  second_line="$(awk -v needle="$second" 'index($0, needle) { print NR; exit }' "$file")"
+  if [ -z "$first_line" ] || [ -z "$second_line" ] || [ "$first_line" -ge "$second_line" ]; then
+    echo "FAIL: $name has the wrong order in $file" >&2
     exit 1
   fi
   pass_count=$((pass_count + 1))
@@ -93,4 +137,15 @@ expect_invalid invalid-recheck-label review-comments.reply \
   '.body = ("**Unresolved** (**Blocker (" + "Required)**): 失敗条件が残っています。")' \
   "$FIXTURES/recheck-unresolved.json"
 
-echo "PASS: $pass_count review payload validation cases"
+expect_doc_contains recheck-full-head "$RECHECK_REFERENCE" '## 最新 head のフルレビュー'
+expect_doc_contains recheck-unique-target "$RECHECK_REFERENCE" '(thread_id, root_comment_id, reviewer_login, recheck_reply_id)'
+expect_doc_contains recheck-keeps-nonresolved "$RECHECK_REFERENCE" '`Partial`、`Unresolved`、`Unknown`'
+expect_doc_contains recheck-rejects-unknown "$RECHECK_REFERENCE" '`unknown_outcome`'
+expect_doc_contains recheck-verifies-state "$RECHECK_REFERENCE" '`resolved=true`'
+expect_doc_order recheck-order "$RECHECK_REFERENCE" '### 3. 検証済み LGTM' '### 4. 個別 Resolve と再取得'
+expect_doc_contains skill-auto-resolve "$REVIEW_SKILL" '検証済み LGTM の後に自動 Resolve'
+expect_doc_contains posting-order "$POSTING_REFERENCE" '再チェック返信、最新 head のフルレビュー、最終 LGTM、スレッドの Resolve はこの順序'
+expect_doc_contains workflow-delegates-resolution "$WORKFLOW_SKILL" 'Conversation resolution is delegated to the Review skill.'
+expect_doc_absent workflow-old-confirmation "$WORKFLOW_SKILL" 'requires user confirmation before resolving them'
+
+echo "PASS: $pass_count review payload and recheck contract cases"

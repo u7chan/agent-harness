@@ -14,6 +14,13 @@ GitHub Action の入力、出力、`permission` は `gh/actions.json` を正本�
 - 再チェック返信は `review/scripts/validate-review-payload.sh review-comments.reply <payload-file>` で検査してから投稿する。
 - 投稿直前と投稿後の確認は、`SKILL.md` の安全条件に従う。
 
+## 再チェックの投稿と Resolve
+
+- 再チェック返信、最新 head のフルレビュー、最終 LGTM、スレッドの Resolve はこの順序で行う。LGTM の投稿と対象・本文・commit・レビュー状態の検証が終わるまで `review-threads.resolve` を呼ばない。
+- 自動 Resolve の対象は、同じ PR の `thread_id`、root の数値 `root_comment_id`、root と今回の返信の `reviewer_login`、今回新規に確認した `recheck_reply_id` が一致し、返信本文が `Resolved` の候補だけに限る。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は対象外である。
+- `review-comments.reply` が `status=ok` を返した場合だけ、返された ID を保存し、`review-comments.read` と `review-threads.read` で本文、投稿者、root への `in_reply_to_id`、thread の所属を再確認する。`already_applied`、`failed`、`unknown_outcome` は今回の自動 Resolve 対象を増やさない。
+- Resolve は一件ずつ行い、直後に同じ thread と root を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも再取得に失敗した場合や状態が不明な場合は成功として扱わない。
+
 ## API 固有の注意
 
 - インラインコメントの `position` はハンクをまたいで数える従来形式の差分位置であり、ハンクごとにリセットしない。

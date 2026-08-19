@@ -14,6 +14,8 @@
 
 未解決の Blocker がなければ、レビュー本文の先頭を `LGTM` にする。Nit、Consider、FYI は LGTM と併存できる。必須の確認事項を判断できない場合は投稿せず、ユーザーへ理由を報告する。
 
+再チェックの `Resolved` は指摘の分類であり、GitHub のスレッド状態そのものではない。再チェック合格の LGTM は最新 head 全体のレビュー後にだけ投稿し、スレッドの自動 Resolve は LGTM の投稿と検証が終わった後に [recheck.md](recheck.md) の対象へだけ行う。
+
 ### 指摘なし
 
 ```markdown

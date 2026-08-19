@@ -13,7 +13,7 @@ Pull Request またはローカル変更について、差分によって生じ�
 
 - PR の URL または番号が指定された場合は PR レビューモードとし、GitHub への投稿まで進める。
 - PR 指定がない場合はローカルレビューモードとし、GitHub へ投稿せずチャットで報告する。
-- 明示的に再チェックを依頼された場合は、以前の会話で自分が投稿した未解決の指摘だけを再検証する。
+- 明示的に再チェックを依頼された場合は、同じ PR の同じレビュースレッドで自分が投稿した未解決の root comment を再分類し、同時に最新 head 全体を通常どおりレビューする。
 - レビューの依頼だけではファイルを変更しない。修正依頼はレビューと分けて扱う。
 
 ## 安全条件
@@ -22,7 +22,9 @@ Pull Request またはローカル変更について、差分によって生じ�
 - PR の URL から特定した `owner/repo` を全アクションの `reference` に渡し、解決した対象が途中で変わっていないことを確認する。
 - 開始時の head コミットの SHA を記録する。投稿直前に `pr.read` で head の SHA とドラフト状態を再取得し、SHA が変わっていれば投稿せず報告する。
 - `reviews.create` には固定した SHA を `commit_id` として渡す。レビューイベントには `COMMENT` だけを使う。
-- マージ、Issue のクローズ、`APPROVE` レビューは行わない。スレッドの Resolve はユーザーの確認後だけ行う。
+- マージ、Issue のクローズ、`APPROVE` レビューは行わない。通常のレビューではスレッドを Resolve せず、再チェックで [recheck.md](references/recheck.md) が定める対象だけを、検証済み LGTM の後に自動 Resolve する。
+- 再チェックの自動 Resolve 対象は、同じ PR の `thread_id`、root comment の `root_comment_id`、root と返信の `reviewer_login`、今回の再チェックで新規に確認した `recheck_reply_id`（分類が `Resolved`）の組で一意に特定する。他者の root、ユーザー判断待ちの会話、`Partial`、`Unresolved`、`Unknown` は対象にしない。
+- LGTM の投稿と本文・head の検証が成功する前に Resolve してはならない。Resolve ごとに対象と状態を再取得し、対応するスレッドが `resolved=true` であることを確認する。失敗、`unknown_outcome`、再取得失敗、対象不一致は成功として扱わず報告する。
 - 投稿後はレスポンスを再取得し、対象、本文、コメント位置、`commit_id` が意図どおりか確認する。
 
 ## 手順
