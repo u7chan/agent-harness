@@ -13,7 +13,7 @@ Load and follow the existing skills instead of duplicating their behavior:
 
 - [Herdr](../herdr/SKILL.md) for panes, Pi agent startup, asynchronous delegation, and result delivery.
 - [GH](../gh/SKILL.md) for every GitHub read and write.
-- [Review](../review/SKILL.md) for initial PR review and rechecks.
+- [Review](../review/SKILL.md) for full PR reviews.
 
 Those skills are authoritative for their safety and operation rules. Keep all agents in the current Herdr workspace and worktree. Do not add a workflow runtime, persistent state, or a static provider/model catalog.
 
@@ -35,11 +35,11 @@ The logical roles are `impl`, `review`, and `pr-fix`. Every physical agent is Pi
 
 - the exact provider ID;
 - the exact model ID under that provider in `pi --list-models`;
-- one supported thinking level: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`.
+- one thinking level supported by that exact model: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`.
 
 `pr-fix` may be assigned to the `impl` agent instead of a distinct agent. The `review` role must always use a distinct agent and must not edit the implementation.
 
-Validate every explicit provider/model pair against the live catalog. Do not silently choose a Pi default, maintain aliases, or infer an unavailable ID. Treat a partial, invalid, or ambiguous specification as unresolved.
+Use `pi --list-models` to validate every explicit provider/model pair, but do not treat its thinking yes/no column as level validation. Resolve the model through Pi's installed runtime metadata and use its `thinkingLevelMap` semantics, which are the same model-specific supported-level and clamping logic used by Pi, to verify that the requested thinking level is supported and remains unchanged as the effective level. Do not silently choose a Pi default, accept a clamped level, maintain aliases, or infer an unavailable ID. Treat a partial, invalid, ambiguous, unsupported, or clamped specification as unresolved.
 
 ## Kickoff gate
 
@@ -70,7 +70,8 @@ After the team is settled:
      --provider <provider> --model <model> --thinking <thinking>
    ```
 
-5. Apply responsibility-based agent names and pane labels, and verify every agent before sending work.
+5. Apply responsibility-based agent names and pane labels.
+6. Inspect each started Pi pane's runtime status and verify that its effective provider, model, and thinking level exactly match the approved specification before sending work. If any value differs or cannot be verified, stop.
 
 Start both agents for a shared `impl`/`pr-fix` team, or all three agents when `pr-fix` is separate. If any startup result is failed or unknown, do not start implementation and do not automatically close the panes that were created. Report the observed state.
 
@@ -82,6 +83,8 @@ Use the Herdr skill's asynchronous parent-to-child wrapper for each task. Includ
 
 Each role must return `completed` or `blocked` through the direct-parent result helper. Its report must identify the work performed, verification, relevant commit or PR, and any unresolved condition. A submitted prompt is not proof of completion; inspect agent state and output before advancing.
 
+`completed` requires every verification mandated by the Issue and repository instructions to have run and succeeded. A failed, skipped, or unavailable required check must return `blocked` with its command and result; never advance merely because verification finished.
+
 Track the Issue, team assignments and pane IDs, base and work branches, current phase, PR, reviewed head, review round, and unresolved Blockers only in the current conversation. Do not write workflow state to disk.
 
 ### Implementation
@@ -90,12 +93,12 @@ Ask `impl` to:
 
 1. read the Issue and comments;
 2. implement only the Issue scope and follow repository instructions;
-3. run the relevant tests, checks, formatting, and linting;
+3. run and pass every required test, check, formatter, and linter;
 4. commit and push the work branch;
 5. use the GH skill to create a Draft PR with the required repository-specific description;
 6. return the commit, verification results, and PR number and URL.
 
-Do not advance without a confirmed push and Draft PR. Do not treat an unknown Git or GitHub result as success or blindly repeat it.
+Do not advance without successful required verification, a confirmed push, and a Draft PR. If required verification fails or cannot run, require `blocked` and stop before treating the implementation as complete. Do not treat an unknown Git or GitHub result as success or blindly repeat it.
 
 ### Initial review
 
@@ -111,19 +114,21 @@ Ask the fixer to:
 
 1. read the current PR feedback through the GH skill;
 2. address the reported Blockers without expanding scope;
-3. run relevant verification;
+3. rerun and pass every required verification for the updated head;
 4. commit and push the fix;
 5. reply to the relevant review comments when required by repository instructions;
 6. return the commit, verification, replies, and unresolved feedback.
 
-The fixer must not resolve review conversations.
+The fixer must return `blocked` when required verification fails or cannot run. It must not resolve review conversations.
 
-### Recheck loop
+### Review loop
 
-After a confirmed fix push, ask the same `review` agent to use the Review skill's recheck mode. Count the initial review as Round 1 and allow at most three review rounds in total.
+After a confirmed fix push, ask the same `review` agent to perform a fresh review of the current head using the Review skill's normal PR mode. Explicitly do not use recheck mode as the only post-fix review: it is limited to previously reported threads and cannot detect a regression introduced by the fix. Include prior Blockers as context, but require the full current diff and affected code to be reviewed again.
 
-- If the Review skill posts LGTM with no Blocker, complete the workflow.
-- If a Blocker remains before Round 3, repeat fix then recheck.
+Count the initial full review as Round 1 and allow at most three full review rounds in total.
+
+- If the latest full review of the current head posts LGTM with no Blocker, complete the workflow.
+- If a Blocker remains before Round 3, repeat fix then full review.
 - If a Blocker remains after Round 3, stop and report the remaining failure condition and evidence.
 - If any agent returns `blocked`, stop the phase and request the needed decision or input.
 
@@ -134,9 +139,9 @@ Do not introduce a separate retry, queue, or state machine around Herdr or GitHu
 Complete only when all of the following are confirmed:
 
 - the Issue implementation is pushed to the PR head;
-- required verification has completed;
+- every required verification has succeeded on the current PR head;
 - the PR exists and remains Draft;
-- the current PR head matches the commit covered by the latest LGTM review, with no Blocker;
+- the current PR head matches the commit covered by the latest full PR-mode LGTM review, with no Blocker;
 - no required review fix remains unaddressed.
 
 Conversation threads may remain open because the Review skill requires user confirmation before resolving them. Do not automatically mark the PR ready, resolve conversations, close panes, merge the PR, or close the Issue.
