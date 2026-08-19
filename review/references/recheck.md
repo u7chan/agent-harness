@@ -28,7 +28,7 @@
 
 - 対象候補の分類返信を終えた後、`pr.read` で head SHA を再確認し、その SHA の差分、影響範囲、関連テストを初回レビューと同じ深さでレビューする。再チェック中に新しく見つけた論点や fix が導入した回帰を対象外にしない。
 - 既存 Blocker がすべて `Resolved` と確認でき、かつ最新 head のフルレビューで新しい Blocker がない場合だけ、最新 head に固定した `reviews.create` の `COMMENT` レビューで `LGTM` を投稿する。`Partial`、`Unresolved`、`Unknown` の既存 Blocker、フルレビューで判断できない Blocker、または新しい Blocker が一つでもあれば LGTM を投稿しない。
-- LGTM の投稿前に payload を検証し、投稿後に対象、本文、head SHA、レビュー状態を再取得して検証する。LGTM の投稿または検証が失敗・不明な場合は、Resolve を開始せず、LGTM として報告しない。
+- LGTM の投稿前に payload を検証し、投稿後に対象、本文、head SHA、レビュー状態を再取得して検証する。検証済み LGTM の `commit_id` を `lgtm_commit_id` として保持し、投稿後の `pr.read` で `head.sha == lgtm_commit_id` も確認する。LGTM の投稿または検証が失敗・不明な場合は、Resolve を開始せず、LGTM として報告しない。
 
 ## 安全な投稿・Resolve 順序
 
@@ -48,10 +48,11 @@ Blocker がないことを確認した後でだけ、固定した最新 head に
 
 対象集合を一件ずつ処理する。各件で次を行う。
 
-1. `review-threads.read` と `review-comments.read` を再実行し、対象の PR、`thread_id`、`root_comment_id`、root の `reviewer_login`、今回の `recheck_reply_id`、返信本文の `Resolved` 分類が変わっていないことを確認する。ユーザー判断待ち、他者の root、返信の欠落、対象不一致なら Resolve しない。
-2. 対象がまだ未解決なら `review-threads.resolve` を実行する。すでに解決済みなら、外部で変更された可能性として状態を検証し、対象集合との一致を確認する。
-3. Resolve の直後に同じ対象を再取得し、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
-4. `failed`、`unknown_outcome`、再取得失敗、状態不一致は成功として扱わず、その thread を未解決または不明として報告する。別の thread の成功で置き換えたり、結果不明のまま再試行したりしない。
+1. `pr.read` を Resolve の直前に実行し、対象の PR が同じで、現在の `head.sha` が検証済み LGTM の `lgtm_commit_id` と一致することを確認する。head が変化した、取得に失敗した、または一致を確認できない場合は Resolve せず、その時点で不明または未解決として報告する。
+2. `review-threads.read` と `review-comments.read` を再実行し、対象の PR、`thread_id`、`root_comment_id`、root の `reviewer_login`、今回の `recheck_reply_id`、返信本文の `Resolved` 分類が変わっていないことを確認する。ユーザー判断待ち、他者の root、返信の欠落、対象不一致なら Resolve しない。
+3. 対象がまだ未解決なら `review-threads.resolve` を実行する。すでに解決済みなら、外部で変更された可能性として状態を検証し、対象集合との一致を確認する。
+4. Resolve の直後に同じ対象を再取得し、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
+5. `failed`、`unknown_outcome`、head の取得失敗・変化、再取得失敗、状態不一致は成功として扱わず、その thread を未解決または不明として報告する。別の thread の成功で置き換えたり、結果不明のまま再試行したりしない。
 
 この順序により、LGTM のない Resolve、単なる push を根拠にした Resolve、対象を取り違えた Resolve を防ぐ。対象集合に入らないすべてのスレッドは、`Partial`、`Unresolved`、`Unknown`、他者の投稿、ユーザー判断待ちを含め、未解決のまま保持する。
 

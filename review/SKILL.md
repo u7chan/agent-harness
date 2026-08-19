@@ -24,7 +24,7 @@ Pull Request またはローカル変更について、差分によって生じ�
 - `reviews.create` には固定した SHA を `commit_id` として渡す。レビューイベントには `COMMENT` だけを使う。
 - マージ、Issue のクローズ、`APPROVE` レビューは行わない。通常のレビューではスレッドを Resolve せず、再チェックで [recheck.md](references/recheck.md) が定める対象だけを、検証済み LGTM の後に自動 Resolve する。
 - 再チェックの自動 Resolve 対象は、同じ PR の `thread_id`、root comment の `root_comment_id`、root と返信の `reviewer_login`、今回の再チェックで新規に確認した `recheck_reply_id`（分類が `Resolved`）の組で一意に特定する。他者の root、ユーザー判断待ちの会話、`Partial`、`Unresolved`、`Unknown` は対象にしない。
-- LGTM の投稿と本文・head の検証が成功する前に Resolve してはならない。Resolve ごとに対象と状態を再取得し、対応するスレッドが `resolved=true` であることを確認する。失敗、`unknown_outcome`、再取得失敗、対象不一致は成功として扱わず報告する。
+- LGTM の投稿と本文・head の検証が成功する前に Resolve してはならない。各 Resolve の直前に `pr.read` で現在の `head.sha` が検証済み LGTM の固定 `commit_id` と一致することも確認し、Resolve ごとに対象と状態を再取得して対応するスレッドが `resolved=true` であることを確認する。head の変化、失敗、`unknown_outcome`、再取得失敗、対象不一致は Resolve せず、成功として扱わず報告する。
 - 投稿後はレスポンスを再取得し、対象、本文、コメント位置、`commit_id` が意図どおりか確認する。
 
 ## 手順

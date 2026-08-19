@@ -123,7 +123,7 @@ The fixer must return `blocked` when required verification fails or cannot run. 
 
 ### Review loop
 
-After a confirmed fix push, ask the same `review` agent to perform a fresh review of the current head using the Review skill's normal PR mode. If the agent also rechecks prior findings, the Review skill's recheck procedure still requires a full latest-head review; recheck replies alone are never sufficient to detect regressions or establish LGTM. Include prior Blockers as context, but require the full current diff and affected code to be reviewed again.
+After a confirmed fix push, ask the same `review` agent explicitly to recheck all prior unresolved findings and, in that same task, perform a full review of the latest head using the Review skill's recheck procedure. Do not request only normal PR mode or make the recheck optional: the delegation must require both reclassification of the prior root comments and review of the full current diff and affected code for regressions. Recheck replies alone are never sufficient to establish LGTM.
 
 Count the initial full review as Round 1 and allow at most three full review rounds in total.
 

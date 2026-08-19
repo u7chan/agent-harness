@@ -19,6 +19,7 @@ GitHub Action の入力、出力、`permission` は `gh/actions.json` を正本�
 - 再チェック返信、最新 head のフルレビュー、最終 LGTM、スレッドの Resolve はこの順序で行う。LGTM の投稿と対象・本文・commit・レビュー状態の検証が終わるまで `review-threads.resolve` を呼ばない。
 - 自動 Resolve の対象は、同じ PR の `thread_id`、root の数値 `root_comment_id`、root と今回の返信の `reviewer_login`、今回新規に確認した `recheck_reply_id` が一致し、返信本文が `Resolved` の候補だけに限る。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は対象外である。
 - `review-comments.reply` が `status=ok` を返した場合だけ、返された ID を保存し、`review-comments.read` と `review-threads.read` で本文、投稿者、root への `in_reply_to_id`、thread の所属を再確認する。`already_applied`、`failed`、`unknown_outcome` は今回の自動 Resolve 対象を増やさない。
+- 検証済み LGTM の `commit_id` を `lgtm_commit_id` として保持し、各 `review-threads.resolve` の直前に `pr.read` の現在の `head.sha == lgtm_commit_id` を確認する。head が変化した場合や取得結果が失敗・不明な場合は Resolve せず、未解決または不明として報告する。
 - Resolve は一件ずつ行い、直後に同じ thread と root を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも再取得に失敗した場合や状態が不明な場合は成功として扱わない。
 
 ## API 固有の注意
