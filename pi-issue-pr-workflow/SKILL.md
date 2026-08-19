@@ -13,7 +13,7 @@ Load and follow the existing skills instead of duplicating their behavior:
 
 - [Herdr](../herdr/SKILL.md) for panes, Pi agent startup, asynchronous delegation, and result delivery.
 - [GH](../gh/SKILL.md) for every GitHub read and write.
-- [Review](../review/SKILL.md) for full PR reviews.
+- [Review](../review/SKILL.md) for full PR reviews, rechecks, and the conversation-resolution policy.
 
 Those skills are authoritative for their safety and operation rules. Keep all agents in the current Herdr workspace and worktree. Do not add a workflow runtime, persistent state, or a static provider/model catalog.
 
@@ -123,7 +123,7 @@ The fixer must return `blocked` when required verification fails or cannot run. 
 
 ### Review loop
 
-After a confirmed fix push, ask the same `review` agent to perform a fresh review of the current head using the Review skill's normal PR mode. Explicitly do not use recheck mode as the only post-fix review: it is limited to previously reported threads and cannot detect a regression introduced by the fix. Include prior Blockers as context, but require the full current diff and affected code to be reviewed again.
+After a confirmed fix push, ask the same `review` agent explicitly to recheck all prior unresolved findings and, in that same task, perform a full review of the latest head using the Review skill's recheck procedure. Do not request only normal PR mode or make the recheck optional: the delegation must require both reclassification of the prior root comments and review of the full current diff and affected code for regressions. Recheck replies alone are never sufficient to establish LGTM.
 
 Count the initial full review as Round 1 and allow at most three full review rounds in total.
 
@@ -141,9 +141,9 @@ Complete only when all of the following are confirmed:
 - the Issue implementation is pushed to the PR head;
 - every required verification has succeeded on the current PR head;
 - the PR exists and remains Draft;
-- the current PR head matches the commit covered by the latest full PR-mode LGTM review, with no Blocker;
+- the current PR head matches the commit covered by the latest full Review-skill LGTM review (including a recheck's full latest-head review), with no Blocker;
 - no required review fix remains unaddressed.
 
-Conversation threads may remain open because the Review skill requires user confirmation before resolving them. Do not automatically mark the PR ready, resolve conversations, close panes, merge the PR, or close the Issue.
+Conversation resolution is delegated to the Review skill. The orchestrator and `pr-fix` agent must not resolve conversations; only the Review skill's verified recheck may auto-resolve a thread uniquely tied to the same reviewer's root comment and this recheck's `Resolved` classification, after verified LGTM. `Partial`, `Unresolved`, `Unknown`, other authors' threads, and user-decision discussions remain open. Do not automatically mark the PR ready, close panes, merge the PR, or close the Issue.
 
 Report the Issue, base and work branches, Draft PR, latest commit, verification, review round count, unresolved optional feedback or conversations, and every created pane's role and observed state. Leave the panes available for inspection unless the user explicitly requests cleanup.
