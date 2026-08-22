@@ -106,6 +106,18 @@ main() {
       envelope_fail "review-threads.read" "API_ERROR" "GraphQL reviewThreads nodes are incomplete" false
       exit 1
     fi
+    if ! echo "$page_result" | jq -e '
+      .data.repository.pullRequest.reviewThreads.nodes
+      | all(.[];
+          (.comments | type == "object") and
+          (.comments.nodes | type == "array") and
+          (.comments.pageInfo | type == "object") and
+          (.comments.pageInfo.hasNextPage | type == "boolean"))
+    ' >/dev/null 2>&1; then
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL thread comments pagination is incomplete" false
+      exit 1
+    fi
 
     local page_threads
     page_threads="$(echo "$page_result" | jq -c '[.data.repository.pullRequest.reviewThreads.nodes[]? | {
@@ -128,7 +140,11 @@ main() {
         last_edited_at: (.lastEditedAt // null)
       }],
       comments_pageInfo: .comments.pageInfo
-    }]' 2>/dev/null)" || page_threads="[]"
+    }]' 2>/dev/null)" || {
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to normalize review thread comments" false
+      exit 1
+    }
 
     local merged
     merged="$(echo "$page_threads" | jq -c --slurpfile old "$threads_tmp" '$old[0] + .')"
@@ -188,6 +204,11 @@ main() {
       envelope_fail "review-threads.read" "API_ERROR" "GraphQL comment pageInfo is incomplete" false
       exit 1
     fi
+    if ! echo "$cresult" | jq -e '.data.node.comments.nodes | type == "array"' >/dev/null 2>&1; then
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL comment nodes are incomplete" false
+      exit 1
+    fi
 
     local new_comments
     new_comments="$(echo "$cresult" | jq -c '[.data.node.comments.nodes[]? | {
@@ -205,10 +226,18 @@ main() {
       created_at: (.createdAt // ""),
       updated_at: (.updatedAt // ""),
       last_edited_at: (.lastEditedAt // null)
-    }]' 2>/dev/null)" || new_comments="[]"
+    }]' 2>/dev/null)" || {
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to normalize paginated review comments" false
+      exit 1
+    }
 
     local new_page_info
-    new_page_info="$(echo "$cresult" | jq -c '.data.node.comments.pageInfo // {hasNextPage: false, endCursor: null}' 2>/dev/null)" || new_page_info='{"hasNextPage":false,"endCursor":null}'
+    new_page_info="$(echo "$cresult" | jq -c '.data.node.comments.pageInfo' 2>/dev/null)" || {
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to read paginated review comment pageInfo" false
+      exit 1
+    }
 
     threads_json="$(echo "$threads_json" | jq -c --arg tid "$tid" --argjson nc "$new_comments" --argjson npi "$new_page_info" '
       map(if .thread_id == $tid then
@@ -239,7 +268,10 @@ main() {
       last_edited_at: .last_edited_at,
       author_association: .author_association
     }]
-  }]' 2>/dev/null)" || formatted_threads="[]"
+  }]' 2>/dev/null)" || {
+    envelope_fail "review-threads.read" "API_ERROR" "Failed to format review threads" false
+    exit 1
+  }
 
   if [ -n "$thread_id" ]; then
     local filtered
