@@ -1998,7 +1998,14 @@
                   },
                   "created_at": "string",
                   "updated_at": "string",
-                  "author_association": "string"
+                  "author_association": "string",
+                  "last_edited_at": "string",
+                  "node_id": "string",
+                  "position": "integer",
+                  "side": "string",
+                  "start_line": "integer",
+                  "start_side": "string",
+                  "pull_request_url": "string"
                 }
               }
             },
@@ -2017,7 +2024,14 @@
                 },
                 "created_at": "string",
                 "updated_at": "string",
-                "author_association": "string"
+                "author_association": "string",
+                "last_edited_at": "string",
+                "node_id": "string",
+                "position": "integer",
+                "side": "string",
+                "start_line": "integer",
+                "start_side": "string",
+                "pull_request_url": "string"
               }
             }
           }
@@ -2100,7 +2114,7 @@
     },
     {
       "name": "review-comments.reply",
-      "description": "Reply to a review comment (resolves root comment and creates native thread reply)",
+      "description": "Reply to a review comment with operation-scoped transport idempotency and post-write verification",
       "category": "review-comment",
       "permission": "write",
       "requires_auth": true,
@@ -2125,6 +2139,21 @@
           "required": true,
           "description": "Reply body in Markdown"
         },
+        "plan_fingerprint": {
+          "type": "string",
+          "required": true,
+          "description": "Fingerprint of the caller's recheck plan snapshot"
+        },
+        "baseline_comment_ids": {
+          "type": "array",
+          "required": true,
+          "description": "All REST review comment IDs in the operation baseline"
+        },
+        "baseline_comments": {
+          "type": "array",
+          "required": false,
+          "description": "Optional normalized baseline comments for edit detection"
+        },
         "grant": {
           "type": "string",
           "required": true,
@@ -2147,7 +2176,11 @@
             },
             "created_at": "string",
             "updated_at": "string",
-            "author_association": "string"
+            "author_association": "string",
+            "last_edited_at": "string",
+            "transport_outcome": "string",
+            "operation_scoped": "boolean",
+            "position": "integer"
           }
         }
       }
@@ -2457,12 +2490,16 @@
                         },
                         "created_at": "string",
                         "updated_at": "string",
-                        "author_association": "string"
+                        "author_association": "string",
+                        "last_edited_at": "string"
                       }
                     }
                   }
                 }
               }
+            },
+            "pagination": {
+              "type": "object"
             }
           }
         }
@@ -2470,7 +2507,7 @@
     },
     {
       "name": "review-threads.resolve",
-      "description": "Resolve a review comment thread via GraphQL resolveReviewThread mutation",
+      "description": "Resolve a review comment thread after caller-verified preconditions and post-write verification",
       "category": "review-thread",
       "permission": "sensitive-write",
       "requires_auth": true,
@@ -2491,7 +2528,8 @@
           "type": "object",
           "properties": {
             "thread_id": "string",
-            "resolved": "boolean"
+            "resolved": "boolean",
+            "outcome": "string"
           }
         }
       }

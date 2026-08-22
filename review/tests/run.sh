@@ -8,6 +8,7 @@ REVIEW_SKILL="$SCRIPT_DIR/../SKILL.md"
 RECHECK_REFERENCE="$SCRIPT_DIR/../references/recheck.md"
 POSTING_REFERENCE="$SCRIPT_DIR/../references/posting-api.md"
 WORKFLOW_SKILL="$SCRIPT_DIR/../../pi-issue-pr-workflow/SKILL.md"
+RECHECK_STATE_TEST="$SCRIPT_DIR/recheck-state-tests.sh"
 TEST_TMP="$(mktemp -d /tmp/review-validator-XXXXXX)"
 trap 'rm -rf "$TEST_TMP"' EXIT
 
@@ -88,6 +89,12 @@ jq '.body = "**Unknown**: 実行時条件を確認できないため判定でき
   "$FIXTURES/recheck-resolved.json" > "$TEST_TMP/recheck-unknown.json"
 expect_valid review-comments.reply "$TEST_TMP/recheck-unknown.json"
 
+if ! "$RECHECK_STATE_TEST" >/dev/null; then
+  echo "FAIL: recheck state helper executable tests" >&2
+  exit 1
+fi
+pass_count=$((pass_count + 1))
+
 expect_invalid label-supplement reviews.create \
   '.comments[0].body = ("**Nit (" + "Optional)**: 表記が揺れています。")' \
   "$FIXTURES/nit-only.json"
@@ -138,12 +145,15 @@ expect_invalid invalid-recheck-label review-comments.reply \
   "$FIXTURES/recheck-unresolved.json"
 
 expect_doc_contains recheck-full-head "$RECHECK_REFERENCE" '## 最新 head のフルレビュー'
-expect_doc_contains recheck-unique-target "$RECHECK_REFERENCE" '(thread_id, root_comment_id, reviewer_login, recheck_reply_id)'
+expect_doc_contains recheck-unique-target "$RECHECK_REFERENCE" '(thread_id, root_comment_id, reviewer_login, classification_reply_id)'
 expect_doc_contains recheck-keeps-nonresolved "$RECHECK_REFERENCE" '`Partial`、`Unresolved`、`Unknown`'
 expect_doc_contains recheck-rejects-unknown "$RECHECK_REFERENCE" '`unknown_outcome`'
 expect_doc_contains recheck-verifies-state "$RECHECK_REFERENCE" '`resolved=true`'
 expect_doc_contains recheck-verifies-lgtm-head "$RECHECK_REFERENCE" '`head.sha == lgtm_commit_id`'
 expect_doc_contains recheck-reports-head-change "$RECHECK_REFERENCE" 'head が変化した、取得に失敗した'
+expect_doc_contains recheck-helper-contract "$RECHECK_REFERENCE" 'recheck-state.py'
+expect_doc_contains recheck-operation-dedup "$POSTING_REFERENCE" 'baseline_comment_ids'
+expect_doc_contains recheck-verified-outcomes "$RECHECK_REFERENCE" '`already_applied_reply_verified`'
 expect_doc_order recheck-order "$RECHECK_REFERENCE" '### 3. 検証済み LGTM' '### 4. 個別 Resolve と再取得'
 expect_doc_contains skill-auto-resolve "$REVIEW_SKILL" '検証済み LGTM の後に自動 Resolve'
 expect_doc_contains skill-verifies-lgtm-head "$REVIEW_SKILL" '現在の `head.sha` が検証済み LGTM の固定 `commit_id` と一致'

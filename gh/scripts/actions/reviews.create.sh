@@ -93,6 +93,15 @@ main() {
     exit 1
   fi
 
+  if [ "$event" = "COMMENT" ] && [ "$verified_state" != "COMMENTED" ]; then
+    envelope_unknown_outcome "reviews.create" "$pr_target" "$verified"
+    exit 1
+  fi
+  if [ "$event" = "PENDING" ] && [ "$verified_state" != "PENDING" ]; then
+    envelope_unknown_outcome "reviews.create" "$pr_target" "$verified"
+    exit 1
+  fi
+
   if [ -n "$commit_id" ]; then
     local res_commit_id
     res_commit_id="$(echo "$_res" | jq -r '.commit_id // ""')"

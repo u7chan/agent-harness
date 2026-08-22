@@ -69,6 +69,12 @@ call_gh_api_paginated() {
       return 1
     }
 
+    if ! echo "$page_result" | jq -e 'type == "array"' >/dev/null 2>&1; then
+      rm -f "$tmpfile"
+      echo "Paginated endpoint returned a non-array response" >&2
+      return 1
+    fi
+
     local raw_count
     raw_count="$(echo "$page_result" | jq 'length')"
 
