@@ -7,6 +7,20 @@ source "$SCRIPT_DIR/../common/target.sh"
 source "$SCRIPT_DIR/../common/http.sh"
 source "$SCRIPT_DIR/../common/file.sh"
 
+call_graphql() {
+  local query="$1"
+  shift
+  local result exit_code=0
+  result="$(gh api graphql -f query="$query" "$@" 2>/dev/null)" || exit_code=$?
+  if [ "$exit_code" -ne 0 ]; then
+    return 1
+  fi
+  if ! echo "$result" | jq -e '(.errors // []) | length == 0' >/dev/null 2>&1; then
+    return 1
+  fi
+  printf '%s\n' "$result"
+}
+
 operation_target() {
   local owner_repo="$1"
   local pr_number="$2"
@@ -72,8 +86,7 @@ normalize_comment() {
     line: (.line // null),
     commit_id: (.commit_id // null),
     created_at: (.created_at // null),
-    updated_at: (.updated_at // null),
-    last_edited_at: (.last_edited_at // null)
+    updated_at: (.updated_at // null)
   }] | sort_by(.id)'
 }
 
@@ -108,10 +121,12 @@ ids_and_delta() {
 main() {
   local request_file="$1"
 
-  local number reference reply_to plan_fingerprint baseline_ids baseline_comments_present request_body_file
+  local number reference reply_to thread_id baseline_thread_resolved plan_fingerprint baseline_ids baseline_comments_present request_body_file
   number="$(jq -r '.number' "$request_file")"
   reference="$(jq -r '.reference // empty' "$request_file")"
   reply_to="$(jq -r '.reply_to' "$request_file")"
+  thread_id="$(jq -r '.thread_id // empty' "$request_file")"
+  baseline_thread_resolved="$(jq -c 'if has("baseline_thread_resolved") then .baseline_thread_resolved else null end' "$request_file")"
   request_body_file="$(gh_make_temp "request-body")"
   jq -j '.body' "$request_file" > "$request_body_file"
   plan_fingerprint="$(jq -r '.plan_fingerprint // empty' "$request_file")"
@@ -123,6 +138,10 @@ main() {
   fi
   if [ -z "$baseline_ids" ] || ! valid_baseline_ids "$baseline_ids"; then
     envelope_fail "review-comments.reply" "INVALID_OPERATION_BASELINE" "baseline_comment_ids must contain unique positive integer IDs" false
+    exit 1
+  fi
+  if [ -z "$thread_id" ] || [ "$baseline_thread_resolved" != "true" ] && [ "$baseline_thread_resolved" != "false" ]; then
+    envelope_fail "review-comments.reply" "INVALID_OPERATION_BASELINE" "thread_id and boolean baseline_thread_resolved are required" false
     exit 1
   fi
   baseline_comments_present="$(jq -r 'has("baseline_comments")' "$request_file")"
@@ -209,17 +228,18 @@ main() {
   done
   gh_cleanup "$visited_file"
 
-  local root_pull_request_url root_id root_path root_commit_id
+  local root_pull_request_url root_id root_node_id root_path root_commit_id
   root_pull_request_url="$(echo "$root" | jq -r '.pull_request_url // ""')"
   root_id="$(echo "$root" | jq -r '.id')"
+  root_node_id="$(echo "$root" | jq -r '.node_id // empty')"
   root_path="$(echo "$root" | jq -r '.path // empty')"
   root_commit_id="$(echo "$root" | jq -r '.commit_id // empty')"
   if [ "$root_pull_request_url" != "$parent_api_url" ]; then
     envelope_fail "review-comments.reply" "REPLY_MISMATCH" "Root comment belongs to $root_pull_request_url, not $parent_api_url" false
     exit 1
   fi
-  if [ -z "$root_path" ] || [ -z "$root_commit_id" ]; then
-    envelope_fail "review-comments.reply" "API_ERROR" "Root comment has no path or commit_id to inherit" false
+  if [ -z "$root_node_id" ] || [ -z "$root_path" ] || [ -z "$root_commit_id" ]; then
+    envelope_fail "review-comments.reply" "API_ERROR" "Root comment has no node_id, path, or commit_id to inherit" false
     exit 1
   fi
 
@@ -276,6 +296,39 @@ main() {
     adopted_target="$(operation_target "$owner_repo" "$pr_number" "$adopted_id" "$adopted_url")"
     envelope_already_applied "review-comments.reply" "$adopted_target" "$(format_comment "$adopted" "already_applied")"
     exit 0
+  fi
+
+  # Re-read the GraphQL thread immediately before constructing the POST.  The
+  # REST comment collection cannot represent resolved state, so matching
+  # comment IDs alone is insufficient: an external Resolve after planning
+  # must stop this operation before it creates a classification reply.
+  local thread_query thread_state
+  thread_query='query($threadId: ID!) { node(id: $threadId) { ... on PullRequestReviewThread { id isResolved pullRequest { url repository { nameWithOwner } } comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id databaseId } } } } }'
+  thread_state="$(call_graphql "$thread_query" -F threadId="$thread_id" 2>/dev/null)" || {
+    envelope_fail "review-comments.reply" "API_ERROR" "Failed to fetch root review thread state" false
+    exit 1
+  }
+  if ! echo "$thread_state" | jq -e \
+    --arg thread_id "$thread_id" \
+    --arg parent_api_url "$parent_api_url" \
+    --arg owner_repo "$owner_repo" \
+    --arg root_node_id "$root_node_id" \
+    --argjson root_id "$root_id" \
+    --argjson baseline_resolved "$baseline_thread_resolved" '
+      .data.node != null and
+      .data.node.id == $thread_id and
+      .data.node.isResolved == $baseline_resolved and
+      .data.node.pullRequest.url == $parent_api_url and
+      .data.node.pullRequest.repository.nameWithOwner == $owner_repo and
+      (.data.node.comments.pageInfo | type == "object") and
+      (.data.node.comments.pageInfo.hasNextPage | type == "boolean") and
+      ([.data.node.comments.nodes[]? |
+        select(.id == $root_node_id and .databaseId == $root_id)] | length == 1)
+    ' >/dev/null 2>&1; then
+    precondition_changed "Root thread identity or baseline resolved state changed"
+  fi
+  if [ "$baseline_thread_resolved" != "false" ]; then
+    precondition_changed "Operation baseline thread is already resolved"
   fi
 
   local body_file

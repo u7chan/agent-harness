@@ -52,8 +52,31 @@ if len(args) > 1 and args[1] == "graphql":
     if os.environ.get("MOCK_GQL_MODE") != "1":
         output({"errors": [{"message": "graphql mode disabled"}]})
         sys.exit(0)
-    threads = state["gql_threads"]
+    threads = state.get("gql_threads", [])
     after = arg_value("after=", "null")
+    if "PullRequestReviewThread" in query and "comments(first: 100)" in query:
+        thread_id = arg_value("threadId=", "")
+        thread = next((t for t in threads if t["id"] == thread_id), None)
+        if thread is None:
+            output({"data": {"node": None}})
+            sys.exit(0)
+        comments = thread.get("comments", [])
+        is_resolved = thread["isResolved"]
+        if os.environ.get("MOCK_THREAD_RESOLVED") == "1":
+            is_resolved = True
+        output({"data": {"node": {
+            "id": thread["id"],
+            "isResolved": is_resolved,
+            "pullRequest": {
+                "url": "https://api.github.com/repos/u7chan/agent-harness/pulls/200",
+                "repository": {"nameWithOwner": "u7chan/agent-harness"},
+            },
+            "comments": {
+                "pageInfo": {"hasNextPage": len(comments) > 100, "endCursor": None},
+                "nodes": comments[:100],
+            },
+        }}})
+        sys.exit(0)
     if "reviewThreads(" in query:
         if after in (None, "null", ""):
             page = threads[:100]
@@ -119,6 +142,7 @@ if method == "POST" and endpoint.endswith("/comments"):
     comment_id = state.get("next_id", max([c["id"] for c in state.get("comments", [])], default=0) + 1)
     comment = {
         "id": comment_id,
+        "node_id": f"N{comment_id}",
         "body": request["body"],
         "html_url": f"https://github.com/u7chan/agent-harness/pull/200#discussion_r{comment_id}",
         "path": "review/SKILL.md",
@@ -181,6 +205,7 @@ setup_reply_fixture() {
   write_mock_gh
   export PATH="$FIXTURE_DIR/bin:$PATH"
   export GH_TEST_AUTH_RESULT=0
+  export MOCK_GQL_MODE=1
   export MOCK_GH_STATE="$FIXTURE_DIR/state.json"
   export MOCK_GH_CALLS="$FIXTURE_DIR/calls.log"
   : > "$MOCK_GH_CALLS"
@@ -194,6 +219,8 @@ reply_request() {
     number: 200,
     reply_to: 1,
     body: $body,
+    thread_id: "T1",
+    baseline_thread_resolved: false,
     plan_fingerprint: "fp-operation-1",
     baseline_comment_ids: $ids,
     grant: "write"
@@ -210,6 +237,7 @@ comments = []
 for i in range(1, 102):
     comments.append({
         "id": i,
+        "node_id": f"N{i}",
         "body": "root" if i == 1 else ("**Resolved**: old evidence" if i != 3 else "later actor reply"),
         "html_url": f"https://github.com/u7chan/agent-harness/pull/200#discussion_r{i}",
         "path": "review/SKILL.md", "position": 1, "line": 42,
@@ -220,7 +248,12 @@ for i in range(1, 102):
         "updated_at": "2026-08-22T00:00:00Z", "last_edited_at": None,
         "author_association": "OWNER",
     })
-json.dump({"comments": comments, "next_id": 102}, open(sys.argv[1], "w"))
+json.dump({
+    "comments": comments,
+    "next_id": 102,
+    "gql_threads": [{"id": "T1", "isResolved": False,
+                     "comments": [{"id": "N1", "databaseId": 1}]}],
+}, open(sys.argv[1], "w"))
 PY
   ids="$(seq 1 101 | jq -Rsc 'split("\n") | map(select(length > 0) | tonumber)')"
   request="$FIXTURE_DIR/request.json"
@@ -242,9 +275,9 @@ test_precondition_and_unknown_outcomes() (
   trap teardown_fixture EXIT
   cat > "$MOCK_GH_STATE" <<'JSON'
 {"next_id":3,"comments":[
- {"id":1,"body":"root","html_url":"https://github.com/u7chan/agent-harness/pull/200#discussion_r1","path":"review/SKILL.md","position":1,"line":42,"commit_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","in_reply_to_id":null,"pull_request_url":"https://api.github.com/repos/u7chan/agent-harness/pulls/200","user":{"login":"reviewer"},"created_at":"t","updated_at":"t","last_edited_at":null},
+ {"id":1,"node_id":"N1","body":"root","html_url":"https://github.com/u7chan/agent-harness/pull/200#discussion_r1","path":"review/SKILL.md","position":1,"line":42,"commit_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","in_reply_to_id":null,"pull_request_url":"https://api.github.com/repos/u7chan/agent-harness/pulls/200","user":{"login":"reviewer"},"created_at":"t","updated_at":"t","last_edited_at":null},
  {"id":2,"body":"external","html_url":"https://github.com/u7chan/agent-harness/pull/200#discussion_r2","path":"review/SKILL.md","position":1,"line":42,"commit_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","in_reply_to_id":1,"pull_request_url":"https://api.github.com/repos/u7chan/agent-harness/pulls/200","user":{"login":"other"},"created_at":"t","updated_at":"t","last_edited_at":null}
-]}
+],"gql_threads":[{"id":"T1","isResolved":false,"comments":[{"id":"N1","databaseId":1}]}]}
 JSON
   request="$FIXTURE_DIR/request.json"
   reply_request '[1]' > "$request"
@@ -276,6 +309,22 @@ JSON
   output="$(fixture_gh review-comments.reply "$request" 2>&1)" && return 1 || true
   assert_json_eq "$output" '.status' unknown_outcome || return 1
   [ "$(grep -c 'POST repos/u7chan/agent-harness/pulls/200/comments' "$MOCK_GH_CALLS")" = 2 ] || return 1
+)
+
+test_thread_state_precondition() (
+  setup_reply_fixture
+  trap teardown_fixture EXIT
+  cat > "$MOCK_GH_STATE" <<'JSON'
+{"next_id":2,"comments":[
+ {"id":1,"node_id":"N1","body":"root","html_url":"https://github.com/u7chan/agent-harness/pull/200#discussion_r1","path":"review/SKILL.md","position":1,"line":42,"commit_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","in_reply_to_id":null,"pull_request_url":"https://api.github.com/repos/u7chan/agent-harness/pulls/200","user":{"login":"reviewer"},"created_at":"t","updated_at":"t","last_edited_at":null}
+],"gql_threads":[{"id":"T1","isResolved":false,"comments":[{"id":"N1","databaseId":1}]}]}
+JSON
+  request="$FIXTURE_DIR/request.json"
+  reply_request '[1]' > "$request"
+  export MOCK_THREAD_RESOLVED=1
+  output="$(fixture_gh review-comments.reply "$request" 2>&1)" && return 1 || true
+  assert_json_eq "$output" '.error.code' PRECONDITION_CHANGED || return 1
+  [ "$(grep -c 'POST repos/u7chan/agent-harness/pulls/200/comments' "$MOCK_GH_CALLS" || true)" = 0 ] || return 1
 )
 
 test_threads_read_pagination() (
@@ -314,6 +363,7 @@ main() {
   echo "=== review action contract tests ==="
   run_test test_operation_scoped_dedup_and_pagination
   run_test test_precondition_and_unknown_outcomes
+  run_test test_thread_state_precondition
   run_test test_threads_read_pagination
   print_summary
 }

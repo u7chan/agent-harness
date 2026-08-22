@@ -7,10 +7,10 @@ Review skill は元 finding の再評価、分類理由、full review、LGTM 可
 helper の入力は次の操作を持つ JSON である。
 
 - `parse`: current output template の direct reply の strict header だけを `Resolved`、`Partial`、`Unresolved`、`Unknown` として認識する。
-- `reconcile`: REST comments と GraphQL threads/comments を、GraphQL connection の順序を保ったまま ID、actor、body、reply topology、edit metadata で一意に照合し、ordered fingerprint を返す。ID 欠落・重複、片 API の欠落、pagination incomplete、topology/body/edit metadata 不一致は `stop` になる。
+- `reconcile`: REST comments と GraphQL threads/comments を、GraphQL connection の順序を保ったまま ID、actor、body、reply topology、edit metadata で一意に照合し、ordered fingerprint を返す。ID 欠落・重複、片 API の欠落、pagination incomplete、topology/body/edit metadata 不一致は `stop` になる。REST にない edit history は比較せず、GraphQL `lastEditedAt` を fingerprint の正本にする。
 - `plan`: 現在 head で再評価した分類と tail を比較し、`post`、`reuse`、`stop` を返す。semantic reuse は自分の同じ root への direct `Resolved` tail だけに限定する。
 - `verify_reuse` / `verify_transport`: plan fingerprint と fresh fingerprint の一致、または `F0 -> expected reply 1件だけ -> F1` を検証し、`new_reply_verified`、`reused_reply_verified`、`already_applied_reply_verified`、`transport_already_applied`、`precondition_changed`、`failed`、`unknown_outcome` を区別する。
-- `resolve_eligibility` / `resolve_post`: head、検証済み LGTM、root/thread/reviewer/anchor、fingerprint、tail、未 Resolve 状態と、Resolve 後の `resolved=false -> true` 以外の差分がないことを判定する。
+- `resolve_eligibility` / `resolve_post`: head、検証済み LGTM、root/thread/reviewer/anchor、fingerprint、tail、未 Resolve 状態と、Resolve 後の `resolved=false -> true` 以外の差分がないことを判定する。Resolve Action の `already_applied` は state-only delta を検証しても常に `already_resolved_external` として分離する。
 
 各 record は実行中だけ次を保持し、ファイルや再起動後へ持ち越さない。
 
@@ -43,7 +43,7 @@ verified_fingerprint
 - **Unresolved**: 元の失敗条件または影響が残る。
 - **Unknown**: コード、実行条件、仕様、権限の情報が不足しているため判定できない。
 
-候補を一意に特定できた場合だけ、[output-templates.md](output-templates.md) の対応する返信を root comment への同じレビュースレッドに投稿する。`Resolved` の `reuse` は write せず、fresh snapshot で既存 tail anchor を `reused_reply_verified` として記録する。`post` の `status=ok` は expected delta を fresh REST/GraphQL snapshot で検証できた場合だけ `new_reply_verified` とする。`status=already_applied` は、同じ operation の expected delta を検証できた場合だけ `already_applied_reply_verified` として採用し、古い non-tail exact match は `transport_already_applied` のまま対象にしない。失敗、`unknown_outcome`、`precondition_changed` は同じ run で retry せず、Resolve target に追加しない。
+候補を一意に特定できた場合だけ、[output-templates.md](output-templates.md) の対応する返信を root comment への同じレビュースレッドに投稿する。`review-comments.reply` には同じ baseline の `thread_id` と `baseline_thread_resolved` も渡し、Action は POST 直前に root node と PR 所属、resolved state を GraphQL で再取得する。`Resolved` の `reuse` は write せず、fresh snapshot で既存 tail anchor を `reused_reply_verified` として記録する。`post` の `status=ok` は expected delta を fresh REST/GraphQL snapshot で検証できた場合だけ `new_reply_verified` とする。`status=already_applied` は、同じ operation の expected delta を検証できた場合だけ `already_applied_reply_verified` として採用し、古い non-tail exact match は `transport_already_applied` のまま対象にしない。失敗、`unknown_outcome`、`precondition_changed` は同じ run で retry せず、Resolve target に追加しない。
 
 `Partial`、`Unresolved`、`Unknown` の返信は分類として記録してもスレッドを Resolve しない。root の特定自体が曖昧な場合は `Unknown` として返信せず、Resolve もしない。他者のスレッドやユーザー判断待ちの議論に、同じレビュアーが `Resolved` と返信しても自動 Resolve の対象にはならない。
 

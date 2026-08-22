@@ -2134,6 +2134,16 @@
           "required": true,
           "description": "Review comment ID to reply to"
         },
+        "thread_id": {
+          "type": "string",
+          "required": true,
+          "description": "GraphQL review thread ID from the operation baseline"
+        },
+        "baseline_thread_resolved": {
+          "type": "boolean",
+          "required": true,
+          "description": "Resolved state of thread_id in the operation baseline"
+        },
         "body": {
           "type": "string",
           "required": true,

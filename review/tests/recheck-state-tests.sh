@@ -67,6 +67,21 @@ base_reconcile="$(jq '. + {operation:"reconcile"}' "$FIXTURE" | "$HELPER")"
 assert_decision "reconcile baseline" "$base_reconcile" ok
 base_snapshot="$(jq -c '.snapshot' <<< "$base_reconcile")"
 assert_field "connection order is retained for the tail" "$base_reconcile" '.snapshot.threads[0].tail_comment_id' 101
+assert_field "Action actor shape is normalized" "$base_reconcile" '.snapshot.threads[0].comments[0].actor' reviewer
+assert_field "Action reply target shape is normalized" "$base_reconcile" '.snapshot.threads[0].comments[1].reply_to_node_id' PRRC_root
+
+edited_history_raw="$TMP/edited-history.json"
+jq '.graphql.threads[0].comments[1].last_edited_at = "2026-08-22T01:00:00Z"' "$FIXTURE" > "$edited_history_raw"
+edited_history_reconcile="$(jq '. + {operation:"reconcile"}' "$edited_history_raw" | "$HELPER")"
+assert_decision "REST missing edit history accepts GraphQL edited comment" "$edited_history_reconcile" ok
+edited_history_changed="$TMP/edited-history-changed.json"
+jq '.graphql.threads[0].comments[1].last_edited_at = "2026-08-22T02:00:00Z"' "$edited_history_raw" > "$edited_history_changed"
+edited_history_changed_reconcile="$(jq '. + {operation:"reconcile"}' "$edited_history_changed" | "$HELPER")"
+if [ "$(jq -r '.snapshot.fingerprint' <<< "$edited_history_reconcile")" = "$(jq -r '.snapshot.fingerprint' <<< "$edited_history_changed_reconcile")" ]; then
+  echo "FAIL: GraphQL edit metadata did not change the fingerprint" >&2
+  exit 1
+fi
+pass_count=$((pass_count + 1))
 
 for invalid_filter in \
   '.graphql.threads[0].comments[1].database_id = 100' \
@@ -144,6 +159,10 @@ resolved_after="$(jq '.graphql.threads[0].resolved = true' "$post_raw" | jq '. +
 resolve_post="$(json_input unused --argjson record "$record" --argjson before "$post_snapshot" --argjson after "$resolved_after" \
   '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:"ok"}')"
 assert_decision "Resolve post-read verifies only state toggle" "$resolve_post" resolved_by_run
+resolve_already_applied="$(json_input unused --argjson record "$record" --argjson before "$post_snapshot" --argjson after "$resolved_after" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:"already_applied"}')"
+assert_decision "already-applied Resolve is external" "$resolve_already_applied" already_resolved_external
+assert_field "already-applied Resolve preserves state-only verification" "$resolve_already_applied" '.state_delta_verified' true
 external_resolve="$(json_input unused --argjson record "$record" --argjson fresh "$resolved_after" --arg head "$H" \
   '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
 assert_decision "external Resolve is reported separately" "$external_resolve" already_resolved_external

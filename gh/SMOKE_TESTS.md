@@ -816,9 +816,13 @@ echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"smoke-test-review-comment\", \"co
 if [ -n "$TEST_COMMENT_ID" ]; then
   BASELINE_COMMENT_IDS=$(echo "{\"number\":$TEST_PR_NUMBER}" \
     | bash gh/scripts/gh.sh review-comments.read | jq -c '.data.items | map(.id)')
-  jq -n --argjson ids "$BASELINE_COMMENT_IDS" \
+  THREAD_ID=$(echo "{\"number\":$TEST_PR_NUMBER}" \
+    | bash gh/scripts/gh.sh review-threads.read \
+    | jq -r --argjson id "$TEST_COMMENT_ID" '.data.threads[] | select(any(.comments[]; .database_id == $id)) | .thread_id' \
+    | head -n 1)
+  jq -n --argjson ids "$BASELINE_COMMENT_IDS" --arg thread_id "$THREAD_ID" \
     --argjson reply_to "$TEST_COMMENT_ID" \
-    '{number: '$TEST_PR_NUMBER', reply_to: $reply_to, body: "smoke-test-review-reply", plan_fingerprint: "smoke-test-plan", baseline_comment_ids: $ids, grant: "write"}' \
+    '{number: '$TEST_PR_NUMBER', reply_to: $reply_to, thread_id: $thread_id, baseline_thread_resolved: false, body: "smoke-test-review-reply", plan_fingerprint: "smoke-test-plan", baseline_comment_ids: $ids, grant: "write"}' \
     | bash gh/scripts/gh.sh review-comments.reply \
     | jq -e '.status == "ok" or .status == "already_applied"'
 fi
@@ -833,7 +837,7 @@ fi
 
 ```bash
 # Test: reply_to comment does not belong to given PR (operation identity is still required)
-echo "{\"number\":999999, \"reply_to\":$TEST_COMMENT_ID, \"body\": \"reply fail\", \"plan_fingerprint\": \"smoke-test-plan\", \"baseline_comment_ids\": [], \"grant\": \"write\"}" | bash gh/scripts/gh.sh review-comments.reply 2>&1 | jq -e '.status == "failed"'
+echo "{\"number\":999999, \"reply_to\":$TEST_COMMENT_ID, \"thread_id\":\"unknown-thread\", \"baseline_thread_resolved\":false, \"body\": \"reply fail\", \"plan_fingerprint\": \"smoke-test-plan\", \"baseline_comment_ids\": [], \"grant\": \"write\"}" | bash gh/scripts/gh.sh review-comments.reply 2>&1 | jq -e '.status == "failed"'
 ```
 
 | Check | Pass Condition |
@@ -1283,6 +1287,7 @@ Additional verification points for review without destructive side effects:
 
 ### Review comment dedup (review-comments.reply)
 - Dedup is operation-scoped: pass `plan_fingerprint` and the complete `baseline_comment_ids`.
+- Pass the baseline `thread_id` and `baseline_thread_resolved` as well; immediately before POST the action rechecks the root node's thread identity, PR, and resolved state through GraphQL.
 - A baseline exact-body reply is not reused just because its actor/body/root match; only one baseline-outside expected direct reply may be returned as `already_applied`.
 - A nonmatching comment, multiple effects, edit/delete, or an unexpected post-write delta must return `PRECONDITION_CHANGED` without creating a success target.
 

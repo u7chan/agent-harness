@@ -117,11 +117,20 @@ def normalize_comment_common(raw: Any, *, graphql: bool) -> tuple[dict[str, Any]
     if graphql:
         node_id = first_present(raw, "id", default=None)
         database_id = first_present(raw, "database_id", "databaseId", default=None)
-        reply_to_node = first_present(raw, "reply_to_id", "replyToId", default=None)
+        # ``review-threads.read`` exposes the GraphQL node's reply target as
+        # ``in_reply_to_id`` and the actor as ``user.login``.  The raw
+        # GraphQL response and older fixtures use ``reply_to_id`` and
+        # ``author_login`` instead.  Accept both representations, but keep
+        # the GraphQL node ID as the authoritative topology value.
+        reply_to_node = first_present(
+            raw, "reply_to_id", "reply_to_node_id", "in_reply_to_id", "replyToId", default=None
+        )
         body = first_present(raw, "body", default=None)
         actor = first_present(raw, "author_login", default=None)
         if actor is None:
-            actor = login_from(first_present(raw, "author", default=None), graphql=True)
+            actor = first_present(raw, "user_login", default=None)
+        if actor is None:
+            actor = login_from(first_present(raw, "author", "user", default=None), graphql=True)
         commit_id = first_present(raw, "commit_id", "commit_oid", default=None)
         path = first_present(raw, "path", default=None)
         line = first_present(raw, "line", default=None)
@@ -329,8 +338,10 @@ def reconcile(raw_input: dict[str, Any]) -> tuple[dict[str, Any] | None, str | N
                 return None, f"created_at mismatch for comment {database_id}"
             if comment["updated_at"] != rest_comment["updated_at"]:
                 return None, f"updated_at mismatch for comment {database_id}"
-            if comment["last_edited_at"] != rest_comment["last_edited_at"]:
-                return None, f"last_edited_at mismatch for comment {database_id}"
+            # REST review-comment responses do not expose edit history.  The
+            # GraphQL lastEditedAt value is the checkpoint/fingerprint source
+            # of truth; comparing it with REST's absent/null field would
+            # reject every PR containing an already edited comment.
 
             rest_reply = rest_comment["reply_to_database_id"]
             graphql_reply = comment["reply_to_node_id"]
@@ -1052,12 +1063,19 @@ def operation_resolve_post(input_data: dict[str, Any]) -> int:
     outcome = input_data.get("transport_outcome", input_data.get("outcome", "ok"))
     if outcome in {"failed", "unknown_outcome"}:
         return stop("resolve_post", outcome)
-    if outcome == "already_applied" and before["fingerprint"] == after["fingerprint"]:
+    if outcome == "already_applied":
+        # ``already_applied`` means this invocation did not perform the
+        # mutation.  Preserve the state-only delta check for safety, but
+        # never count that delta as work done by this run.
+        changed, detail = only_resolved_toggle(before, after, record["thread_id"])
+        if not changed and before["fingerprint"] != after["fingerprint"]:
+            return stop("resolve_post", "precondition_changed", detail=detail)
         return emit(
             "resolve_post",
             decision="already_resolved_external",
             eligible=False,
             thread_id=record["thread_id"],
+            state_delta_verified=changed,
         )
     changed, detail = only_resolved_toggle(before, after, record["thread_id"])
     if not changed:
