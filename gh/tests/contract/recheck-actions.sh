@@ -54,26 +54,57 @@ if len(args) > 1 and args[1] == "graphql":
         sys.exit(0)
     threads = state.get("gql_threads", [])
     after = arg_value("after=", "null")
-    if "PullRequestReviewThread" in query and "comments(first: 100)" in query:
+    def graphql_comments(thread):
+        rest_by_id = {c["id"]: c for c in state.get("comments", [])}
+        rest_by_node = {c.get("node_id"): c for c in state.get("comments", [])}
+        result = []
+        for raw in thread.get("comments", []):
+            source = rest_by_id.get(raw.get("databaseId")) or rest_by_node.get(raw.get("id")) or {}
+            parent_id = raw.get("replyTo")
+            if parent_id is None and source.get("in_reply_to_id") is not None:
+                parent = rest_by_id.get(source["in_reply_to_id"], {})
+                parent_id = {"id": parent.get("node_id")} if parent.get("node_id") else None
+            result.append({
+                "id": raw.get("id", source.get("node_id")),
+                "databaseId": raw.get("databaseId", source.get("id")),
+                "body": raw.get("body", source.get("body")),
+                "url": raw.get("url", source.get("html_url")),
+                "path": raw.get("path", source.get("path")),
+                "line": raw.get("line", source.get("line")),
+                "outdated": raw.get("outdated", source.get("outdated", False)),
+                "commit": raw.get("commit", {"oid": source.get("commit_id")}),
+                "replyTo": parent_id,
+                "author": raw.get("author", source.get("user")),
+                "authorAssociation": raw.get("authorAssociation", source.get("author_association")),
+                "createdAt": raw.get("createdAt", source.get("created_at")),
+                "updatedAt": raw.get("updatedAt", source.get("updated_at")),
+                "lastEditedAt": raw.get("lastEditedAt", source.get("last_edited_at")),
+            })
+        return result
+
+    if "PullRequestReviewThread" in query and "comments(first: 100" in query and "pullRequest" in query:
         thread_id = arg_value("threadId=", "")
         thread = next((t for t in threads if t["id"] == thread_id), None)
         if thread is None:
             output({"data": {"node": None}})
             sys.exit(0)
-        comments = thread.get("comments", [])
+        comments = graphql_comments(thread)
         is_resolved = thread["isResolved"]
         if os.environ.get("MOCK_THREAD_RESOLVED") == "1":
             is_resolved = True
+        start = 0 if after in (None, "null", "") else 100
+        page = comments[start:start + 100]
+        next_page = len(comments) > start + 100
         output({"data": {"node": {
-            "id": thread["id"],
+            "id": thread.get("node_id", thread["id"]),
             "isResolved": is_resolved,
             "pullRequest": {
                 "url": "https://github.com/u7chan/agent-harness/pull/200",
                 "repository": {"nameWithOwner": "u7chan/agent-harness"},
             },
             "comments": {
-                "pageInfo": {"hasNextPage": len(comments) > 100, "endCursor": None},
-                "nodes": comments[:100],
+                "pageInfo": {"hasNextPage": next_page, "endCursor": "comments-100" if next_page else None},
+                "nodes": page,
             },
         }}})
         sys.exit(0)
@@ -88,7 +119,7 @@ if len(args) > 1 and args[1] == "graphql":
             end = None
         api_page = []
         for thread in page:
-            comments = thread["comments"]
+            comments = graphql_comments(thread)
             api_page.append({
                 "id": thread["id"],
                 "isResolved": thread["isResolved"],
@@ -159,6 +190,26 @@ if method == "POST" and endpoint.endswith("/comments"):
     }
     state.setdefault("comments", []).append(comment)
     state["next_id"] = comment_id + 1
+    gql_comment = {
+        "id": comment["node_id"],
+        "databaseId": comment["id"],
+        "body": comment["body"],
+        "url": comment["html_url"],
+        "path": comment["path"],
+        "line": comment["line"],
+        "outdated": False,
+        "commit": {"oid": comment["commit_id"]},
+        "replyTo": {"id": "N1"},
+        "author": {"login": "reviewer"},
+        "authorAssociation": "OWNER",
+        "createdAt": comment["created_at"],
+        "updatedAt": comment["updated_at"],
+        "lastEditedAt": None,
+    }
+    for thread in state.get("gql_threads", []):
+        if thread.get("id") == "T1":
+            thread.setdefault("comments", []).append(gql_comment)
+            break
     if os.environ.get("MOCK_POST_ADD_EXTRA") == "1":
         extra_id = state["next_id"]
         state["comments"].append({
@@ -252,7 +303,7 @@ json.dump({
     "comments": comments,
     "next_id": 102,
     "gql_threads": [{"id": "T1", "isResolved": False,
-                     "comments": [{"id": "N1", "databaseId": 1}]}],
+                     "comments": [{"id": f"N{i}", "databaseId": i} for i in range(1, 102)]}],
 }, open(sys.argv[1], "w"))
 PY
   ids="$(seq 1 101 | jq -Rsc 'split("\n") | map(select(length > 0) | tonumber)')"
@@ -293,7 +344,7 @@ JSON
   assert_json_eq "$output" '.error.code' PRECONDITION_CHANGED || return 1
   [ "$(grep -c 'POST repos/u7chan/agent-harness/pulls/200/comments' "$MOCK_GH_CALLS" || true)" = 0 ] || return 1
 
-  jq '.comments = [.comments[0]] | .comments[0].body = "root" | .next_id = 2' "$MOCK_GH_STATE" > "$MOCK_GH_STATE.tmp"
+  jq '.comments = [.comments[0]] | .comments[0].body = "root" | .next_id = 2 | .gql_threads[0].comments = [.gql_threads[0].comments[0]]' "$MOCK_GH_STATE" > "$MOCK_GH_STATE.tmp"
   mv "$MOCK_GH_STATE.tmp" "$MOCK_GH_STATE"
   jq 'del(.baseline_comments)' "$request" > "$request.tmp"
   mv "$request.tmp" "$request"
@@ -303,7 +354,7 @@ JSON
   [ "$(grep -c 'POST repos/u7chan/agent-harness/pulls/200/comments' "$MOCK_GH_CALLS")" = 1 ] || return 1
 
   export MOCK_POST_ADD_EXTRA=0
-  jq '.comments = [.comments[0]] | .comments[0].body = "root" | .next_id = 2' "$MOCK_GH_STATE" > "$MOCK_GH_STATE.tmp"
+  jq '.comments = [.comments[0]] | .comments[0].body = "root" | .next_id = 2 | .gql_threads[0].comments = [.gql_threads[0].comments[0]]' "$MOCK_GH_STATE" > "$MOCK_GH_STATE.tmp"
   mv "$MOCK_GH_STATE.tmp" "$MOCK_GH_STATE"
   export MOCK_POST_FAIL=1
   output="$(fixture_gh review-comments.reply "$request" 2>&1)" && return 1 || true
@@ -325,6 +376,86 @@ JSON
   output="$(fixture_gh review-comments.reply "$request" 2>&1)" && return 1 || true
   assert_json_eq "$output" '.error.code' PRECONDITION_CHANGED || return 1
   [ "$(grep -c 'POST repos/u7chan/agent-harness/pulls/200/comments' "$MOCK_GH_CALLS" || true)" = 0 ] || return 1
+)
+
+test_graphql_preflight_reconciles_baseline() (
+  setup_reply_fixture
+  trap teardown_fixture EXIT
+  request="$FIXTURE_DIR/request.json"
+
+  make_case() {
+    local kind="$1"
+    python3 - "$MOCK_GH_STATE" "$kind" <<'PY'
+import json
+import sys
+
+state_file, kind = sys.argv[1:]
+url = "https://github.com/u7chan/agent-harness/pull/200"
+api_url = "https://api.github.com/repos/u7chan/agent-harness/pulls/200"
+commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+def rest_comment(cid, body, actor="reviewer", parent=None):
+    return {
+        "id": cid, "node_id": f"N{cid}", "body": body,
+        "html_url": f"{url}#discussion_r{cid}", "path": "review/SKILL.md",
+        "position": 1, "line": 42, "commit_id": commit,
+        "in_reply_to_id": parent, "pull_request_url": api_url,
+        "user": {"login": actor}, "created_at": "t", "updated_at": "t",
+        "last_edited_at": None, "author_association": "OWNER",
+    }
+
+def gql_from(comment, reply_to=None, body=None, actor=None):
+    return {
+        "id": comment["node_id"], "databaseId": comment["id"],
+        "body": comment["body"] if body is None else body,
+        "url": comment["html_url"], "path": comment["path"], "line": comment["line"],
+        "outdated": False, "commit": {"oid": comment["commit_id"]},
+        "replyTo": None if reply_to is None else {"id": reply_to},
+        "author": {"login": comment["user"]["login"] if actor is None else actor},
+        "authorAssociation": comment["author_association"],
+        "createdAt": comment["created_at"], "updatedAt": comment["updated_at"],
+        "lastEditedAt": None,
+    }
+
+root = rest_comment(1, "root")
+reply = rest_comment(2, "existing reply", parent=1)
+rest = [root]
+gql = [gql_from(root)]
+ids = [1]
+if kind in {"set", "topology"}:
+    rest = [root, reply]
+    ids = [1, 2]
+    gql = [gql_from(root)] if kind == "set" else [gql_from(root), gql_from(reply, "N999")]
+elif kind == "metadata":
+    gql = [gql_from(root, body="edited root")]
+elif kind == "external":
+    external = rest_comment(2, "external Y", actor="other", parent=1)
+    gql.append(gql_from(external, "N1", actor="other"))
+elif kind == "multiple":
+    expected = rest_comment(2, "**Resolved**: old evidence", parent=1)
+    external = rest_comment(3, "external Y", actor="other", parent=1)
+    gql.extend([gql_from(expected, "N1"), gql_from(external, "N1", actor="other")])
+
+thread = {"id": "T1", "isResolved": False, "comments": gql}
+if kind == "identity":
+    thread["node_id"] = "T1-different"
+json.dump({
+    "comments": rest,
+    "next_id": 3,
+    "gql_threads": [thread],
+}, open(state_file, "w"))
+print(json.dumps(ids))
+PY
+  }
+
+  for kind in external multiple set topology metadata identity; do
+    ids="$(make_case "$kind")"
+    reply_request "$ids" > "$request"
+    : > "$MOCK_GH_CALLS"
+    output="$(fixture_gh review-comments.reply "$request" 2>&1)" && return 1 || true
+    assert_json_eq "$output" '.error.code' PRECONDITION_CHANGED || return 1
+    [ "$(grep -c 'POST repos/u7chan/agent-harness/pulls/200/comments' "$MOCK_GH_CALLS" || true)" = 0 ] || return 1
+  done
 )
 
 test_threads_read_pagination() (
@@ -364,6 +495,7 @@ main() {
   run_test test_operation_scoped_dedup_and_pagination
   run_test test_precondition_and_unknown_outcomes
   run_test test_thread_state_precondition
+  run_test test_graphql_preflight_reconciles_baseline
   run_test test_threads_read_pagination
   print_summary
 }

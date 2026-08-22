@@ -1206,6 +1206,17 @@ def operation_resolve_post(input_data: dict[str, Any]) -> int:
     if error:
         return stop("resolve_post", error)
     assert record is not None
+    # A Resolve post-read is only attributable to an explicit transport
+    # outcome.  Missing, null, and unknown values must never become ``ok`` by
+    # default, because a caller can otherwise turn an external false->true
+    # transition into ``resolved_by_run`` by omission.
+    outcome = input_data.get("transport_outcome", input_data.get("outcome"))
+    if not isinstance(outcome, str):
+        return stop("resolve_post", "invalid_transport_outcome")
+    if outcome in {"failed", "unknown_outcome"}:
+        return stop("resolve_post", outcome)
+    if outcome not in {"ok", "already_applied"}:
+        return stop("resolve_post", "invalid_transport_outcome")
     before, error = load_plan_snapshot(input_data, "before_snapshot")
     if error:
         return stop("resolve_post", "snapshot_invalid", detail=error)
@@ -1242,9 +1253,6 @@ def operation_resolve_post(input_data: dict[str, Any]) -> int:
         toggled_before_action, _ = thread_resolved_toggle(verified_thread, before_thread)
         if not toggled_before_action:
             return stop("resolve_post", "before_thread_fingerprint_mismatch")
-    outcome = input_data.get("transport_outcome", input_data.get("outcome", "ok"))
-    if outcome in {"failed", "unknown_outcome"}:
-        return stop("resolve_post", outcome)
     if outcome == "already_applied":
         # ``already_applied`` means this invocation did not perform the
         # mutation.  The post-read must nevertheless prove that the target

@@ -170,6 +170,23 @@ assert_decision "already-applied already-resolved post-read is external" "$resol
 resolve_already_unresolved="$(json_input unused --argjson record "$record" --argjson before "$post_snapshot" --argjson after "$post_snapshot" \
   '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:"already_applied"}')"
 assert_decision "already-applied unresolved post-read fails closed" "$resolve_already_unresolved" stop
+
+resolve_missing_outcome="$(json_input unused --argjson record "$record" --argjson before "$post_snapshot" --argjson after "$resolved_after" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after}')"
+assert_decision "missing Resolve transport outcome fails closed" "$resolve_missing_outcome" stop
+assert_field "missing Resolve transport outcome is invalid" "$resolve_missing_outcome" '.reason' invalid_transport_outcome
+resolve_null_outcome="$(json_input unused --argjson record "$record" --argjson before "$post_snapshot" --argjson after "$resolved_after" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:null}')"
+assert_decision "null Resolve transport outcome fails closed" "$resolve_null_outcome" stop
+assert_field "null Resolve transport outcome is invalid" "$resolve_null_outcome" '.reason' invalid_transport_outcome
+resolve_unknown_outcome="$(json_input unused --argjson record "$record" --argjson before "$post_snapshot" --argjson after "$resolved_after" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:"unknown"}')"
+assert_decision "unknown Resolve transport outcome fails closed" "$resolve_unknown_outcome" stop
+assert_field "unknown Resolve transport outcome is invalid" "$resolve_unknown_outcome" '.reason' invalid_transport_outcome
+resolve_untyped_outcome="$(json_input unused --argjson record "$record" --argjson before "$post_snapshot" --argjson after "$resolved_after" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:{}}')"
+assert_decision "untyped Resolve transport outcome fails closed" "$resolve_untyped_outcome" stop
+assert_field "untyped Resolve transport outcome is invalid" "$resolve_untyped_outcome" '.reason' invalid_transport_outcome
 external_resolve="$(json_input unused --argjson record "$record" --argjson fresh "$resolved_after" --arg head "$H" \
   '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
 assert_decision "external Resolve is reported separately" "$external_resolve" already_resolved_external

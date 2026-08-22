@@ -129,6 +129,236 @@ ids_and_delta() {
   printf '%s\n' "$result"
 }
 
+graphql_thread_state() {
+  local thread_id="$1"
+  local query
+  query='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { id isResolved pullRequest { url repository { nameWithOwner } } comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt lastEditedAt } } } } }'
+
+  local cursor="null"
+  local comments='[]'
+  local node_state=""
+  while :; do
+    local page_result
+    page_result="$(call_graphql "$query" -F threadId="$thread_id" -F after="$cursor" 2>/dev/null)" || return 1
+
+    # A successfully answered node lookup that no longer has a thread is an
+    # observed identity change, not a transport failure. Let the reconciliation
+    # below classify it as PRECONDITION_CHANGED.
+    if echo "$page_result" | jq -e '.data.node == null' >/dev/null 2>&1; then
+      jq -nc '{node: null, comments: []}'
+      return 0
+    fi
+
+    if ! echo "$page_result" | jq -e '
+      .data.node != null and
+      (.data.node.id | type == "string") and
+      (.data.node.isResolved | type == "boolean") and
+      (.data.node.pullRequest.url | type == "string") and
+      (.data.node.pullRequest.repository.nameWithOwner | type == "string") and
+      (.data.node.comments | type == "object") and
+      (.data.node.comments.nodes | type == "array") and
+      (.data.node.comments.pageInfo | type == "object") and
+      (.data.node.comments.pageInfo.hasNextPage | type == "boolean")
+    ' >/dev/null 2>&1; then
+      return 1
+    fi
+
+    if [ -z "$node_state" ]; then
+      node_state="$(echo "$page_result" | jq -c '.data.node | {
+        id,
+        resolved: .isResolved,
+        pull_request_url: .pullRequest.url,
+        repository: .pullRequest.repository.nameWithOwner
+      }')" || return 1
+    fi
+
+    local page_comments
+    page_comments="$(echo "$page_result" | jq -c '[.data.node.comments.nodes[] | {
+      id: .databaseId,
+      node_id: .id,
+      body,
+      url,
+      path,
+      line,
+      outdated,
+      commit_id: .commit.oid,
+      reply_to_node_id: .replyTo.id,
+      actor: .author.login,
+      author_association: .authorAssociation,
+      created_at: .createdAt,
+      updated_at: .updatedAt,
+      last_edited_at: .lastEditedAt
+    }]')" || return 1
+    comments="$(jq -c --argjson old "$comments" --argjson page "$page_comments" '$old + $page' <<< '{}')" || return 1
+
+    local has_next end_cursor
+    has_next="$(echo "$page_result" | jq -r '.data.node.comments.pageInfo.hasNextPage')"
+    end_cursor="$(echo "$page_result" | jq -r '.data.node.comments.pageInfo.endCursor // "null"')"
+    if [ "$has_next" != "true" ]; then
+      break
+    fi
+    if [ "$end_cursor" = "null" ] || [ "$end_cursor" = "$cursor" ]; then
+      return 1
+    fi
+    cursor="$end_cursor"
+  done
+
+  jq -nc --argjson node "$node_state" --argjson comments "$comments" \
+    '{node: $node, comments: $comments}'
+}
+
+graphql_preflight_check() {
+  local state="$1"
+  local rest_comments="$2"
+  local baseline_ids="$3"
+  local allow_expected_effect="$4"
+  local body_file="$5"
+  local actor="$6"
+  local root_id="$7"
+  local root_node_id="$8"
+  local root_path="$9"
+  local root_line="${10}"
+  local root_commit_id="${11}"
+  local thread_id="${12}"
+  local pr_url="${13}"
+  local owner_repo="${14}"
+  local baseline_resolved="${15}"
+
+  local body
+  body="$(cat "$body_file")"
+
+  jq -n -c \
+    --argjson state "$state" \
+    --argjson rest_comments "$rest_comments" \
+    --argjson baseline_ids "$baseline_ids" \
+    --argjson allow_expected_effect "$allow_expected_effect" \
+    --arg body "$body" \
+    --arg actor "$actor" \
+    --argjson root_id "$root_id" \
+    --arg root_node_id "$root_node_id" \
+    --arg root_path "$root_path" \
+    --argjson root_line "$root_line" \
+    --arg root_commit_id "$root_commit_id" \
+    --arg thread_id "$thread_id" \
+    --arg pr_url "$pr_url" \
+    --arg owner_repo "$owner_repo" \
+    --argjson baseline_resolved "$baseline_resolved" '
+      def rest_shape:
+        . as $comment |
+        {
+          id: $comment.id,
+          node_id: ($comment.node_id // null),
+          body: ($comment.body // null),
+          actor: ($comment.user.login // null),
+          path: ($comment.path // null),
+          line: ($comment.line // null),
+          commit_id: ($comment.commit_id // null),
+          reply_to_id: ($comment.in_reply_to_id // null),
+          url: ($comment.html_url // null),
+          created_at: ($comment.created_at // null),
+          updated_at: ($comment.updated_at // null),
+          last_edited_at: (if ($comment | has("last_edited_at")) then $comment.last_edited_at else null end),
+          has_last_edited_at: ($comment | has("last_edited_at")),
+          outdated: (if ($comment | has("outdated")) then $comment.outdated else null end),
+          has_outdated: ($comment | has("outdated")),
+          author_association: ($comment.author_association // null),
+          has_author_association: ($comment | has("author_association"))
+        };
+
+      def comment_match($expected; $actual):
+        ($actual != null) and
+        ($actual.id == $expected.id) and
+        ($expected.node_id != null) and ($actual.node_id == $expected.node_id) and
+        ($actual.body == $expected.body) and
+        ($actual.actor == $expected.actor) and
+        ($actual.path == $expected.path) and
+        ($actual.line == $expected.line) and
+        ($actual.commit_id == $expected.commit_id) and
+        ($actual.reply_to_node_id == $expected.reply_to_node_id) and
+        ($actual.created_at == $expected.created_at) and
+        ($actual.updated_at == $expected.updated_at) and
+        (if $expected.has_last_edited_at then $actual.last_edited_at == $expected.last_edited_at else true end) and
+        (if $expected.has_outdated then $actual.outdated == $expected.outdated else true end) and
+        (if $expected.has_author_association then $actual.author_association == $expected.author_association else true end) and
+        (if $expected.url != null then $actual.url == $expected.url else true end);
+
+      ($rest_comments
+        | map(select(.id == $root_id or .in_reply_to_id == $root_id) | rest_shape)) as $rest_thread0
+      | ($rest_thread0 | map({key: (.id | tostring), value: .}) | from_entries) as $rest_by_id
+      | ($rest_thread0 | map(. as $comment |
+          . + {
+            reply_to_node_id: (
+              if $comment.reply_to_id == null then null
+              else ($rest_by_id[($comment.reply_to_id | tostring)].node_id // "__missing_parent_node__")
+              end
+            )
+          }
+        )) as $expected
+      | ($expected | map(.id)) as $expected_ids
+      | ($state.comments) as $actual
+      | ($actual | map(.id)) as $actual_ids
+      | ($actual | map(.id | tostring) | unique | length == ($actual | length)) as $unique_ids
+      | ($actual | map(.node_id) | unique | length == ($actual | length)) as $unique_nodes
+      | ($actual | map(. as $comment | select(($expected_ids | index($comment.id)) == null))) as $extras
+      | ($expected | map(. as $comment |
+          . as $expected_comment |
+          ($actual | map(select(.id == $expected_comment.id)) | if length == 1 then .[0] else null end) as $actual_comment |
+          {expected: $expected_comment, actual: $actual_comment, matches: comment_match($expected_comment; $actual_comment)}
+        )) as $known_checks
+      | ($extras | map(. as $comment | select(
+          (($baseline_ids | index($comment.id)) == null) and
+          ($comment.body == $body) and
+          ($comment.actor == $actor) and
+          ($comment.reply_to_node_id == $root_node_id) and
+          ($comment.path == $root_path) and
+          ($comment.line == $root_line) and
+          ($comment.commit_id == $root_commit_id)
+        ))) as $matching_extras
+      | (
+          ($state.node.id == $thread_id) and
+          ($state.node.resolved == $baseline_resolved) and
+          ($state.node.pull_request_url == $pr_url) and
+          ($state.node.repository == $owner_repo) and
+          ($rest_thread0 | map(select(.id == $root_id)) | length == 1) and
+          ($expected | all(.[];
+            (.id | type == "number") and
+            (.node_id | type == "string") and (.node_id | length > 0) and
+            (.body | type == "string") and
+            (.actor | type == "string") and (.actor | length > 0) and
+            ((.line == null) or (.line | type == "number")) and
+            ((.reply_to_id == null) or (.reply_to_id | type == "number")) and
+            ((.reply_to_node_id == null) or (.reply_to_node_id | type == "string"))
+          )) and
+          ($actual | all(.[];
+            (.id | type == "number") and
+            (.node_id | type == "string") and (.node_id | length > 0) and
+            (.body | type == "string") and
+            (.actor | type == "string") and (.actor | length > 0) and
+            ((.path == null) or (.path | type == "string")) and
+            ((.line == null) or (.line | type == "number")) and
+            ((.reply_to_node_id == null) or (.reply_to_node_id | type == "string")) and
+            ((.created_at == null) or (.created_at | type == "string")) and
+            ((.updated_at == null) or (.updated_at | type == "string")) and
+            ((.last_edited_at == null) or (.last_edited_at | type == "string")) and
+            ((.outdated == null) or (.outdated | type == "boolean"))
+          )) and
+          $unique_ids and $unique_nodes and
+          (($expected_ids - $actual_ids) | length == 0) and
+          ($known_checks | all(.[]; .matches)) and
+          (
+            if ($extras | length) == 0 then true
+            elif $allow_expected_effect and ($extras | length) == 1 and ($matching_extras | length) == 1 then true
+            else false
+            end
+          )
+        ) as $valid
+      | {
+          valid: $valid,
+          already_applied_comment: (if $valid and ($extras | length) == 1 and ($matching_extras | length) == 1 then $matching_extras[0] else null end)
+        }
+    '
+}
+
 main() {
   local request_file="$1"
 
@@ -265,7 +495,7 @@ main() {
   # This is the operation preflight.  An old exact-body comment is harmless if
   # it is part of the baseline: it is not the effect of this operation.  Only
   # one new, exact, direct reply can be adopted as an operation-scoped retry.
-  local existing
+  local existing adopted="" adopted_id="" operation_already_applied=false
   existing="$(call_gh_api_paginated "repos/$owner_repo/pulls/$pr_number/comments" '[.[]]' "100" 2>/dev/null)" || {
     envelope_fail "review-comments.reply" "API_ERROR" "Failed to fetch existing review comments" false
     exit 1
@@ -284,7 +514,6 @@ main() {
     if [ "$removed_count" -ne 0 ] || [ "$added_count" -ne 1 ]; then
       precondition_changed "Operation baseline changed by a non-single reply effect"
     fi
-    local adopted
     adopted="$(echo "$existing" | jq -c --argjson baseline "$baseline_ids" --rawfile body "$request_body_file" --arg actor "$actor" --argjson root_id "$root_id" '
       [.[] as $comment | select(
         (($baseline | index($comment.id)) == null) and
@@ -297,49 +526,77 @@ main() {
     if [ -z "$adopted" ] || [ "$adopted" = "null" ]; then
       precondition_changed "Operation baseline changed by a non-matching reply"
     fi
-    local adopted_id adopted_url adopted_target
     adopted_id="$(echo "$adopted" | jq -r '.id')"
     if [ "$baseline_comments_present" = "true" ] && ! baseline_matches_current "$(jq -c '.baseline_comments' "$request_file")" \
       "$(echo "$existing" | jq --argjson id "$adopted_id" '[.[] | select(.id != $id)]')"; then
       precondition_changed "Operation baseline changed an existing comment or edit metadata"
     fi
+    operation_already_applied=true
+  fi
+
+  # Re-read the complete GraphQL comment connection immediately before
+  # constructing the POST. The REST collection is the operation checkpoint,
+  # while GraphQL supplies the thread identity, topology, and metadata that
+  # REST cannot safely represent. A GraphQL-only expected reply is also
+  # adoptable, but only when it is the single operation-scoped effect.
+  local allow_graph_expected_effect=false
+  if [ "$added_count" -eq 0 ] && [ "$removed_count" -eq 0 ]; then
+    allow_graph_expected_effect=true
+  fi
+
+  local root_line
+  root_line="$(echo "$root" | jq -c '.line // null')"
+  local thread_state
+  thread_state="$(graphql_thread_state "$thread_id" 2>/dev/null)" || {
+    envelope_fail "review-comments.reply" "API_ERROR" "Failed to fetch root review thread state" false
+    exit 1
+  }
+
+  local graphql_check
+  graphql_check="$(graphql_preflight_check \
+    "$thread_state" "$existing" "$baseline_ids" "$allow_graph_expected_effect" \
+    "$request_body_file" "$actor" "$root_id" "$root_node_id" "$root_path" \
+    "$root_line" "$root_commit_id" "$thread_id" "$pr_url" "$owner_repo" \
+    "$baseline_thread_resolved")" || {
+    precondition_changed "GraphQL thread preflight could not be reconciled with the operation baseline"
+  }
+  if [ "$(echo "$graphql_check" | jq -r '.valid')" != "true" ]; then
+    precondition_changed "GraphQL thread comment set, topology, metadata, or identity changed"
+  fi
+
+  local graphql_adopted_id
+  graphql_adopted_id="$(echo "$graphql_check" | jq -r '.already_applied_comment.id // empty')"
+  if [ -n "$graphql_adopted_id" ] && [ "$operation_already_applied" != "true" ]; then
+    adopted_id="$graphql_adopted_id"
+    adopted="$(call_gh_api "repos/$owner_repo/pulls/comments/$graphql_adopted_id" 2>/dev/null)" || \
+      precondition_changed "GraphQL observed an expected reply but REST could not verify it"
+    if ! echo "$adopted" | jq -e \
+      --argjson id "$graphql_adopted_id" \
+      --argjson root_id "$root_id" \
+      --arg parent_api_url "$parent_api_url" \
+      --arg actor "$actor" \
+      --rawfile body "$request_body_file" '
+        .id == $id and
+        .pull_request_url == $parent_api_url and
+        .body == $body and
+        (.user.login // "") == $actor and
+        .in_reply_to_id == $root_id
+      ' >/dev/null 2>&1; then
+      precondition_changed "GraphQL expected reply failed REST identity verification"
+    fi
+    operation_already_applied=true
+  fi
+
+  if [ "$baseline_thread_resolved" != "false" ]; then
+    precondition_changed "Operation baseline thread is already resolved"
+  fi
+
+  if [ "$operation_already_applied" = "true" ]; then
+    local adopted_url adopted_target
     adopted_url="$(echo "$adopted" | jq -r '.html_url // ""')"
     adopted_target="$(operation_target "$owner_repo" "$pr_number" "$adopted_id" "$adopted_url")"
     envelope_already_applied "review-comments.reply" "$adopted_target" "$(format_comment "$adopted" "already_applied")"
     exit 0
-  fi
-
-  # Re-read the GraphQL thread immediately before constructing the POST.  The
-  # REST comment collection cannot represent resolved state, so matching
-  # comment IDs alone is insufficient: an external Resolve after planning
-  # must stop this operation before it creates a classification reply.
-  local thread_query thread_state
-  thread_query='query($threadId: ID!) { node(id: $threadId) { ... on PullRequestReviewThread { id isResolved pullRequest { url repository { nameWithOwner } } comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id databaseId } } } } }'
-  thread_state="$(call_graphql "$thread_query" -F threadId="$thread_id" 2>/dev/null)" || {
-    envelope_fail "review-comments.reply" "API_ERROR" "Failed to fetch root review thread state" false
-    exit 1
-  }
-  if ! echo "$thread_state" | jq -e \
-    --arg thread_id "$thread_id" \
-    --arg pr_url "$pr_url" \
-    --arg owner_repo "$owner_repo" \
-    --arg root_node_id "$root_node_id" \
-    --argjson root_id "$root_id" \
-    --argjson baseline_resolved "$baseline_thread_resolved" '
-      .data.node != null and
-      .data.node.id == $thread_id and
-      .data.node.isResolved == $baseline_resolved and
-      .data.node.pullRequest.url == $pr_url and
-      .data.node.pullRequest.repository.nameWithOwner == $owner_repo and
-      (.data.node.comments.pageInfo | type == "object") and
-      (.data.node.comments.pageInfo.hasNextPage | type == "boolean") and
-      ([.data.node.comments.nodes[]? |
-        select(.id == $root_node_id and .databaseId == $root_id)] | length == 1)
-    ' >/dev/null 2>&1; then
-    precondition_changed "Root thread identity or baseline resolved state changed"
-  fi
-  if [ "$baseline_thread_resolved" != "false" ]; then
-    precondition_changed "Operation baseline thread is already resolved"
   fi
 
   local body_file
