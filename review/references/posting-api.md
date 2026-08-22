@@ -17,6 +17,7 @@ GitHub Action の入力、出力、`permission` は `gh/actions.json` を正本�
 再チェック分類返信の `review-comments.reply` には、helper が返した `plan_fingerprint`、その operation の `baseline_comment_ids`、同じ snapshot の `thread_id` と `baseline_thread_resolved` を必ず渡す。利用できる場合は `baseline_comments` も渡し、body、actor、reply target、`updated_at` の変更を Action の write preflight で検知する。REST にない `last_edited_at` の等値比較は行わず、checkpoint 間の edit metadata は GraphQL `lastEditedAt` を fingerprint の正本として検知する。Action は REST と GraphQL の comment connection を全ページ取得し、POST 直前にも baseline/current の comment set、reply topology、identity、必要 metadata、PR 所属、baseline の `resolved` state を照合する。baseline に含まれる古い exact-body reply は dedup しない。
 
 - current snapshot が baseline と同じなら POST する。
+- GraphQL comment connection の各ページで thread identity、PR 所属、`isResolved` を先頭ページの checkpoint と照合し、後続ページで変化を観測した場合は `PRECONDITION_CHANGED` として POST しない。
 - baseline 外の expected direct reply 1件だけなら `already_applied` を返す。
 - baseline 外の nonmatching comment、複数 effect、edit/delete は `PRECONDITION_CHANGED` として POST しない。
 - POST 後も baseline + returned reply 1件だけを full pagination で確認する。外部 comment が同時に見えた場合は `PRECONDITION_CHANGED` とし、成功 target を作らない。

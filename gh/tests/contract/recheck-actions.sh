@@ -89,18 +89,28 @@ if len(args) > 1 and args[1] == "graphql":
             output({"data": {"node": None}})
             sys.exit(0)
         comments = graphql_comments(thread)
+        start = 0 if after in (None, "null", "") else 100
+        page_index = 0 if start == 0 else 1
+        page = comments[start:start + 100]
+        next_page = len(comments) > start + 100
+
+        def page_value(field, default):
+            pages = thread.get(field)
+            if isinstance(pages, list) and page_index < len(pages):
+                return pages[page_index]
+            return default
+
         is_resolved = thread["isResolved"]
         if os.environ.get("MOCK_THREAD_RESOLVED") == "1":
             is_resolved = True
-        start = 0 if after in (None, "null", "") else 100
-        page = comments[start:start + 100]
-        next_page = len(comments) > start + 100
+        is_resolved = page_value("resolved_pages", is_resolved)
+
         output({"data": {"node": {
-            "id": thread.get("node_id", thread["id"]),
+            "id": page_value("id_pages", thread.get("node_id", thread["id"])),
             "isResolved": is_resolved,
             "pullRequest": {
-                "url": "https://github.com/u7chan/agent-harness/pull/200",
-                "repository": {"nameWithOwner": "u7chan/agent-harness"},
+                "url": page_value("pr_url_pages", "https://github.com/u7chan/agent-harness/pull/200"),
+                "repository": {"nameWithOwner": page_value("repository_pages", "u7chan/agent-harness")},
             },
             "comments": {
                 "pageInfo": {"hasNextPage": next_page, "endCursor": "comments-100" if next_page else None},
@@ -321,6 +331,58 @@ PY
   [ "$(grep -c 'POST repos/u7chan/agent-harness/pulls/200/comments' "$MOCK_GH_CALLS")" = 1 ] || return 1
 )
 
+test_pagination_drift() (
+  setup_reply_fixture
+  trap teardown_fixture EXIT
+
+  make_case() {
+    local kind="$1"
+    python3 - "$MOCK_GH_STATE" "$kind" <<'PY'
+import json, sys
+state_file, kind = sys.argv[1:]
+comments = []
+for i in range(1, 102):
+    comments.append({
+        "id": i, "node_id": f"N{i}",
+        "body": "root" if i == 1 else "**Resolved**: old evidence",
+        "html_url": f"https://github.com/u7chan/agent-harness/pull/200#discussion_r{i}",
+        "path": "review/SKILL.md", "position": 1, "line": 42,
+        "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "in_reply_to_id": None if i == 1 else 1,
+        "pull_request_url": "https://api.github.com/repos/u7chan/agent-harness/pulls/200",
+        "user": {"login": "reviewer"}, "created_at": "2026-08-22T00:00:00Z",
+        "updated_at": "2026-08-22T00:00:00Z", "last_edited_at": None,
+        "author_association": "OWNER",
+    })
+thread = {"id": "T1", "isResolved": False,
+          "comments": [{"id": f"N{i}", "databaseId": i} for i in range(1, 102)]}
+if kind == "resolved":
+    thread["resolved_pages"] = [False, True]
+elif kind == "thread_id":
+    thread["id_pages"] = ["T1", "T1-other"]
+elif kind == "pr_url":
+    thread["pr_url_pages"] = [
+        "https://github.com/u7chan/agent-harness/pull/200",
+        "https://github.com/u7chan/agent-harness/pull/201",
+    ]
+json.dump({"comments": comments, "next_id": 102, "gql_threads": [thread]}, open(state_file, "w"))
+PY
+  }
+
+  ids="$(seq 1 101 | jq -Rsc 'split("\n") | map(select(length > 0) | tonumber)')"
+  request="$FIXTURE_DIR/request.json"
+  reply_request "$ids" > "$request"
+
+  for kind in resolved thread_id pr_url; do
+    make_case "$kind"
+    : > "$MOCK_GH_CALLS"
+    output="$(fixture_gh review-comments.reply "$request" 2>&1)" && return 1 || true
+    assert_json_eq "$output" '.error.code' PRECONDITION_CHANGED || return 1
+    assert_json_eq "$output" '.target == null' true || return 1
+    [ "$(grep -c 'POST repos/u7chan/agent-harness/pulls/200/comments' "$MOCK_GH_CALLS" || true)" = 0 ] || return 1
+  done
+)
+
 test_precondition_and_unknown_outcomes() (
   setup_reply_fixture
   trap teardown_fixture EXIT
@@ -493,6 +555,7 @@ PY
 main() {
   echo "=== review action contract tests ==="
   run_test test_operation_scoped_dedup_and_pagination
+  run_test test_pagination_drift
   run_test test_precondition_and_unknown_outcomes
   run_test test_thread_state_precondition
   run_test test_graphql_preflight_reconciles_baseline

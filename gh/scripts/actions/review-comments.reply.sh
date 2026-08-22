@@ -165,13 +165,24 @@ graphql_thread_state() {
       return 1
     fi
 
+    # Thread identity and resolved state are invariant across the connection.
+    # Reconcile them on every page against the first-page checkpoint: a
+    # later-page Resolve or identity change is an observed precondition change
+    # and must fail closed before any REST POST.
+    local page_state
+    page_state="$(echo "$page_result" | jq -c '.data.node | {
+      id,
+      resolved: .isResolved,
+      pull_request_url: .pullRequest.url,
+      repository: .pullRequest.repository.nameWithOwner
+    }')" || return 1
+
     if [ -z "$node_state" ]; then
-      node_state="$(echo "$page_result" | jq -c '.data.node | {
-        id,
-        resolved: .isResolved,
-        pull_request_url: .pullRequest.url,
-        repository: .pullRequest.repository.nameWithOwner
-      }')" || return 1
+      node_state="$page_state"
+    elif [ "$page_state" != "$node_state" ]; then
+      gh_cleanup "$comments_file"
+      jq -nc '{node: null, comments: [], precondition_changed: true}'
+      return 0
     fi
 
     local page_comments
@@ -565,6 +576,9 @@ main() {
     envelope_fail "review-comments.reply" "API_ERROR" "Failed to fetch root review thread state" false
     exit 1
   }
+  if [ "$(echo "$thread_state" | jq -r '.precondition_changed // false')" = "true" ]; then
+    precondition_changed "GraphQL thread identity or resolved state changed during comment pagination"
+  fi
   thread_state_file="$(gh_make_temp "graphql-thread-state")"
   printf '%s\n' "$thread_state" > "$thread_state_file"
 
