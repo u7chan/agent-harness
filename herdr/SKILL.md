@@ -50,7 +50,6 @@ After starting the agent, set the pane label to the same responsibility-based na
 
 ## Rules
 
-- Treat an explicit request involving another or separate pane, including "別ペイン", as a request to use Herdr even when Herdr is not named.
 - Keep shared work in the current workspace and worktree.
 - Use an explicit Herdr worktree workspace for independent branches.
 - Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested.
