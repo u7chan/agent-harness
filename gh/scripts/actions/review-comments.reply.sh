@@ -135,7 +135,9 @@ graphql_thread_state() {
   query='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { id isResolved pullRequest { url repository { nameWithOwner } } comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt lastEditedAt } } } } }'
 
   local cursor="null"
-  local comments='[]'
+  local comments_file
+  comments_file="$(gh_make_temp "graphql-comments")"
+  printf '[]\n' > "$comments_file"
   local node_state=""
   while :; do
     local page_result
@@ -189,7 +191,13 @@ graphql_thread_state() {
       updated_at: .updatedAt,
       last_edited_at: .lastEditedAt
     }]')" || return 1
-    comments="$(jq -c --argjson old "$comments" --argjson page "$page_comments" '$old + $page' <<< '{}')" || return 1
+    local page_file
+    page_file="$(gh_make_temp "graphql-comment-page")"
+    printf '%s\n' "$page_comments" > "$page_file"
+    jq -n -c --slurpfile old "$comments_file" --slurpfile page "$page_file" \
+      '$old[0] + $page[0]' > "${comments_file}.tmp" || return 1
+    mv "${comments_file}.tmp" "$comments_file"
+    gh_cleanup "$page_file"
 
     local has_next end_cursor
     has_next="$(echo "$page_result" | jq -r '.data.node.comments.pageInfo.hasNextPage')"
@@ -203,13 +211,18 @@ graphql_thread_state() {
     cursor="$end_cursor"
   done
 
-  jq -nc --argjson node "$node_state" --argjson comments "$comments" \
-    '{node: $node, comments: $comments}'
+  local node_file
+  node_file="$(gh_make_temp "graphql-node")"
+  printf '%s\n' "$node_state" > "$node_file"
+  jq -nc --slurpfile node "$node_file" --slurpfile comments "$comments_file" \
+    '{node: $node[0], comments: $comments[0]}'
+  gh_cleanup "$node_file"
+  gh_cleanup "$comments_file"
 }
 
 graphql_preflight_check() {
-  local state="$1"
-  local rest_comments="$2"
+  local state_file="$1"
+  local rest_comments_file="$2"
   local baseline_ids="$3"
   local allow_expected_effect="$4"
   local body_file="$5"
@@ -224,15 +237,12 @@ graphql_preflight_check() {
   local owner_repo="${14}"
   local baseline_resolved="${15}"
 
-  local body
-  body="$(cat "$body_file")"
-
   jq -n -c \
-    --argjson state "$state" \
-    --argjson rest_comments "$rest_comments" \
+    --slurpfile state "$state_file" \
+    --slurpfile rest_comments "$rest_comments_file" \
     --argjson baseline_ids "$baseline_ids" \
     --argjson allow_expected_effect "$allow_expected_effect" \
-    --arg body "$body" \
+    --rawfile body "$body_file" \
     --arg actor "$actor" \
     --argjson root_id "$root_id" \
     --arg root_node_id "$root_node_id" \
@@ -282,7 +292,9 @@ graphql_preflight_check() {
         (if $expected.has_author_association then $actual.author_association == $expected.author_association else true end) and
         (if $expected.url != null then $actual.url == $expected.url else true end);
 
-      ($rest_comments
+      ($state[0]) as $state_value
+      | ($rest_comments[0]) as $rest_value
+      | ($rest_value
         | map(select(.id == $root_id or .in_reply_to_id == $root_id) | rest_shape)) as $rest_thread0
       | ($rest_thread0 | map({key: (.id | tostring), value: .}) | from_entries) as $rest_by_id
       | ($rest_thread0 | map(. as $comment |
@@ -295,7 +307,7 @@ graphql_preflight_check() {
           }
         )) as $expected
       | ($expected | map(.id)) as $expected_ids
-      | ($state.comments) as $actual
+      | ($state_value.comments) as $actual
       | ($actual | map(.id)) as $actual_ids
       | ($actual | map(.id | tostring) | unique | length == ($actual | length)) as $unique_ids
       | ($actual | map(.node_id) | unique | length == ($actual | length)) as $unique_nodes
@@ -315,10 +327,10 @@ graphql_preflight_check() {
           ($comment.commit_id == $root_commit_id)
         ))) as $matching_extras
       | (
-          ($state.node.id == $thread_id) and
-          ($state.node.resolved == $baseline_resolved) and
-          ($state.node.pull_request_url == $pr_url) and
-          ($state.node.repository == $owner_repo) and
+          ($state_value.node.id == $thread_id) and
+          ($state_value.node.resolved == $baseline_resolved) and
+          ($state_value.node.pull_request_url == $pr_url) and
+          ($state_value.node.repository == $owner_repo) and
           ($rest_thread0 | map(select(.id == $root_id)) | length == 1) and
           ($expected | all(.[];
             (.id | type == "number") and
@@ -495,11 +507,13 @@ main() {
   # This is the operation preflight.  An old exact-body comment is harmless if
   # it is part of the baseline: it is not the effect of this operation.  Only
   # one new, exact, direct reply can be adopted as an operation-scoped retry.
-  local existing adopted="" adopted_id="" operation_already_applied=false
+  local existing existing_file adopted="" adopted_id="" operation_already_applied=false
   existing="$(call_gh_api_paginated "repos/$owner_repo/pulls/$pr_number/comments" '[.[]]' "100" 2>/dev/null)" || {
     envelope_fail "review-comments.reply" "API_ERROR" "Failed to fetch existing review comments" false
     exit 1
   }
+  existing_file="$(gh_make_temp "baseline-comments")"
+  printf '%s\n' "$existing" > "$existing_file"
   local delta
   delta="$(ids_and_delta "$baseline_ids" <<< "$existing")" || precondition_changed "Failed to compare operation baseline IDs"
   local added_count removed_count
@@ -546,15 +560,17 @@ main() {
 
   local root_line
   root_line="$(echo "$root" | jq -c '.line // null')"
-  local thread_state
+  local thread_state thread_state_file
   thread_state="$(graphql_thread_state "$thread_id" 2>/dev/null)" || {
     envelope_fail "review-comments.reply" "API_ERROR" "Failed to fetch root review thread state" false
     exit 1
   }
+  thread_state_file="$(gh_make_temp "graphql-thread-state")"
+  printf '%s\n' "$thread_state" > "$thread_state_file"
 
   local graphql_check
   graphql_check="$(graphql_preflight_check \
-    "$thread_state" "$existing" "$baseline_ids" "$allow_graph_expected_effect" \
+    "$thread_state_file" "$existing_file" "$baseline_ids" "$allow_graph_expected_effect" \
     "$request_body_file" "$actor" "$root_id" "$root_node_id" "$root_path" \
     "$root_line" "$root_commit_id" "$thread_id" "$pr_url" "$owner_repo" \
     "$baseline_thread_resolved")" || {
