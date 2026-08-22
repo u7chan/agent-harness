@@ -101,21 +101,32 @@ baseline_matches_current() {
 
 ids_and_delta() {
   local baseline_ids="$1"
-  local current_comments="$2"
+  local current_file
+  current_file="$(gh_make_temp "delta-comments")"
+  cat > "$current_file"
   local current_ids
-  current_ids="$(echo "$current_comments" | jq -c '[.[].id] | sort')" || return 1
-  jq -n \
+  current_ids="$(jq -c '[.[].id] | sort' "$current_file")" || {
+    gh_cleanup "$current_file"
+    return 1
+  }
+  local result
+  result="$(jq -n \
     --argjson baseline "$baseline_ids" \
     --argjson current "$current_ids" \
-    --argjson comments "$current_comments" \
+    --slurpfile comments "$current_file" \
     '{
       baseline: ($baseline | sort),
       current: $current,
       added: ($current - ($baseline | sort)),
       removed: (($baseline | sort) - $current),
-      added_comments: [$comments[] as $comment |
+      added_comments: [$comments[0][] as $comment |
         select((($current - ($baseline | sort)) | index($comment.id)) != null) | $comment]
-    }'
+    }')" || {
+    gh_cleanup "$current_file"
+    return 1
+  }
+  gh_cleanup "$current_file"
+  printf '%s\n' "$result"
 }
 
 main() {
@@ -260,7 +271,7 @@ main() {
     exit 1
   }
   local delta
-  delta="$(ids_and_delta "$baseline_ids" "$existing")" || precondition_changed "Failed to compare operation baseline IDs"
+  delta="$(ids_and_delta "$baseline_ids" <<< "$existing")" || precondition_changed "Failed to compare operation baseline IDs"
   local added_count removed_count
   added_count="$(echo "$delta" | jq -r '.added | length')"
   removed_count="$(echo "$delta" | jq -r '.removed | length')"
@@ -389,7 +400,7 @@ main() {
     exit 1
   }
   local after_delta after_added after_removed
-  after_delta="$(ids_and_delta "$baseline_ids" "$after")" || {
+  after_delta="$(ids_and_delta "$baseline_ids" <<< "$after")" || {
     envelope_unknown_outcome "review-comments.reply" "$pr_target" "$verified"
     exit 1
   }
