@@ -310,7 +310,7 @@ main() {
   }
   if ! echo "$thread_state" | jq -e \
     --arg thread_id "$thread_id" \
-    --arg parent_api_url "$parent_api_url" \
+    --arg pr_url "$pr_url" \
     --arg owner_repo "$owner_repo" \
     --arg root_node_id "$root_node_id" \
     --argjson root_id "$root_id" \
@@ -318,7 +318,7 @@ main() {
       .data.node != null and
       .data.node.id == $thread_id and
       .data.node.isResolved == $baseline_resolved and
-      .data.node.pullRequest.url == $parent_api_url and
+      .data.node.pullRequest.url == $pr_url and
       .data.node.pullRequest.repository.nameWithOwner == $owner_repo and
       (.data.node.comments.pageInfo | type == "object") and
       (.data.node.comments.pageInfo.hasNextPage | type == "boolean") and

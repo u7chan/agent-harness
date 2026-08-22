@@ -68,7 +68,7 @@ if len(args) > 1 and args[1] == "graphql":
             "id": thread["id"],
             "isResolved": is_resolved,
             "pullRequest": {
-                "url": "https://api.github.com/repos/u7chan/agent-harness/pulls/200",
+                "url": "https://github.com/u7chan/agent-harness/pull/200",
                 "repository": {"nameWithOwner": "u7chan/agent-harness"},
             },
             "comments": {
