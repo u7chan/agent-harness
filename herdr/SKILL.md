@@ -1,6 +1,6 @@
 ---
 name: herdr
-description: Delegate work to coding agents in sibling Herdr panes. Use only when the user explicitly mentions Herdr or asks to use Herdr to delegate, inspect, prompt, or coordinate another agent. Requires HERDR_ENV=1.
+description: Delegate work to coding agents in sibling Herdr panes. Use when the user explicitly mentions Herdr or asks to delegate, inspect, prompt, or coordinate another agent in a separate pane, including requests using the Japanese term "別ペイン" without mentioning Herdr. Requires HERDR_ENV=1.
 ---
 
 # Herdr
@@ -50,7 +50,6 @@ After starting the agent, set the pane label to the same responsibility-based na
 
 ## Rules
 
-- Use Herdr only when explicitly requested.
 - Keep shared work in the current workspace and worktree.
 - Use an explicit Herdr worktree workspace for independent branches.
 - Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested.
