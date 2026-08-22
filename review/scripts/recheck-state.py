@@ -71,6 +71,36 @@ def json_hash(value: Any) -> str:
     return sha256_text(encoded)
 
 
+def comment_fingerprint_material(comment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "comment_id": comment["comment_id"],
+        "node_id": comment["node_id"],
+        "actor": comment["actor"],
+        "reply_to_comment_id": comment["reply_to_comment_id"],
+        "reply_to_node_id": comment["reply_to_node_id"],
+        "body_hash": comment["body_hash"],
+        "path": comment["path"],
+        "line": comment["line"],
+        "commit_id": comment["commit_id"],
+        "created_at": comment["created_at"],
+        "updated_at": comment["updated_at"],
+        "last_edited_at": comment["last_edited_at"],
+    }
+
+
+def thread_fingerprint_material(thread: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "thread_id": thread["thread_id"],
+        "resolved": thread["resolved"],
+        "comments": [comment_fingerprint_material(comment) for comment in thread["comments"]],
+    }
+
+
+def thread_fingerprint(thread: dict[str, Any]) -> str:
+    """Hash one thread without depending on any other PR thread."""
+    return json_hash(thread_fingerprint_material(thread))
+
+
 def first_present(obj: dict[str, Any], *names: str, default: Any = None) -> Any:
     for name in names:
         if name in obj:
@@ -390,45 +420,21 @@ def reconcile(raw_input: dict[str, Any]) -> tuple[dict[str, Any] | None, str | N
             if comment["reply_to_node_id"] != root_node_id:
                 return None, f"comment {comment['comment_id']} is not a direct root reply"
 
-        normalized_threads.append(
-            {
-                "thread_id": thread_id,
-                "resolved": resolved,
-                "root_comment_id": root["comment_id"],
-                "tail_comment_id": comments[-1]["comment_id"],
-                "comments": comments,
-            }
-        )
+        normalized_thread = {
+            "thread_id": thread_id,
+            "resolved": resolved,
+            "root_comment_id": root["comment_id"],
+            "tail_comment_id": comments[-1]["comment_id"],
+            "comments": comments,
+        }
+        normalized_thread["thread_fingerprint"] = thread_fingerprint(normalized_thread)
+        normalized_threads.append(normalized_thread)
 
     if len(membership) != len(rest_comments):
         missing = sorted(set(rest_by_id) - set(membership))
         return None, f"REST comments absent from GraphQL threads: {missing}"
 
-    fingerprint_material = []
-    for thread in normalized_threads:
-        fingerprint_material.append(
-            {
-                "thread_id": thread["thread_id"],
-                "resolved": thread["resolved"],
-                "comments": [
-                    {
-                        "comment_id": comment["comment_id"],
-                        "node_id": comment["node_id"],
-                        "actor": comment["actor"],
-                        "reply_to_comment_id": comment["reply_to_comment_id"],
-                        "reply_to_node_id": comment["reply_to_node_id"],
-                        "body_hash": comment["body_hash"],
-                        "path": comment["path"],
-                        "line": comment["line"],
-                        "commit_id": comment["commit_id"],
-                        "created_at": comment["created_at"],
-                        "updated_at": comment["updated_at"],
-                        "last_edited_at": comment["last_edited_at"],
-                    }
-                    for comment in thread["comments"]
-                ],
-            }
-        )
+    fingerprint_material = [thread_fingerprint_material(thread) for thread in normalized_threads]
 
     canonical = {"threads": normalized_threads, "comment_ids": []}
     # Keep the ordered GraphQL connection as the only source of ordering.  The
@@ -520,29 +526,12 @@ def snapshot_from(value: Any) -> tuple[dict[str, Any] | None, str | None]:
                     return None, f"canonical comment {cid} has inconsistent reply topology"
                 if reply_node != root_node:
                     return None, f"canonical comment {cid} is not a direct root reply"
-        material.append(
-            {
-                "thread_id": tid,
-                "resolved": thread["resolved"],
-                "comments": [
-                    {
-                        "comment_id": c["comment_id"],
-                        "node_id": c["node_id"],
-                        "actor": c["actor"],
-                        "reply_to_comment_id": c.get("reply_to_comment_id"),
-                        "reply_to_node_id": c.get("reply_to_node_id"),
-                        "body_hash": c["body_hash"],
-                        "path": c.get("path"),
-                        "line": c.get("line"),
-                        "commit_id": c.get("commit_id"),
-                        "created_at": c.get("created_at"),
-                        "updated_at": c.get("updated_at"),
-                        "last_edited_at": c.get("last_edited_at"),
-                    }
-                    for c in comments
-                ],
-            }
-        )
+        thread_material = thread_fingerprint_material(thread)
+        expected_thread_fingerprint = json_hash(thread_material)
+        if "thread_fingerprint" in thread and thread["thread_fingerprint"] != expected_thread_fingerprint:
+            return None, f"canonical thread {tid} fingerprint is inconsistent"
+        thread["thread_fingerprint"] = expected_thread_fingerprint
+        material.append(thread_material)
     if canonical.get("comment_ids") != all_ids:
         return None, "canonical comment order is inconsistent"
     expected_fingerprint = json_hash(material)
@@ -611,6 +600,7 @@ def record_base(
     verification_head_sha: str,
     plan_fingerprint: str,
     verified_fingerprint: str,
+    verified_snapshot_fingerprint: str,
     classification_reply_id: int,
     reply_source: str,
     materialization_state: str,
@@ -631,7 +621,11 @@ def record_base(
         "transport_outcome": transport_outcome,
         "verification_head_sha": verification_head_sha,
         "plan_fingerprint": plan_fingerprint,
+        # ``verified_fingerprint`` is deliberately scoped to this record's
+        # target thread.  The full snapshot checkpoint remains available for
+        # deterministic this-run delta reconciliation below.
         "verified_fingerprint": verified_fingerprint,
+        "verified_snapshot_fingerprint": verified_snapshot_fingerprint,
         "anchor_body_hash": anchor["body_hash"],
         "anchor_updated_at": anchor.get("updated_at"),
         "anchor_last_edited_at": anchor.get("last_edited_at"),
@@ -770,7 +764,8 @@ def operation_verify_reuse(input_data: dict[str, Any]) -> int:
         classification="Resolved",
         verification_head_sha=head,
         plan_fingerprint=plan["plan_fingerprint"],
-        verified_fingerprint=fresh["fingerprint"],
+        verified_fingerprint=thread["thread_fingerprint"],
+        verified_snapshot_fingerprint=fresh["fingerprint"],
         classification_reply_id=tail["comment_id"],
         reply_source="reused",
         materialization_state="reused_reply_verified",
@@ -897,7 +892,8 @@ def operation_verify_transport(input_data: dict[str, Any]) -> int:
         classification=plan["classification"],
         verification_head_sha=head,
         plan_fingerprint=plan["plan_fingerprint"],
-        verified_fingerprint=fresh["fingerprint"],
+        verified_fingerprint=thread["thread_fingerprint"],
+        verified_snapshot_fingerprint=fresh["fingerprint"],
         classification_reply_id=comment["comment_id"],
         reply_source="new",
         materialization_state=materialization,
@@ -926,12 +922,17 @@ def common_record_checks(record: Any) -> tuple[dict[str, Any] | None, str | None
         "verification_head_sha",
         "plan_fingerprint",
         "verified_fingerprint",
+        "verified_snapshot_fingerprint",
     }
     missing = sorted(field for field in required if field not in record)
     if missing:
         return None, f"record is missing fields: {', '.join(missing)}"
     if record["classification"] != "Resolved":
         return None, "classification is not Resolved"
+    if not isinstance(record["verified_fingerprint"], str) or not record["verified_fingerprint"]:
+        return None, "verified thread fingerprint is invalid"
+    if not isinstance(record["verified_snapshot_fingerprint"], str) or not record["verified_snapshot_fingerprint"]:
+        return None, "verified snapshot fingerprint is invalid"
     if record["materialization_state"] not in MATERIALIZATION_STATES:
         return None, "materialization state is not verified"
     if record.get("reply_source") not in {"new", "reused"}:
@@ -939,8 +940,8 @@ def common_record_checks(record: Any) -> tuple[dict[str, Any] | None, str | None
     if record["materialization_state"] == "reused_reply_verified":
         if record.get("reply_source") != "reused" or record.get("transport_outcome") != "none":
             return None, "reused reply state has an invalid source or transport outcome"
-        if record.get("verified_fingerprint") != record.get("plan_fingerprint"):
-            return None, "reused reply state does not preserve the plan fingerprint"
+        if record.get("verified_snapshot_fingerprint") != record.get("plan_fingerprint"):
+            return None, "reused reply state does not preserve the plan snapshot fingerprint"
     elif record["materialization_state"] == "new_reply_verified":
         if record.get("reply_source") != "new" or record.get("transport_outcome") != "ok":
             return None, "new reply state has an invalid source or transport outcome"
@@ -969,26 +970,30 @@ def operation_resolve_eligibility(input_data: dict[str, Any]) -> int:
     if error:
         return stop("resolve_eligibility", "snapshot_invalid", detail=error)
     assert fresh is not None
-    if fresh["fingerprint"] != record["verified_fingerprint"]:
-        # A resolver outside this run may have toggled only the thread state
-        # after the verified checkpoint.  Keep that observable outcome
-        # separate from a target this run is allowed to resolve; any other
-        # delta remains fail-closed.
-        changed_thread = thread_for(fresh, record["thread_id"])
-        verified_snapshot = input_data.get("verified_snapshot", record.get("verified_snapshot"))
-        if changed_thread is not None and changed_thread.get("resolved") is True and verified_snapshot is not None:
-            before_verified, before_error = snapshot_from(verified_snapshot)
-            if before_error is None and before_verified is not None:
-                only_state, _ = only_resolved_toggle(before_verified, fresh, record["thread_id"])
-                if only_state:
-                    return emit(
-                        "resolve_eligibility",
-                        decision="already_resolved_external",
-                        eligible=False,
-                        thread_id=record["thread_id"],
-                        anchor_id=record["classification_reply_id"],
-                    )
-        return stop("resolve_eligibility", "fingerprint_mismatch")
+    verified_snapshot_value = input_data.get("verified_snapshot", record.get("verified_snapshot"))
+    verified_snapshot, verified_error = snapshot_from(verified_snapshot_value)
+    if verified_error:
+        return stop("resolve_eligibility", "verified_snapshot_invalid", detail=verified_error)
+    assert verified_snapshot is not None
+    if verified_snapshot["fingerprint"] != record["verified_snapshot_fingerprint"]:
+        return stop("resolve_eligibility", "verified_snapshot_fingerprint_mismatch")
+    verified_thread = thread_for(verified_snapshot, record["thread_id"])
+    if verified_thread is None:
+        return stop("resolve_eligibility", "verified_thread_missing")
+    if verified_thread["thread_fingerprint"] != record["verified_fingerprint"]:
+        return stop("resolve_eligibility", "verified_thread_fingerprint_mismatch")
+    run_ids, run_error = this_run_resolve_ids(input_data, record["thread_id"])
+    if run_error:
+        return stop("resolve_eligibility", run_error)
+    delta_ok, delta_detail, target_changed = resolve_snapshot_delta(
+        verified_snapshot,
+        fresh,
+        record["thread_id"],
+        run_ids,
+        allow_target_toggle=True,
+    )
+    if not delta_ok:
+        return stop("resolve_eligibility", "fingerprint_mismatch", detail=delta_detail)
     thread, error = select_thread(fresh, record["thread_id"])
     if error:
         return stop("resolve_eligibility", error)
@@ -997,7 +1002,7 @@ def operation_resolve_eligibility(input_data: dict[str, Any]) -> int:
     if error:
         return stop("resolve_eligibility", error)
     assert root is not None and tail is not None
-    if thread["resolved"]:
+    if target_changed:
         return emit(
             "resolve_eligibility",
             decision="already_resolved_external",
@@ -1005,6 +1010,10 @@ def operation_resolve_eligibility(input_data: dict[str, Any]) -> int:
             thread_id=record["thread_id"],
             anchor_id=record["classification_reply_id"],
         )
+    if thread["thread_fingerprint"] != record["verified_fingerprint"]:
+        return stop("resolve_eligibility", "thread_fingerprint_mismatch")
+    if thread["resolved"]:
+        return stop("resolve_eligibility", "unexpected_resolved_state")
     parsed = classification_from_body(tail["body"])
     if (
         root["actor"] != record["reviewer_login"]
@@ -1027,7 +1036,132 @@ def operation_resolve_eligibility(input_data: dict[str, Any]) -> int:
         root_comment_id=record["root_comment_id"],
         anchor_id=record["classification_reply_id"],
         verified_fingerprint=record["verified_fingerprint"],
+        verified_snapshot_fingerprint=fresh["fingerprint"],
     )
+
+
+def this_run_resolve_ids(
+    input_data: dict[str, Any], target_thread_id: str
+) -> tuple[dict[str, dict[str, Any]], str | None]:
+    """Validate prior successful Resolve results used as an expected delta.
+
+    A thread-scoped fingerprint makes independent provisional targets stable,
+    but it must not turn every other-thread change into an allowed change.  The
+    caller therefore supplies the helper's own ``resolved_by_run`` results for
+    earlier targets in this run.  Only those exact unresolved-to-resolved
+    transitions are admitted by ``resolve_snapshot_delta``.
+    """
+    entries = first_present(
+        input_data,
+        "this_run_resolve_records",
+        "run_resolve_records",
+        default=[],
+    )
+    if entries is None:
+        entries = []
+    if not isinstance(entries, list):
+        return {}, "this-run Resolve records are not an array"
+    thread_records: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("decision") != "resolved_by_run":
+            return {}, "this-run Resolve record is not a verified resolved_by_run result"
+        thread_id = entry.get("thread_id")
+        if not isinstance(thread_id, str) or not thread_id:
+            return {}, "this-run Resolve record has no thread id"
+        if thread_id == target_thread_id:
+            return {}, "this-run Resolve records include the current target"
+        if thread_id in thread_records:
+            return {}, f"duplicate this-run Resolve record for thread {thread_id}"
+        for field in (
+            "before_snapshot_fingerprint",
+            "after_snapshot_fingerprint",
+            "before_thread_fingerprint",
+            "after_thread_fingerprint",
+        ):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value:
+                return {}, f"this-run Resolve record is missing {field}"
+        thread_records[thread_id] = entry
+    return thread_records, None
+
+
+def thread_resolved_toggle(before: dict[str, Any], after: dict[str, Any]) -> tuple[bool, str]:
+    if before["thread_id"] != after["thread_id"]:
+        return False, "thread identity changed"
+    if before["resolved"] is not False or after["resolved"] is not True:
+        return False, "thread did not change from unresolved to resolved"
+    if before["comments"] != after["comments"]:
+        return False, "thread comments changed"
+    return True, "resolved state only"
+
+
+def after_thread_fingerprint(snapshot: dict[str, Any], thread_id: str) -> str:
+    thread = thread_for(snapshot, thread_id)
+    if thread is None:
+        return ""
+    return thread["thread_fingerprint"]
+
+
+def resolve_snapshot_delta(
+    baseline: dict[str, Any],
+    fresh: dict[str, Any],
+    target_thread_id: str,
+    allowed_thread_records: dict[str, dict[str, Any]],
+    *,
+    allow_target_toggle: bool,
+) -> tuple[bool, str, bool]:
+    """Reconcile a Resolve checkpoint against a fresh full snapshot.
+
+    The target may either remain byte-for-byte stable or, for eligibility,
+    make one externally observed false-to-true state transition.  Other
+    threads may change only through a declared, helper-verified prior
+    ``resolved_by_run`` result whose thread fingerprints match; edits, replies, deletions, identity changes,
+    and unlisted state changes remain fail-closed.
+    """
+    before_ids = [thread["thread_id"] for thread in baseline["threads"]]
+    after_ids = [thread["thread_id"] for thread in fresh["threads"]]
+    if before_ids != after_ids:
+        return False, "thread topology changed", False
+    if target_thread_id in allowed_thread_records:
+        return False, "target thread is listed as an earlier Resolve", False
+    expected_checkpoint = baseline["fingerprint"]
+    for thread_id, run_record in allowed_thread_records.items():
+        if run_record["before_snapshot_fingerprint"] != expected_checkpoint:
+            return False, f"this-run Resolve checkpoint chain mismatch before thread {thread_id}", False
+        expected_checkpoint = run_record["after_snapshot_fingerprint"]
+
+    changed_allowed: set[str] = set()
+    target_changed = False
+    for before, after in zip(baseline["threads"], fresh["threads"]):
+        if before == after:
+            continue
+        thread_id = before["thread_id"]
+        if thread_id == target_thread_id:
+            if not allow_target_toggle:
+                return False, "target thread changed before Resolve", False
+            toggled, detail = thread_resolved_toggle(before, after)
+            if not toggled:
+                return False, detail, False
+            target_changed = True
+            continue
+        if thread_id not in allowed_thread_records:
+            return False, f"unverified change in thread {thread_id}", False
+        toggled, detail = thread_resolved_toggle(before, after)
+        if not toggled:
+            return False, detail, False
+        run_record = allowed_thread_records[thread_id]
+        if run_record["before_thread_fingerprint"] != before["thread_fingerprint"]:
+            return False, f"this-run Resolve baseline fingerprint mismatch for thread {thread_id}", False
+        if run_record["after_thread_fingerprint"] != after["thread_fingerprint"]:
+            return False, f"this-run Resolve result fingerprint mismatch for thread {thread_id}", False
+        changed_allowed.add(thread_id)
+
+    missing_allowed = set(allowed_thread_records) - changed_allowed
+    if missing_allowed:
+        return False, f"declared Resolve delta is absent: {sorted(missing_allowed)}", False
+    if not target_changed and allowed_thread_records and expected_checkpoint != fresh["fingerprint"]:
+        return False, "this-run Resolve checkpoint chain does not reach fresh snapshot", False
+    return True, "verified Resolve delta", target_changed
 
 
 def only_resolved_toggle(before: dict[str, Any], after: dict[str, Any], thread_id: str) -> tuple[bool, str]:
@@ -1046,6 +1180,27 @@ def only_resolved_toggle(before: dict[str, Any], after: dict[str, Any], thread_i
     return (changed == 1, "resolved state only" if changed == 1 else "target thread missing")
 
 
+def already_resolved_post_read(
+    before: dict[str, Any], after: dict[str, Any], thread_id: str
+) -> tuple[bool, str]:
+    """Verify an already-applied Resolve without requiring a false->true delta."""
+    if [t["thread_id"] for t in before["threads"]] != [t["thread_id"] for t in after["threads"]]:
+        return False, "thread topology changed"
+    target_found = False
+    for old, new in zip(before["threads"], after["threads"]):
+        if old["thread_id"] == thread_id:
+            if new["resolved"] is not True:
+                return False, "post-read target thread is not resolved"
+            if old["comments"] != new["comments"]:
+                return False, "target thread comments changed"
+            target_found = True
+        elif old != new:
+            return False, "another thread changed"
+    if not target_found:
+        return False, "target thread missing"
+    return True, "resolved target verified"
+
+
 def operation_resolve_post(input_data: dict[str, Any]) -> int:
     record, error = common_record_checks(input_data.get("record"))
     if error:
@@ -1058,24 +1213,51 @@ def operation_resolve_post(input_data: dict[str, Any]) -> int:
     if error:
         return stop("resolve_post", "snapshot_invalid", detail=error)
     assert before is not None and after is not None
-    if before["fingerprint"] != record["verified_fingerprint"]:
-        return stop("resolve_post", "before_fingerprint_mismatch")
+    verified_snapshot_value = record.get("verified_snapshot")
+    verified_snapshot, verified_error = snapshot_from(verified_snapshot_value)
+    if verified_error:
+        return stop("resolve_post", "verified_snapshot_invalid", detail=verified_error)
+    assert verified_snapshot is not None
+    if verified_snapshot["fingerprint"] != record["verified_snapshot_fingerprint"]:
+        return stop("resolve_post", "verified_snapshot_fingerprint_mismatch")
+    verified_thread = thread_for(verified_snapshot, record["thread_id"])
+    if verified_thread is None:
+        return stop("resolve_post", "verified_thread_missing")
+    before_thread = thread_for(before, record["thread_id"])
+    if before_thread is None:
+        return stop("resolve_post", "before_thread_missing")
+    run_ids, run_error = this_run_resolve_ids(input_data, record["thread_id"])
+    if run_error:
+        return stop("resolve_post", run_error)
+    delta_ok, delta_detail, _ = resolve_snapshot_delta(
+        verified_snapshot,
+        before,
+        record["thread_id"],
+        run_ids,
+        allow_target_toggle=True,
+    )
+    if not delta_ok:
+        return stop("resolve_post", "before_fingerprint_mismatch", detail=delta_detail)
+    if before_thread["thread_fingerprint"] != record["verified_fingerprint"]:
+        toggled_before_action, _ = thread_resolved_toggle(verified_thread, before_thread)
+        if not toggled_before_action:
+            return stop("resolve_post", "before_thread_fingerprint_mismatch")
     outcome = input_data.get("transport_outcome", input_data.get("outcome", "ok"))
     if outcome in {"failed", "unknown_outcome"}:
         return stop("resolve_post", outcome)
     if outcome == "already_applied":
         # ``already_applied`` means this invocation did not perform the
-        # mutation.  Preserve the state-only delta check for safety, but
-        # never count that delta as work done by this run.
-        changed, detail = only_resolved_toggle(before, after, record["thread_id"])
-        if not changed and before["fingerprint"] != after["fingerprint"]:
+        # mutation.  The post-read must nevertheless prove that the target
+        # is resolved; a before==after unresolved snapshot is not success.
+        resolved, detail = already_resolved_post_read(before, after, record["thread_id"])
+        if not resolved:
             return stop("resolve_post", "precondition_changed", detail=detail)
         return emit(
             "resolve_post",
             decision="already_resolved_external",
             eligible=False,
             thread_id=record["thread_id"],
-            state_delta_verified=changed,
+            state_delta_verified=True,
         )
     changed, detail = only_resolved_toggle(before, after, record["thread_id"])
     if not changed:
@@ -1086,7 +1268,11 @@ def operation_resolve_post(input_data: dict[str, Any]) -> int:
         eligible=True,
         thread_id=record["thread_id"],
         anchor_id=record["classification_reply_id"],
-        verified_fingerprint=after["fingerprint"],
+        verified_fingerprint=after_thread_fingerprint(after, record["thread_id"]),
+        before_snapshot_fingerprint=before["fingerprint"],
+        after_snapshot_fingerprint=after["fingerprint"],
+        before_thread_fingerprint=before_thread["thread_fingerprint"],
+        after_thread_fingerprint=after_thread_fingerprint(after, record["thread_id"]),
     )
 
 

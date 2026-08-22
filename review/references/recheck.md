@@ -10,7 +10,7 @@ helper の入力は次の操作を持つ JSON である。
 - `reconcile`: REST comments と GraphQL threads/comments を、GraphQL connection の順序を保ったまま ID、actor、body、reply topology、edit metadata で一意に照合し、ordered fingerprint を返す。ID 欠落・重複、片 API の欠落、pagination incomplete、topology/body/edit metadata 不一致は `stop` になる。REST にない edit history は比較せず、GraphQL `lastEditedAt` を fingerprint の正本にする。
 - `plan`: 現在 head で再評価した分類と tail を比較し、`post`、`reuse`、`stop` を返す。semantic reuse は自分の同じ root への direct `Resolved` tail だけに限定する。
 - `verify_reuse` / `verify_transport`: plan fingerprint と fresh fingerprint の一致、または `F0 -> expected reply 1件だけ -> F1` を検証し、`new_reply_verified`、`reused_reply_verified`、`already_applied_reply_verified`、`transport_already_applied`、`precondition_changed`、`failed`、`unknown_outcome` を区別する。
-- `resolve_eligibility` / `resolve_post`: head、検証済み LGTM、root/thread/reviewer/anchor、fingerprint、tail、未 Resolve 状態と、Resolve 後の `resolved=false -> true` 以外の差分がないことを判定する。Resolve Action の `already_applied` は state-only delta を検証しても常に `already_resolved_external` として分離する。
+- `resolve_eligibility` / `resolve_post`: head、検証済み LGTM、root/thread/reviewer/anchor、対象 thread 単位の fingerprint、tail、未 Resolve 状態と、Resolve 後の `resolved=false -> true` 以外の差分がないことを判定する。PR 全体の snapshot checkpoint は保持するが、対象外 thread の変更は無条件に許可しない。先行する同一 run の `resolved_by_run` 結果を `this_run_resolve_records` として渡した場合だけ、その thread のコメント不変な `false -> true` delta を許可する。Resolve Action の `already_applied` は対象 thread が fresh read で検証済みの `resolved=true` になった場合だけ `already_resolved_external` とし、未解決・欠落・不一致・取得不能は fail closed にする。
 
 各 record は実行中だけ次を保持し、ファイルや再起動後へ持ち越さない。
 
@@ -18,8 +18,10 @@ helper の入力は次の操作を持つ JSON である。
 thread_id, root_comment_id, reviewer_login, classification,
 classification_reply_id, reply_source, materialization_state,
 transport_outcome, verification_head_sha, plan_fingerprint,
-verified_fingerprint
+verified_fingerprint, verified_snapshot_fingerprint
 ```
+
+`verified_fingerprint` は record の対象 thread だけの fingerprint、`verified_snapshot_fingerprint` は分類返信を検証した PR 全体 snapshot の checkpoint である。`verified_snapshot` は同一 run の memory-only reconciliation に使い、再起動後へ持ち越さない。
 
 `verification_head_sha == lgtm_commit_id == Resolve 直前の current head.sha` を満たさない record は、LGTM/Resolve eligibility に入れない。
 
@@ -73,8 +75,8 @@ Blocker がないことを確認した後でだけ、固定した最新 head に
 
 1. `pr.read` を Resolve の直前に実行し、対象の PR が同じで、現在の `head.sha` が検証済み LGTM の `lgtm_commit_id` と一致することを確認する。head が変化した、取得に失敗した、または一致を確認できない場合は Resolve せず、その時点で不明または未解決として報告する。
 2. `review-threads.read` と `review-comments.read` を再実行し、対象の PR、`thread_id`、`root_comment_id`、root の `reviewer_login`、今回の `classification_reply_id`、返信本文の `Resolved` 分類が変わっていないことを確認する。ユーザー判断待ち、他者の root、返信の欠落、対象不一致なら Resolve しない。
-3. 対象がまだ未解決なら `review-threads.resolve` を実行する。すでに解決済みなら、外部で変更された可能性として状態を検証し、対象集合との一致を確認する。
-4. Resolve の直後に同じ対象を再取得し、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
+3. 対象がまだ未解決なら `review-threads.resolve` を実行する。すでに解決済みなら、外部で変更された可能性として状態を検証し、対象集合との一致を確認する。複数の provisional target を逐次処理する場合、先行してこの run で `resolved_by_run` を検証した結果だけを `this_run_resolve_records` に渡す。未検証の他 thread の編集、削除、identity変更、state変更は許可しない。
+4. Resolve の直後に同じ対象を再取得し、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。`already_applied` で fresh target が `resolved=false` のまま、または target が欠落・不一致の場合は成功件数にも target にも加えない。
 5. `failed`、`unknown_outcome`、head の取得失敗・変化、再取得失敗、状態不一致は成功として扱わず、その thread を未解決または不明として報告する。別の thread の成功で置き換えたり、結果不明のまま再試行したりしない。
 
 この順序により、LGTM のない Resolve、単なる push を根拠にした Resolve、対象を取り違えた Resolve を防ぐ。対象集合に入らないすべてのスレッドは、`Partial`、`Unresolved`、`Unknown`、他者の投稿、ユーザー判断待ちを含め、未解決のまま保持する。

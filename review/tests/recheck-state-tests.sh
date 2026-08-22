@@ -116,7 +116,8 @@ expected_reply='{"id":102,"body":"**Resolved**: new evidence","actor":"reviewer"
 transport_ok="$(json_input unused --argjson plan "$plan_post" --argjson before "$root_snapshot" --argjson after "$post_snapshot" --argjson expected "$expected_reply" --arg head "$H" \
   '{operation:"verify_transport",plan:$plan,plan_snapshot:$before,fresh_snapshot:$after,expected_reply:$expected,transport_outcome:"ok",verification_head_sha:$head}')"
 assert_decision "expected reply delta verifies" "$transport_ok" new_reply_verified
-assert_field "post fingerprint is retained" "$transport_ok" '.record.verified_fingerprint' "$(jq -r '.snapshot.fingerprint' <<< "$post_reconcile")"
+assert_field "post snapshot fingerprint is retained" "$transport_ok" '.record.verified_snapshot_fingerprint' "$(jq -r '.snapshot.fingerprint' <<< "$post_reconcile")"
+assert_field "post target thread fingerprint is retained" "$transport_ok" '.record.verified_fingerprint' "$(jq -r '.snapshot.threads[0].thread_fingerprint' <<< "$post_reconcile")"
 
 transport_already="$(json_input unused --argjson plan "$plan_post" --argjson before "$root_snapshot" --argjson after "$post_snapshot" --argjson expected "$expected_reply" --arg head "$H" \
   '{operation:"verify_transport",plan:$plan,plan_snapshot:$before,fresh_snapshot:$after,expected_reply:$expected,transport_outcome:"already_applied",verification_head_sha:$head}')"
@@ -163,9 +164,92 @@ resolve_already_applied="$(json_input unused --argjson record "$record" --argjso
   '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:"already_applied"}')"
 assert_decision "already-applied Resolve is external" "$resolve_already_applied" already_resolved_external
 assert_field "already-applied Resolve preserves state-only verification" "$resolve_already_applied" '.state_delta_verified' true
+resolve_already_stably_resolved="$(json_input unused --argjson record "$record" --argjson before "$resolved_after" --argjson after "$resolved_after" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:"already_applied"}')"
+assert_decision "already-applied already-resolved post-read is external" "$resolve_already_stably_resolved" already_resolved_external
+resolve_already_unresolved="$(json_input unused --argjson record "$record" --argjson before "$post_snapshot" --argjson after "$post_snapshot" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:"already_applied"}')"
+assert_decision "already-applied unresolved post-read fails closed" "$resolve_already_unresolved" stop
 external_resolve="$(json_input unused --argjson record "$record" --argjson fresh "$resolved_after" --arg head "$H" \
   '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
 assert_decision "external Resolve is reported separately" "$external_resolve" already_resolved_external
+
+# Resolve records are thread-scoped, while an explicitly supplied successful
+# Resolve result is the only permitted delta from an earlier target in this
+# run.  This exercises A -> B sequencing and rejects both target and unrelated
+# external changes.
+multi_reconcile="$(jq '. + {operation:"reconcile"}' "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" | "$HELPER")"
+assert_decision "multi-thread fixture reconciles" "$multi_reconcile" ok
+multi_snapshot="$(jq -c '.snapshot' <<< "$multi_reconcile")"
+multi_plan_a="$(json_input unused --argjson snapshot "$multi_snapshot" --arg head "$H" \
+  '{operation:"plan",snapshot:$snapshot,classification:"Resolved",reviewer_login:"reviewer",thread_id:"PRRT_kwDOtest1",root_comment_id:100,verification_head_sha:$head}')"
+multi_plan_b="$(json_input unused --argjson snapshot "$multi_snapshot" --arg head "$H" \
+  '{operation:"plan",snapshot:$snapshot,classification:"Resolved",reviewer_login:"reviewer",thread_id:"PRRT_kwDOtest2",root_comment_id:200,verification_head_sha:$head}')"
+assert_decision "multi-thread A reuses" "$multi_plan_a" reuse
+assert_decision "multi-thread B reuses" "$multi_plan_b" reuse
+multi_record_a="$(json_input unused --argjson plan "$multi_plan_a" --argjson snapshot "$multi_snapshot" --arg head "$H" \
+  '{operation:"verify_reuse",plan:$plan,plan_snapshot:$snapshot,fresh_snapshot:$snapshot,verification_head_sha:$head}' | jq -c '.record')"
+multi_record_b="$(json_input unused --argjson plan "$multi_plan_b" --argjson snapshot "$multi_snapshot" --arg head "$H" \
+  '{operation:"verify_reuse",plan:$plan,plan_snapshot:$snapshot,fresh_snapshot:$snapshot,verification_head_sha:$head}' | jq -c '.record')"
+assert_field "B record keeps a thread-scoped fingerprint" "$multi_record_b" '.verified_fingerprint' "$(jq -r '.snapshot.threads[1].thread_fingerprint' <<< "$multi_reconcile")"
+multi_after_a="$(jq '.graphql.threads[0].resolved = true | . + {operation:"reconcile"}' "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" | "$HELPER" | jq -c '.snapshot')"
+multi_after_ab="$(jq '.graphql.threads[0].resolved = true | .graphql.threads[1].resolved = true | . + {operation:"reconcile"}' "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" | "$HELPER" | jq -c '.snapshot')"
+multi_resolve_a="$(json_input unused --argjson record "$multi_record_a" --argjson before "$multi_snapshot" --argjson after "$multi_after_a" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,transport_outcome:"ok"}')"
+assert_decision "multi-thread A resolves by run" "$multi_resolve_a" resolved_by_run
+multi_eligibility_b="$(json_input unused --argjson record "$multi_record_b" --argjson fresh "$multi_after_a" --argjson run "$multi_resolve_a" --arg head "$H" \
+  '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,this_run_resolve_records:[$run],current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
+assert_decision "B remains eligible after verified A Resolve" "$multi_eligibility_b" eligible
+multi_resolve_b="$(json_input unused --argjson record "$multi_record_b" --argjson before "$multi_after_a" --argjson after "$multi_after_ab" --argjson run "$multi_resolve_a" \
+  '{operation:"resolve_post",record:$record,before_snapshot:$before,after_snapshot:$after,this_run_resolve_records:[$run],transport_outcome:"ok"}')"
+assert_decision "B resolves after verified A Resolve" "$multi_resolve_b" resolved_by_run
+
+multi_b_edit_raw="$TMP/multi-b-edit.json"
+jq '.rest.items[3].body = "edited second evidence" | .graphql.threads[1].comments[1].body = "edited second evidence"' \
+  "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" > "$multi_b_edit_raw"
+multi_b_edit="$(jq '. + {operation:"reconcile"}' "$multi_b_edit_raw" | "$HELPER" | jq -c '.snapshot')"
+multi_b_edit_check="$(json_input unused --argjson record "$multi_record_b" --argjson fresh "$multi_b_edit" --arg head "$H" \
+  '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
+assert_decision "B edit fails closed" "$multi_b_edit_check" stop
+
+multi_b_delete_raw="$TMP/multi-b-delete.json"
+jq 'del(.rest.items[3], .graphql.threads[1].comments[1])' \
+  "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" > "$multi_b_delete_raw"
+multi_b_delete="$(jq '. + {operation:"reconcile"}' "$multi_b_delete_raw" | "$HELPER" | jq -c '.snapshot')"
+multi_b_delete_check="$(json_input unused --argjson record "$multi_record_b" --argjson fresh "$multi_b_delete" --arg head "$H" \
+  '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
+assert_decision "B deleted comment fails closed" "$multi_b_delete_check" stop
+
+multi_b_identity_raw="$TMP/multi-b-identity.json"
+jq '.graphql.threads[1].thread_id = "PRRT_other_identity"' \
+  "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" > "$multi_b_identity_raw"
+multi_b_identity="$(jq '. + {operation:"reconcile"}' "$multi_b_identity_raw" | "$HELPER" | jq -c '.snapshot')"
+multi_b_identity_check="$(json_input unused --argjson record "$multi_record_b" --argjson fresh "$multi_b_identity" --arg head "$H" \
+  '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
+assert_decision "B thread identity change fails closed" "$multi_b_identity_check" stop
+
+multi_b_resolved_raw="$TMP/multi-b-resolved.json"
+jq '.graphql.threads[1].resolved = true' "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" > "$multi_b_resolved_raw"
+multi_b_resolved="$(jq '. + {operation:"reconcile"}' "$multi_b_resolved_raw" | "$HELPER" | jq -c '.snapshot')"
+multi_b_resolved_check="$(json_input unused --argjson record "$multi_record_b" --argjson fresh "$multi_b_resolved" --arg head "$H" \
+  '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
+assert_decision "B externally resolved is not eligible" "$multi_b_resolved_check" already_resolved_external
+assert_field "B externally resolved has no target" "$multi_b_resolved_check" '.eligible' false
+
+multi_other_edit_raw="$TMP/multi-other-edit.json"
+jq '.rest.items[1].body = "edited first evidence" | .graphql.threads[0].comments[1].body = "edited first evidence"' \
+  "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" > "$multi_other_edit_raw"
+multi_other_edit="$(jq '. + {operation:"reconcile"}' "$multi_other_edit_raw" | "$HELPER" | jq -c '.snapshot')"
+multi_other_edit_check="$(json_input unused --argjson record "$multi_record_b" --argjson fresh "$multi_other_edit" --arg head "$H" \
+  '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
+assert_decision "unverified other-thread edit fails closed" "$multi_other_edit_check" stop
+
+multi_other_resolved_raw="$TMP/multi-other-resolved.json"
+jq '.graphql.threads[0].resolved = true' "$SCRIPT_DIR/fixtures/recheck-multi-thread.json" > "$multi_other_resolved_raw"
+multi_other_resolved="$(jq '. + {operation:"reconcile"}' "$multi_other_resolved_raw" | "$HELPER" | jq -c '.snapshot')"
+multi_other_resolved_check="$(json_input unused --argjson record "$multi_record_b" --argjson fresh "$multi_other_resolved" --arg head "$H" \
+  '{operation:"resolve_eligibility",record:$record,fresh_snapshot:$fresh,current_head_sha:$head,lgtm_commit_id:$head,lgtm_verified:true}')"
+assert_decision "unverified other-thread Resolve fails closed" "$multi_other_resolved_check" stop
 
 gate_round2="$(json_input unused --argjson records "[$record]" --arg head "$H" \
   '{operation:"gate",records:$records,verification_head_sha:$head,full_review:{clean:false,blockers:1,important_unknowns:0},round:2}')"
