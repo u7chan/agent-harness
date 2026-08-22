@@ -15,6 +15,9 @@ call_graphql() {
   if [ "$exit_code" -ne 0 ]; then
     return 1
   fi
+  if ! echo "$result" | jq -e '(.errors // []) | length == 0' >/dev/null 2>&1; then
+    return 1
+  fi
   printf '%s\n' "$result"
 }
 
@@ -78,7 +81,7 @@ main() {
 
   while :; do
     local query
-    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } } } }"
+    query="query(\$owner: String!, \$repo: String!, \$prNumber: Int!, \$first: Int!, \$after: String) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$prNumber) { reviewThreads(first: \$first, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id isResolved comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt lastEditedAt } } } } } } }"
 
     local page_result
     page_result="$(call_graphql "$query" \
@@ -92,6 +95,29 @@ main() {
       envelope_fail "review-threads.read" "API_ERROR" "Failed to fetch review threads" false
       exit 1
     }
+
+    if ! echo "$page_result" | jq -e '.data.repository.pullRequest.reviewThreads.pageInfo | type == "object" and (.hasNextPage | type == "boolean")' >/dev/null 2>&1; then
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL reviewThreads pageInfo is incomplete" false
+      exit 1
+    fi
+    if ! echo "$page_result" | jq -e '.data.repository.pullRequest.reviewThreads.nodes | type == "array"' >/dev/null 2>&1; then
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL reviewThreads nodes are incomplete" false
+      exit 1
+    fi
+    if ! echo "$page_result" | jq -e '
+      .data.repository.pullRequest.reviewThreads.nodes
+      | all(.[];
+          (.comments | type == "object") and
+          (.comments.nodes | type == "array") and
+          (.comments.pageInfo | type == "object") and
+          (.comments.pageInfo.hasNextPage | type == "boolean"))
+    ' >/dev/null 2>&1; then
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL thread comments pagination is incomplete" false
+      exit 1
+    fi
 
     local page_threads
     page_threads="$(echo "$page_result" | jq -c '[.data.repository.pullRequest.reviewThreads.nodes[]? | {
@@ -110,10 +136,15 @@ main() {
         author_login: (.author.login // ""),
         author_association: (.authorAssociation // ""),
         created_at: (.createdAt // ""),
-        updated_at: (.updatedAt // "")
+        updated_at: (.updatedAt // ""),
+        last_edited_at: (.lastEditedAt // null)
       }],
       comments_pageInfo: .comments.pageInfo
-    }]' 2>/dev/null)" || page_threads="[]"
+    }]' 2>/dev/null)" || {
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to normalize review thread comments" false
+      exit 1
+    }
 
     local merged
     merged="$(echo "$page_threads" | jq -c --slurpfile old "$threads_tmp" '$old[0] + .')"
@@ -124,13 +155,18 @@ main() {
     end_cursor="$(echo "$page_result" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // "null"')"
 
     if [ "$has_next" != "true" ] || [ "$end_cursor" = "null" ]; then
+      if [ "$has_next" = "true" ] && [ "$end_cursor" = "null" ]; then
+        gh_cleanup "$threads_tmp"
+        envelope_fail "review-threads.read" "API_ERROR" "GraphQL reviewThreads pagination has no endCursor" false
+        exit 1
+      fi
       break
     fi
     cursor="$end_cursor"
   done
 
   local cquery
-  cquery='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt } } } } }'
+  cquery='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt lastEditedAt } } } } }'
 
   local threads_json
   threads_json="$(cat "$threads_tmp")"
@@ -151,7 +187,9 @@ main() {
     local comment_cursor
     comment_cursor="$(echo "$threads_json" | jq -r --arg tid "$tid" '[.[] | select(.thread_id == $tid)][0].comments_pageInfo.endCursor // "null"' 2>/dev/null)" || comment_cursor="null"
     if [ "$comment_cursor" = "null" ]; then
-      break
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL comment pagination has no endCursor" false
+      exit 1
     fi
 
     local cresult
@@ -160,6 +198,17 @@ main() {
       envelope_fail "review-threads.read" "API_ERROR" "Failed to paginate comments for thread" false
       exit 1
     }
+
+    if ! echo "$cresult" | jq -e '.data.node.comments.pageInfo | type == "object" and (.hasNextPage | type == "boolean")' >/dev/null 2>&1; then
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL comment pageInfo is incomplete" false
+      exit 1
+    fi
+    if ! echo "$cresult" | jq -e '.data.node.comments.nodes | type == "array"' >/dev/null 2>&1; then
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL comment nodes are incomplete" false
+      exit 1
+    fi
 
     local new_comments
     new_comments="$(echo "$cresult" | jq -c '[.data.node.comments.nodes[]? | {
@@ -175,11 +224,20 @@ main() {
       author_login: (.author.login // ""),
       author_association: (.authorAssociation // ""),
       created_at: (.createdAt // ""),
-      updated_at: (.updatedAt // "")
-    }]' 2>/dev/null)" || new_comments="[]"
+      updated_at: (.updatedAt // ""),
+      last_edited_at: (.lastEditedAt // null)
+    }]' 2>/dev/null)" || {
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to normalize paginated review comments" false
+      exit 1
+    }
 
     local new_page_info
-    new_page_info="$(echo "$cresult" | jq -c '.data.node.comments.pageInfo // {hasNextPage: false, endCursor: null}' 2>/dev/null)" || new_page_info='{"hasNextPage":false,"endCursor":null}'
+    new_page_info="$(echo "$cresult" | jq -c '.data.node.comments.pageInfo' 2>/dev/null)" || {
+      gh_cleanup "$threads_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to read paginated review comment pageInfo" false
+      exit 1
+    }
 
     threads_json="$(echo "$threads_json" | jq -c --arg tid "$tid" --argjson nc "$new_comments" --argjson npi "$new_page_info" '
       map(if .thread_id == $tid then
@@ -207,9 +265,13 @@ main() {
       user: {login: .author_login},
       created_at: .created_at,
       updated_at: .updated_at,
+      last_edited_at: .last_edited_at,
       author_association: .author_association
     }]
-  }]' 2>/dev/null)" || formatted_threads="[]"
+  }]' 2>/dev/null)" || {
+    envelope_fail "review-threads.read" "API_ERROR" "Failed to format review threads" false
+    exit 1
+  }
 
   if [ -n "$thread_id" ]; then
     local filtered
@@ -217,11 +279,11 @@ main() {
       [ .[] | select(.thread_id == $tid) ]
     ')"
     local wrapper
-    wrapper="$(jq -n --argjson threads "$filtered" '{threads: $threads}')"
+    wrapper="$(jq -n --argjson threads "$filtered" '{threads: $threads, pagination: {threads_complete: true, comments_complete: true}}')"
     envelope_ok "review-threads.read" "$collection_target" "$wrapper"
   else
     local wrapper
-    wrapper="$(jq -n --argjson threads "$formatted_threads" '{threads: $threads}')"
+    wrapper="$(jq -n --argjson threads "$formatted_threads" '{threads: $threads, pagination: {threads_complete: true, comments_complete: true}}')"
     envelope_ok "review-threads.read" "$collection_target" "$wrapper"
   fi
 }

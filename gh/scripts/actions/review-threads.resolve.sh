@@ -15,6 +15,9 @@ call_graphql() {
   if [ "$exit_code" -ne 0 ]; then
     return 1
   fi
+  if ! echo "$result" | jq -e '(.errors // []) | length == 0' >/dev/null 2>&1; then
+    return 1
+  fi
   printf '%s\n' "$result"
 }
 
@@ -69,7 +72,7 @@ main() {
 
   if [ "$already_resolved" = "true" ]; then
     local already_data
-    already_data="$(jq -n --arg thread_id "$thread_id" --argjson resolved true '{thread_id: $thread_id, resolved: $resolved}')"
+    already_data="$(jq -n --arg thread_id "$thread_id" --argjson resolved true --arg outcome "already_resolved_external" '{thread_id: $thread_id, resolved: $resolved, outcome: $outcome}')"
     envelope_already_applied "review-threads.resolve" "$thread_target" "$already_data"
     exit 0
   fi
@@ -87,6 +90,12 @@ main() {
   }
   GH_RETRY_MAX="$_saved_retry"
 
+  if ! echo "$mutation_result" | jq -e --arg thread_id "$thread_id" \
+    '.data.resolveReviewThread.thread.id == $thread_id and .data.resolveReviewThread.thread.isResolved == true' >/dev/null 2>&1; then
+    envelope_unknown_outcome "review-threads.resolve" "$thread_target" "$mutation_result"
+    exit 1
+  fi
+
   local after_state
   after_state="$(call_graphql "$before_query" -F threadId="$thread_id" 2>/dev/null)" || {
     envelope_unknown_outcome "review-threads.resolve" "$thread_target" "{}"
@@ -95,6 +104,10 @@ main() {
 
   local after_thread_data
   after_thread_data="$(echo "$after_state" | jq -r '.data.node // empty')"
+  if [ -z "$after_thread_data" ] || [ "$after_thread_data" = "null" ]; then
+    envelope_unknown_outcome "review-threads.resolve" "$thread_target" "$after_state"
+    exit 1
+  fi
   local after_resolved
   after_resolved="$(echo "$after_thread_data" | jq -r '.isResolved // false')"
 
@@ -104,7 +117,7 @@ main() {
   fi
 
   local confirmation
-  confirmation="$(jq -n --arg thread_id "$thread_id" --argjson resolved true '{thread_id: $thread_id, resolved: $resolved}')"
+  confirmation="$(jq -n --arg thread_id "$thread_id" --argjson resolved true --arg outcome "resolved_by_run" '{thread_id: $thread_id, resolved: $resolved, outcome: $outcome}')"
 
   envelope_ok "review-threads.resolve" "$thread_target" "$confirmation"
 }

@@ -364,6 +364,10 @@ jq -nc --arg received "$1" '"'"'{received: $received}'"'"''
   assert_contains "$output" 'hello' || return 1
 }
 
+test_recheck_action_contracts() {
+  "$SCRIPT_DIR/recheck-actions.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -399,6 +403,7 @@ main() {
   # Group D: envelope and dispatch
   run_test test_envelope
   run_test test_dispatch
+  run_test test_recheck_action_contracts
 
   teardown_fixture
   trap - EXIT
