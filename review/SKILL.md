@@ -9,6 +9,8 @@ description: >
 
 Pull Request またはローカル変更について、差分によって生じる具体的な失敗経路を検証する。
 
+レビューの成功条件は finding を出すことではなく、変更が目的・完了条件・維持すべき契約を破っていないかを十分に検証することである。十分に検証して問題が確認できなければ、`0 findings` / LGTM で正常終了する。敵対的レビューでは指摘の量ではなく、仮説を厳しく検証することに敵対性を使う。
+
 ## モード
 
 - PR の URL または番号が指定された場合は PR レビューモードとし、GitHub への投稿まで進める。
@@ -32,17 +34,19 @@ Pull Request またはローカル変更について、差分によって生じ�
 
 1. PR モードでは `pr.read` から対象と head の SHA を固定する。ローカルモードでは `git status` の結果、未ステージ・ステージ済み・ベースブランチとの差分、未追跡ファイルを対象に含める。
 2. PR の説明、差分、コメント、既存レビュー、関連コード、型、設定、テストを必要な範囲で読む。PR の取得順と投稿上の注意は [posting-api.md](references/posting-api.md) に従う。
-3. 目的、維持すべき契約、変更の伝播先を整理し、[review-lenses.md](references/review-lenses.md) から関係する観点だけを選ぶ。
-4. 各候補について発生条件、失敗経路、影響を調べ、ガード、呼び出し元、型、仕様、テストによる反証を先に探す。
-5. [review-criteria.md](references/review-criteria.md) の品質ゲートを通過した候補だけを指摘する。原因に最も近い差分行へ付け、差分行に置けない問題だけをレビュー本文に含める。
-6. PR モードでは [output-templates.md](references/output-templates.md) から該当する状態のテンプレートを選んでペイロードを作り、`review/scripts/validate-review-payload.sh` を通してから投稿する。ローカルモードでは同じラベルと形式でチャットへ報告する。
-7. 投稿内容の検証結果、PR の URL、指摘件数を簡潔に報告する。監査情報が必要な場合に限り、出力テンプレートの折りたたみを使う。
-8. 再チェックでは [recheck.md](references/recheck.md) に従い、該当する返信とレビュー結果のテンプレートを使う。
+3. 目的、完了条件、維持すべき契約、変更の伝播先を整理し、[review-lenses.md](references/review-lenses.md) から関係する観点だけを選ぶ。
+4. 候補を深掘りする前に [review-criteria.md](references/review-criteria.md) の Scope Gate を適用する。通過しない候補は Rejected として終了する。
+5. Scope Gate を通過した候補は Concern として扱い、発生条件、失敗経路、影響、差分との因果関係を調べる。ガード、呼び出し元、型、仕様、テストによる反証を先に探し、具体的な根拠を確立できたものだけ Evidence に昇格させる。反証できないこと自体を Evidence とみなさない。
+6. Evidence に昇格した候補だけを [review-criteria.md](references/review-criteria.md) の品質ゲートへ通す。通過したものだけを Finding として、原因に最も近い差分行へ付ける。差分行に置けない問題だけをレビュー本文に含める。
+7. 関係する review lens を一巡し、Concern を Evidence / Rejected に分類し、Evidence の品質ゲートを確認し、未解決 Concern に追加調査できる具体的な手掛かりがなければ探索を終了する。「まだ何かあるかもしれない」ことや候補が反証されたことを理由に、代替の finding を探し続けない。
+8. PR モードでは [output-templates.md](references/output-templates.md) から該当する状態のテンプレートを選んでペイロードを作り、`review/scripts/validate-review-payload.sh` を通してから投稿する。ローカルモードでは同じラベルと形式でチャットへ報告する。
+9. 投稿内容の検証結果、PR の URL、指摘件数を簡潔に報告する。監査情報が必要な場合に限り、出力テンプレートの折りたたみを使う。
+10. 再チェックでは [recheck.md](references/recheck.md) に従い、該当する返信とレビュー結果のテンプレートを使う。
 
 ## 参照先
 
 - 観点の選択: [review-lenses.md](references/review-lenses.md)
-- 品質ゲートとラベル: [review-criteria.md](references/review-criteria.md)
+- Scope Gate、候補の状態、品質ゲート、ラベル: [review-criteria.md](references/review-criteria.md)
 - コメント、レビュー本文、再チェック返信: [output-templates.md](references/output-templates.md)
 - GitHub の取得・投稿: [posting-api.md](references/posting-api.md)
 - 再チェック: [recheck.md](references/recheck.md)
