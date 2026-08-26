@@ -9,4 +9,4 @@
 - PR descriptions must be written in Japanese and include `Issues`, `Why`, `Summary`, `Changes`, and `Verification`.
 - Write review and improvement skills in Japanese, and all other skills in English.
 - When addressing PR feedback, reply to the relevant comment.
-- Follow [docs/architecture.md](docs/architecture.md) for repository structure, responsibility boundaries, and design constraints.
+- Follow [_docs/architecture.md](_docs/architecture.md) for repository structure, responsibility boundaries, and design constraints.
