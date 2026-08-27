@@ -33,10 +33,10 @@ Pull Request またはローカル変更について、差分によって生じ�
 ## 手順
 
 1. PR モードでは `pr.read` から対象と head の SHA を固定する。ローカルモードでは `git status` の結果、未ステージ・ステージ済み・ベースブランチとの差分、未追跡ファイルを対象に含める。
-2. PR の説明、差分、コメント、既存レビュー、関連コード、型、設定、テストを必要な範囲で読む。PR の取得順と投稿上の注意は [posting-api.md](references/posting-api.md) に従う。
-3. 目的、完了条件、維持すべき契約、変更の伝播先を整理し、[review-lenses.md](references/review-lenses.md) から関係する観点だけを選ぶ。
+2. PR の説明、差分、コメント、既存レビュー、関連コード、型、設定、テストを必要な範囲で読む。レビュー開始時に、利用可能な変更目的、受け入れ条件、禁止される結果、維持すべき既存契約、変更の伝播先、実行済みテストと結果、人間の判断が必要な未決事項を先に整理する。PR の取得順と投稿上の注意は [posting-api.md](references/posting-api.md) に従う。
+3. 整理した判断材料に [review-criteria.md](references/review-criteria.md) の仕様の優先順位を適用し、明示された要件を正本として、[review-lenses.md](references/review-lenses.md) から関係する観点だけを選ぶ。明示されていない「こうあるべき」を推測で補わず、仕様不足による重要な不確定を勝手に確定しない。
 4. 候補を深掘りする前に [review-criteria.md](references/review-criteria.md) の Scope Gate を適用する。通過しない候補は Rejected として終了する。
-5. Scope Gate を通過した候補は Concern として扱い、発生条件、失敗経路、影響、差分との因果関係を調べる。ガード、呼び出し元、型、仕様、テストによる反証を先に探し、具体的な根拠を確立できたものだけ Evidence に昇格させる。反証できないこと自体を Evidence とみなさない。
+5. Scope Gate を通過した候補は Concern として扱い、発生条件、失敗経路、影響、差分との因果関係を調べる。ガード、呼び出し元、型、仕様、テストによる反証を先に探し、具体的な根拠と第三者が確認できる再現または検証経路を確立できたものだけ Evidence に昇格させる。反証できないこと自体を Evidence とみなさない。
 6. Evidence に昇格した候補だけを [review-criteria.md](references/review-criteria.md) の品質ゲートへ通す。通過したものだけを Finding として、原因に最も近い差分行へ付ける。差分行に置けない問題だけをレビュー本文に含める。
 7. 関係する review lens を一巡し、Concern を Evidence / Rejected に分類し、Evidence の品質ゲートを確認し、未解決 Concern に追加調査できる具体的な手掛かりがなければ探索を終了する。「まだ何かあるかもしれない」ことや候補が反証されたことを理由に、代替の finding を探し続けない。
 8. PR モードでは [output-templates.md](references/output-templates.md) から該当する状態のテンプレートを選んでペイロードを作り、`review/scripts/validate-review-payload.sh` を通してから投稿する。ローカルモードでは同じラベルと形式でチャットへ報告する。
