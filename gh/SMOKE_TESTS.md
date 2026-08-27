@@ -208,6 +208,27 @@ bash gh/scripts/gh.sh repo.get | jq -e '.status == "ok" and .data.full_name != n
 | Returns repository data | `.data.full_name != null` |
 | Has expected fields | `.data.id and .data.name and .data.html_url and .data.default_branch` |
 
+### workflow-runs.list
+
+```bash
+# Test: list recent workflow runs (default limit 20)
+bash gh/scripts/gh.sh workflow-runs.list | jq -e '.status == "ok" and (.data | type == "array") and (.data | length <= 20)'
+
+# Test: custom limit
+bash gh/scripts/gh.sh workflow-runs.list | jq -e '.status == "ok"' >/dev/null && echo '{"limit":5}' | bash gh/scripts/gh.sh workflow-runs.list | jq -e '.status == "ok" and (.data | length <= 5)'
+
+# Test: invalid limit should fail
+echo '{"limit":101}' | bash gh/scripts/gh.sh workflow-runs.list 2>&1 | jq -e '.status == "failed" and .error.code == "INVALID_PARAMETER"'
+```
+
+| Check | Pass Condition |
+|-------|---------------|
+| Status is `ok` | `.status == "ok"` |
+| Returns run array | `.data \| type == "array"` |
+| Default limit respected | `.data \| length <= 20` |
+| Custom limit respected | `.data \| length <= 5` |
+| Invalid limit rejected | `.error.code == "INVALID_PARAMETER"` |
+
 ## Issue Actions
 
 ### issue.get

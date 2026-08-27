@@ -368,6 +368,10 @@ test_recheck_action_contracts() {
   "$SCRIPT_DIR/recheck-actions.sh" >/dev/null
 }
 
+test_workflow_runs_contracts() {
+  "$SCRIPT_DIR/workflow-runs.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -404,6 +408,7 @@ main() {
   run_test test_envelope
   run_test test_dispatch
   run_test test_recheck_action_contracts
+  run_test test_workflow_runs_contracts
 
   teardown_fixture
   trap - EXIT

@@ -87,6 +87,40 @@
       }
     },
     {
+      "name": "workflow-runs.list",
+      "description": "List recent GitHub Actions workflow runs for the current repository, newest first",
+      "category": "repository",
+      "permission": "read",
+      "requires_auth": true,
+      "input_schema": {
+        "limit": {
+          "type": "number",
+          "required": false,
+          "description": "Number of workflow runs to return (default: 20, range: 1-100)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": "string",
+              "run_number": "integer",
+              "head_branch": "string",
+              "head_sha": "string",
+              "event": "string",
+              "status": "string",
+              "conclusion": "string",
+              "html_url": "string",
+              "created_at": "string",
+              "updated_at": "string"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "issue.get",
       "description": "Get a single issue",
       "category": "issue",
