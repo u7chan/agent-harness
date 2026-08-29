@@ -10,3 +10,4 @@
 - Write review and improvement skills in Japanese, and all other skills in English.
 - When addressing PR feedback, reply to the relevant comment.
 - Follow [_docs/architecture.md](_docs/architecture.md) for repository structure, responsibility boundaries, and design constraints.
+- Skill installation, rollout, and rollback follow [_docs/skill-distribution.md](_docs/skill-distribution.md).

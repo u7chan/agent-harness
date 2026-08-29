@@ -1,0 +1,15 @@
+{
+  "name": "agent-harness",
+  "private": true,
+  "description": "Minimal, reusable skills and constrained tool harnesses for coding agents.",
+  "pi": {
+    "skills": [
+      "gh",
+      "herdr",
+      "kabeuchi",
+      "pi-issue-pr-workflow",
+      "refine-docs-ja",
+      "review"
+    ]
+  }
+}
