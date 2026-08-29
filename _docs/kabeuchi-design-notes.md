@@ -106,15 +106,15 @@ grilling を壁打ち相手として使うと、モデルによっては過剰�
 
 | ティア | 機構 | 動作 |
 |---|---|---|
-| 1 | バックグラウンド委譲あり(Claude Code の Task、pi なら Herdr 別ペイン等) | 調査を投げて面接続行、下流質問だけ保留 |
+| 1 | バックグラウンド委譲あり(Claude Code の Task、pi なら Herdr 別ペイン等) | 調査を投げつつ質問を続行し、下流質問だけ保留 |
 | 2 | 並列ツール呼び出しのみ(同一コンテキスト) | 質問の合間に調査をバッチ実行。質問の最中にユーザーを待たせない |
-| 3 | 逐次のみ | 「この質問は調査が必要なので保留」を明示してキュー化し、質問の途切れないブロックを先に処理 |
+| 3 | 逐次のみ | 「この質問は調査が必要なので保留」を明示してキュー化し、答えられる質問を先に処理 |
 
 サブエージェント化の副次的な効用は並列性より**コンテキスト汚染の遮断**が大きい。
-kabeuchi は一問ずつ・長時間セッションになりがちで、調査ノイズが main の会話に蓄積すると
+kabeuchi は一問ずつ・長時間セッションになりがちで、調査ノイズが main(本体エージェント)の会話に蓄積すると
 後半の質問品質が落ちる。委譲すると蒸留された事実だけが main に返る。
 
-### 新しい失敗モード: サブエージェントの「事実」は汚染されうる
+### 委譲に固有の失敗モード: サブエージェントの「事実」は汚染されうる
 
 委譲すると「事実」の出所がモデルの報告になり、誤った事実が下流の決定を確定させうる。
 対策として「返ってくる事実には file:line やコマンド出力の根拠を必須にする。
@@ -151,6 +151,6 @@ kabeuchi に Fact-finding セクションを足す場合の要点:
 
 - 最新 grilling(2026-08-29 時点): <https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md>
 - 始祖 grill-me(初版コミット 62f43a1): <https://github.com/mattpocock/skills/blob/62f43a18177be6ec82da242e59ffbc490a4c22ea/skills/productivity/grill-me/SKILL.md>
-- 現在の grill-me は grilling 呼び出しのスタブ
+- 現在の grill-me は grilling 呼び出しのスタブ(2026-08-29 時点)
 - 元 grilling(old-agent-skills): <https://github.com/u7chan/old-agent-skills/blob/main/skills/design/grilling/SKILL.md>
 - kabeuchi: <../kabeuchi/SKILL.md>
