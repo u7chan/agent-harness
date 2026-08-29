@@ -24,6 +24,8 @@ Delegation requires both `$HERDR_WORKSPACE_ID` and `$HERDR_PANE_ID`. If either i
 
 This section is authoritative for candidate resolution, branching, and stop conditions. A request for "another pane" (別ペイン) means another pane in the current workspace, not a physical neighbor. These rules are an operational safeguard for skill-compliant agents; they do not add a technical enforcement boundary.
 
+The invariant and responsibility split required for a hard boundary are defined in [Technical delegation boundary](references/technical-delegation-boundary.md). Do not infer a stronger guarantee from this skill or from the wrappers.
+
 ### Candidate set
 
 Build candidates only from the response of:
