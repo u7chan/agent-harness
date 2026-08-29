@@ -16,28 +16,20 @@ Each top-level skill directory contains a `SKILL.md` file that describes when an
 
 ## Install
 
-Clone the repository into a shared skills directory:
+Install as a pi package pinned to a merged revision:
 
 ```bash
-git clone https://github.com/u7chan/agent-harness.git
-cd agent-harness
-mkdir -p ~/.agents/skills
-ln -s "$(pwd)" ~/.agents/skills/agent-harness
+pi install git:github.com/u7chan/agent-harness@<commit-sha>
 ```
 
-Expose that directory to the coding agents you use:
-
-```bash
-ln -s ~/.agents/skills ~/.codex/skills
-ln -s ~/.agents/skills ~/.claude/skills
-```
+Pi clones the repository and loads the skills declared in `package.json`. Revision confirmation, rollout, rollback, and migration from a symlink install are documented in [_docs/skill-distribution.md](_docs/skill-distribution.md).
 
 ## Uninstall
 
-Remove the links created during installation:
+Remove the package and any links created for other harnesses:
 
 ```bash
+pi remove git:github.com/u7chan/agent-harness
 unlink ~/.codex/skills
 unlink ~/.claude/skills
-unlink ~/.agents/skills/agent-harness
 ```
