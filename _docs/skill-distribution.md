@@ -117,14 +117,14 @@ set -e
 CLONE=~/.pi/agent/git/github.com/u7chan/agent-harness
 EXPECTED=<installed-or-rolled-back-sha>
 test "$(git -C "$CLONE" rev-parse HEAD)" = "$EXPECTED"
-jq -r '.pi.skills[]' <path-to-checkout>/package.json | while read -r s; do
+jq -r '.pi.skills[]' "$CLONE/package.json" | while read -r s; do
   test -f "$CLONE/$s/SKILL.md"
 done
 pi list | grep -q "git:github.com/u7chan/agent-harness"
 echo smoke-ok
 ```
 
-The skill list is read from `package.json` so the test cannot drift from the manifest. As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills; a session started or reloaded after the serving path last changed is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
+The skill list is read from the pinned clone's own `package.json`, so the test runs entirely against the HEAD-verified revision. Reading the manifest from the development checkout instead would validate a rollback against another revision's skill set and could fail a correct rollback or pass an incomplete one. As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills; a session started or reloaded after the serving path last changed is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
 
 ## Compatibility and migration
 
