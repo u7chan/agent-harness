@@ -10,7 +10,7 @@ The parent must know its current pane ID in `$HERDR_PANE_ID`. Resolve the child 
 herdr/scripts/parent-delegate-async.sh <child-pane> "<prompt>"
 ```
 
-The wrapper rejects child and parent panes outside `$HERDR_WORKSPACE_ID`, then sends one `herdr agent prompt` call without waiting. It appends the current pane ID with its display name and an absolute path to the child helper to the prompt:
+The parent wrapper rejects child and parent panes outside `$HERDR_WORKSPACE_ID`, then sends one `herdr agent prompt` call to the child without waiting. It appends the current pane ID with its display name and an absolute path to the child helper to the prompt:
 
 ```text
 Direct parent pane for result return: <pane-id> (<display-name>)
@@ -36,7 +36,7 @@ body:
 <free-form body>
 ```
 
-The child does not discover or infer a parent. It uses only the pane ID included in its delegation prompt. The parent wrapper does not accept a caller-supplied return destination. The child helper submits the return with one raw `herdr agent prompt` call; that call is the fixed return transport of this protocol and does not justify a raw parent-to-child prompt outside the wrapper (see [`herdr/SKILL.md`](../SKILL.md)).
+The child does not discover or infer a parent. It uses only the pane ID included in its delegation prompt. The parent wrapper does not accept a caller-supplied return destination. The child helper sends the return to that direct parent pane with one raw `herdr agent prompt` call.
 
 ## Display names
 
@@ -76,7 +76,11 @@ herdr agent read <agent-or-pane> --source recent-unwrapped --lines 200
 
 An idle or working parent can receive a return through the same existing `agent prompt` operation. The wrappers do not claim that delivery means task completion, and they do not implement a retry or queue when a parent is busy. If a particular agent kind cannot accept a return while working, stop with the reproduction and track that behavior separately.
 
-The helper invocation fails in two distinct modes. A scope reject happens before any prompt is submitted: invalid arguments, a missing `HERDR_ENV=1`, a missing `herdr` executable, or a workspace check that rejects the child or parent pane — nothing was delivered. A transport failure happens when `herdr agent prompt` itself exits nonzero or its outcome is unknown, so delivery to the child is unconfirmed. In both modes the helper exits nonzero, never resends, and leaves recovery decisions to the caller; how to classify the failure, re-resolve a candidate, or report blocked is governed by [`herdr/SKILL.md`](../SKILL.md). It does not treat a prompt submission as proof that the child completed.
+The wrappers expose distinct failure observations. For `parent-delegate-async.sh`, invalid arguments, a missing `HERDR_ENV=1`, a missing `herdr` executable, or a workspace check that rejects the child or parent pane occurs before the prompt call, so nothing is delivered to the child. For `child-return-result.sh`, invalid arguments, a missing `HERDR_ENV=1`, or a missing `herdr` executable occurs before its prompt call, so nothing is delivered to the direct parent.
+
+An observed nonzero exit from a wrapper's `herdr agent prompt` call is a transport failure. The parent helper propagates that observed nonzero exit, and delivery to the child is unconfirmed. The child helper likewise propagates an observed nonzero exit, and delivery to the direct parent is unconfirmed.
+
+An unknown outcome is distinct from an observed nonzero exit. Do not infer either helper's exit status or delivery success/failure to its destination from an unknown outcome. The wrappers do not resend; classification and recovery decisions are governed by [`herdr/SKILL.md`](../SKILL.md). A prompt submission is not proof that the child completed.
 
 ## Workspace and worktree ownership
 
