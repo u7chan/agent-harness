@@ -32,7 +32,7 @@ Invariants:
 4. Rollback is the same operation as rollout, targeting a previously verified revision.
 5. Development checkouts and worktrees are never on a skill scan path.
 
-Guarantee scope: a session's skill listing is captured at session startup or `/reload`; `SKILL.md` bodies, references, and scripts are read from the clone on demand. An install changes the clone for every reader immediately. Install-unit consistency therefore holds for sessions started or reloaded after an install. A session that stays alive across an install mixes its pre-install listing with post-install file content until it reloads; the rollout and rollback procedures close this window by requiring a reload, and installs are applied between tasks.
+Guarantee scope: a session's skill listing is captured at session startup or `/reload`; `SKILL.md` bodies, references, and scripts are read from the clone on demand. An install changes the clone for every reader immediately. Install-unit consistency therefore holds for sessions started or reloaded after the serving path last changed: after an install in steady state, and after the symlink removal during migration. A session that stays alive across an install mixes its pre-install listing with post-install file content until it reloads; the rollout and rollback procedures close this window by requiring a reload, and installs are applied between tasks.
 
 ## Design
 
@@ -94,7 +94,7 @@ pi list
 This proves the clone's revision, not what a long-running session loaded: a session's listing is from its startup or last `/reload`, while its on-demand reads follow the clone. An agent confirms its skill revision as follows:
 
 1. Run the command above at the start of a skill-dependent task.
-2. If the session has not been started or reloaded since that revision was installed, run `/reload` (or restart the session) before relying on skill content; after the reload the loaded set matches the installed revision.
+2. If the session has not been started or reloaded since the serving path last changed to that revision (the install; during migration, the symlink removal), run `/reload` (or restart the session) before relying on skill content; after the reload the loaded set matches the installed revision.
 3. Compare the revision against the expected SHA from the rollout record.
 
 Rollout and rollback make step 2 the normal state by reloading every running session as part of the procedure.
@@ -124,14 +124,18 @@ pi list | grep -q "git:github.com/u7chan/agent-harness"
 echo smoke-ok
 ```
 
-The skill list is read from `package.json` so the test cannot drift from the manifest. As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills; a session started or reloaded after the install is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
+The skill list is read from `package.json` so the test cannot drift from the manifest. As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills; a session started or reloaded after the serving path last changed is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
 
 ## Compatibility and migration
 
+Order matters: the symlink shadows the package, so it must be removed before any session reloads.
+
 1. Merge the change that adds the manifest. Nothing is installed yet.
-2. `pi install git:github.com/u7chan/agent-harness@<merged-sha>`, `/reload` or restart running sessions, and run the smoke test.
-3. Remove the symlink: `unlink ~/.agents/skills/agent-harness`. Until this step, the symlink shadows the package, because global locations are scanned before packages.
-4. Other harnesses that read `~/.agents/skills` can link the pinned clone read-only instead, for example `ln -s ~/.pi/agent/git/github.com/u7chan/agent-harness ~/.claude/skills/agent-harness`; they then follow the same pin without a second distribution path.
+2. `pi install git:github.com/u7chan/agent-harness@<merged-sha>`. The clone is ready but not yet serving: while the symlink exists, global locations shadow the package.
+3. Remove the symlink: `unlink ~/.agents/skills/agent-harness`.
+4. `/reload` (or restart) every running session. A reload before this step would re-read the old symlink path, not the package.
+5. Run the smoke test.
+6. Other harnesses that read `~/.agents/skills` can link the pinned clone read-only instead, for example `ln -s ~/.pi/agent/git/github.com/u7chan/agent-harness ~/.claude/skills/agent-harness`; they then follow the same pin without a second distribution path.
 
 ## Non-goals
 
