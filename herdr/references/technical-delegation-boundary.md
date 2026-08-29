@@ -22,6 +22,16 @@ A hard guarantee must be enforced by the component that ultimately dispatches
 input or mutates the target. A skill instruction, wrapper, environment
 variable, pane label, model name, or UI focus is not caller authentication.
 
+## Threat model
+
+Assume a same-user agent process can bypass the wrapper, invoke a raw writable
+transport directly, spoof caller-controlled environment or request values, and
+retry through an equivalent raw path when the wrapper is unavailable or
+rejects. The boundary trusts the enforcing server's authoritative pane/workspace
+state and an authenticated source identity bound to the transport or a trusted
+broker. A compromised enforcing server, or a user intentionally exercising
+administrative authority over all workspaces, is outside this boundary.
+
 ## Authorization invariant
 
 Every normal write-capable operation must be authorized from trusted,
@@ -99,8 +109,9 @@ Normal delegation has no cross-workspace exception.
 
 If cross-workspace control is required later, it must be a separately designed
 capability with explicit authorization and must not weaken the normal
-delegation invariant. Human intent expressed in a prompt or environment
-variable is not such a capability.
+delegation invariant. It must be separately authenticated and must not be
+invocable or inheritable by an agent process. Human intent expressed in a
+prompt or environment variable is not such a capability.
 
 ## Responsibility boundary
 
@@ -155,7 +166,7 @@ in another workspace never authorizes writing to it.
 | Target is the source pane | reject with zero target write |
 | Target is missing, stale, or moved across workspaces | reject or re-resolve; never cross-workspace write |
 | Caller spoofs environment or request IDs | bound source identity wins or request is rejected |
-| Wrapper is skipped and an equivalent raw write is attempted | same authorization decision applies |
+| Wrapper is skipped, unavailable, or its rejection is followed by an equivalent raw write | same authorization decision applies |
 | Destination is selected indirectly rather than supplied explicitly | resolve effective target and apply the same invariant |
 | Child returns to a pane in another workspace | reject with zero target write |
 
