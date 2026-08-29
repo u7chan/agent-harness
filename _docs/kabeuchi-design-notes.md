@@ -41,7 +41,7 @@ mattpocock/skills 始祖 grill-me (2026-04, 英語・一問ずつ)
 
 ## 比較表
 
-| 観点 | 始祖 grill-me (英語) | 最新 grilling (mattpocock) | 元 grilling (old-agent-skills) | 現行 kabeuchi |
+| 観点 | 始祖 grill-me (英語) | 最新 grilling (mattpocock, 2026-08-29 時点) | 元 grilling (old-agent-skills) | 現行 kabeuchi |
 |---|---|---|---|---|
 | 質問の進め方 | 一問ずつ | 1 ラウンド=frontier(前提が揃った質問全部)を一括提示し回答を待つ | 一問ずつ | 一問ずつ |
 | 設計の捉え方 | design tree を分岐ごとに | design tree + frontier 再計算を明示概念化 | 依存関係を上流から解決 | Goal/Done 起点で必要な判断だけ依存順に |
@@ -149,7 +149,7 @@ kabeuchi に Fact-finding セクションを足す場合の要点:
 
 ## 参照
 
-- 最新 grilling: <https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md>
+- 最新 grilling(2026-08-29 時点): <https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md>
 - 始祖 grill-me(初版コミット 62f43a1): <https://github.com/mattpocock/skills/blob/62f43a18177be6ec82da242e59ffbc490a4c22ea/skills/productivity/grill-me/SKILL.md>
 - 現在の grill-me は grilling 呼び出しのスタブ
 - 元 grilling(old-agent-skills): <https://github.com/u7chan/old-agent-skills/blob/main/skills/design/grilling/SKILL.md>
