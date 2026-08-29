@@ -29,9 +29,9 @@ herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<
 
 Before calling the parent wrapper, resolve the target from `herdr pane list --workspace "$HERDR_WORKSPACE_ID"`. Pass the returned pane ID, never an agent name. If the requested agent is absent, start it in the current workspace as described in [Pane operations](#pane-operations), then use its returned pane ID.
 
-The parent wrapper verifies that both panes belong to `$HERDR_WORKSPACE_ID` and adds the current `$HERDR_PANE_ID` plus the absolute child-wrapper path to the prompt. The child wrapper returns one status and free-form body to that pane. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for multi-stage, parallel, state, and worktree rules.
+The parent wrapper verifies that both panes belong to `$HERDR_WORKSPACE_ID` and adds the current `$HERDR_PANE_ID` with its resolved display name plus the absolute child-wrapper path to the prompt. The child wrapper returns one status and free-form body to that pane. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for multi-stage, parallel, state, and worktree rules.
 
-The wrappers validate their arguments and environment, call only the existing `herdr agent prompt` command, and propagate its result. They do not wait, retry, queue, persist state, or create Herdr resources.
+The wrappers validate their arguments and environment, call the existing `herdr agent prompt` command, and propagate its result. The parent wrapper additionally calls read-only `herdr pane get` once to resolve the parent display name; if that lookup fails, the prompt keeps the bare pane ID. They do not wait, retry, queue, persist state, or create Herdr resources.
 
 If a return to a working parent exposes an agent-kind-specific problem, stop and record the reproduction. Do not add waiting or queueing to the wrappers.
 
