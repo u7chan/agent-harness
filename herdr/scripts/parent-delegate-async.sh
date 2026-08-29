@@ -38,9 +38,30 @@ valid_workspace "$workspace" || fail 'HERDR_WORKSPACE_ID must be a valid workspa
 command -v herdr >/dev/null 2>&1 || fail 'herdr is required'
 [ -x "$child_script" ] || fail 'child-return-result.sh is required'
 
+# Best-effort display name for the parent pane, matching what Herdr shows on
+# the pane border: manual label first, then detected agent kind. Cosmetic only;
+# any lookup failure falls back to the bare pane ID.
+display_name="$parent_pane"
+if command -v python3 >/dev/null 2>&1; then
+  pane_json="$(herdr pane get "$parent_pane" 2>/dev/null)" || pane_json=''
+  if [ -n "$pane_json" ]; then
+    name="$(printf '%s' "$pane_json" | python3 -c '
+import json, sys
+try:
+    pane = json.load(sys.stdin)["result"]["pane"]
+    print(pane.get("label") or pane.get("agent") or "")
+except Exception:
+    pass
+' 2>/dev/null)" || name=''
+    if [ -n "$name" ]; then
+      display_name="$parent_pane ($name)"
+    fi
+  fi
+fi
+
 delegation_prompt="${prompt}
 
-Direct parent pane for result return: ${parent_pane}
+Direct parent pane for result return: ${display_name}
 Return the final status and body with this helper, using completed or blocked as the status:
 \"${child_script}\" \"${parent_pane}\" <completed|blocked> \"<body>\""
 

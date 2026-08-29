@@ -14,7 +14,13 @@ trap 'rm -rf "$TEST_TMP"' EXIT
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
-  '[ "$1" = agent ] && [ "$2" = prompt ] || exit 90' \
+  'if [ "${1:-}" = pane ]; then' \
+  '  [ "${2:-}" = get ] || exit 94' \
+  '  [ "${3:-}" = "$HERDR_PANE_ID" ] || exit 95' \
+  '  cat "$HERDR_TEST_PANE_JSON"' \
+  '  exit 0' \
+  'fi' \
+  '[ "${1:-}" = agent ] && [ "${2:-}" = prompt ] || exit 90' \
   'shift 2' \
   '[ "$#" -eq 2 ] || exit 91' \
   'printf "%s" "$1" > "$HERDR_TEST_TARGET"' \
@@ -29,6 +35,10 @@ export HERDR_WORKSPACE_ID=wG
 export HERDR_PANE_ID=wG:p1
 export HERDR_TEST_TARGET="$MOCK_LOG/target"
 export HERDR_TEST_MESSAGE="$MOCK_LOG/message"
+export HERDR_TEST_PANE_JSON="$MOCK_LOG/pane.json"
+printf '%s\n' \
+  '{"id":"cli:pane:get","result":{"pane":{"agent":"pi","label":"bob","pane_id":"wG:p1","workspace_id":"wG"}},"type":"pane_info"}' \
+  > "$HERDR_TEST_PANE_JSON"
 
 pass_count=0
 
@@ -64,7 +74,7 @@ parent_success() {
     "$prompt"*) ;;
     *) return 1 ;;
   esac
-  [[ "$message" == *'Direct parent pane for result return: wG:p1'* ]]
+  [[ "$message" == *'Direct parent pane for result return: wG:p1 (bob)'* ]]
   local return_command="\"${CHILD_SCRIPT}\" \"wG:p1\" <completed|blocked> \"<body>\""
   [[ "$CHILD_SCRIPT" = /* ]]
   [[ "$message" == *"$return_command"* ]]
@@ -110,9 +120,23 @@ cli_failure_is_propagated() {
   expect_rc 17 env HERDR_TEST_RC=17 "$CHILD_SCRIPT" wG:p1 completed body
 }
 
+parent_display_name_fallbacks() {
+  local prompt='run the child'
+  printf '%s\n' \
+    '{"id":"cli:pane:get","result":{"pane":{"agent":"pi","pane_id":"wG:p1","workspace_id":"wG"}},"type":"pane_info"}' \
+    > "$HERDR_TEST_PANE_JSON"
+  HERDR_TEST_RC=0 "$PARENT_SCRIPT" wG:p2 "$prompt"
+  grep -Fqx 'Direct parent pane for result return: wG:p1 (pi)' "$HERDR_TEST_MESSAGE"
+  HERDR_TEST_PANE_JSON="$TEST_TMP/missing.json" HERDR_TEST_RC=0 \
+    "$PARENT_SCRIPT" wG:p2 "$prompt"
+  grep -Fqx 'Direct parent pane for result return: wG:p1' "$HERDR_TEST_MESSAGE"
+}
+
 wrappers_are_thin() {
-  ! grep -Eq -- '--wait|herdr (pane|workspace|worktree)' \
+  ! grep -Eq -- '--wait|herdr (workspace|worktree|agent (get|read))' \
     "$PARENT_SCRIPT" "$CHILD_SCRIPT"
+  ! grep -Eq -- 'herdr (pane|workspace|worktree|agent (get|read))' \
+    "$CHILD_SCRIPT"
 }
 
 run_test() {
@@ -121,7 +145,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=7
+expected_count=8
 
 run_test parent_success
 run_test child_success
@@ -129,6 +153,7 @@ run_test child_blocked
 run_test invalid_arguments
 run_test preflight_failures
 run_test cli_failure_is_propagated
+run_test parent_display_name_fallbacks
 run_test wrappers_are_thin
 
 [ "$pass_count" -eq "$expected_count" ] || {
