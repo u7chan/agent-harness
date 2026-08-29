@@ -28,9 +28,11 @@ Invariants:
 
 1. The operational skill set is immutable per revision. It is never edited in place; it changes only by installing a different pinned revision.
 2. Only a commit reachable from `origin/main` may be installed as the operational set (rollout gate).
-3. Any agent can confirm the installed revision with one command, from any workspace.
+3. Any agent can confirm the installed revision with one command, from any workspace, and after a reload its loaded skill set matches that revision.
 4. Rollback is the same operation as rollout, targeting a previously verified revision.
 5. Development checkouts and worktrees are never on a skill scan path.
+
+Guarantee scope: a session's skill listing is captured at session startup or `/reload`; `SKILL.md` bodies, references, and scripts are read from the clone on demand. An install changes the clone for every reader immediately. Install-unit consistency therefore holds for sessions started or reloaded after an install. A session that stays alive across an install mixes its pre-install listing with post-install file content until it reloads; the rollout and rollback procedures close this window by requiring a reload, and installs are applied between tasks.
 
 ## Design
 
@@ -77,18 +79,25 @@ git merge-base --is-ancestor <sha> origin/main && echo gate-ok
 pi install git:github.com/u7chan/agent-harness@<sha>
 ```
 
-4. Run the smoke test.
+4. Apply between tasks: `/reload` (or restart) every running session. A session reloaded after this step serves the new revision; one that skips it keeps its pre-install listing until it reloads.
+5. Run the smoke test.
 
 ### Revision confirmation
 
-All workspaces share one clone, so one command confirms the revision every agent loads:
+All workspaces share one clone, so one command confirms the installed revision:
 
 ```bash
 git -C ~/.pi/agent/git/github.com/u7chan/agent-harness rev-parse HEAD
 pi list
 ```
 
-An agent asked to confirm its skill revision runs the first command and compares the output against the expected SHA.
+This proves the clone's revision, not what a long-running session loaded: a session's listing is from its startup or last `/reload`, while its on-demand reads follow the clone. An agent confirms its skill revision as follows:
+
+1. Run the command above at the start of a skill-dependent task.
+2. If the session has not been started or reloaded since that revision was installed, run `/reload` (or restart the session) before relying on skill content; after the reload the loaded set matches the installed revision.
+3. Compare the revision against the expected SHA from the rollout record.
+
+Rollout and rollback make step 2 the normal state by reloading every running session as part of the procedure.
 
 ### Rollback
 
@@ -97,7 +106,7 @@ pi install git:github.com/u7chan/agent-harness@<previous-verified-sha>
 git -C ~/.pi/agent/git/github.com/u7chan/agent-harness rev-parse HEAD
 ```
 
-Because the install is account-global, running the confirmation from any workspace verifies the state for all of them.
+Apply between tasks and `/reload` (or restart) every running session, as in rollout. Because the install is account-global, running the confirmation from any workspace verifies the state for all of them.
 
 ### Smoke test
 
@@ -115,12 +124,12 @@ pi list | grep -q "git:github.com/u7chan/agent-harness"
 echo smoke-ok
 ```
 
-The skill list is read from `package.json` so the test cannot drift from the manifest. As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills.
+The skill list is read from `package.json` so the test cannot drift from the manifest. As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills; a session started or reloaded after the install is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
 
 ## Compatibility and migration
 
 1. Merge the change that adds the manifest. Nothing is installed yet.
-2. `pi install git:github.com/u7chan/agent-harness@<merged-sha>` and run the smoke test.
+2. `pi install git:github.com/u7chan/agent-harness@<merged-sha>`, `/reload` or restart running sessions, and run the smoke test.
 3. Remove the symlink: `unlink ~/.agents/skills/agent-harness`. Until this step, the symlink shadows the package, because global locations are scanned before packages.
 4. Other harnesses that read `~/.agents/skills` can link the pinned clone read-only instead, for example `ln -s ~/.pi/agent/git/github.com/u7chan/agent-harness ~/.claude/skills/agent-harness`; they then follow the same pin without a second distribution path.
 
