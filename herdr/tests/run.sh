@@ -151,6 +151,13 @@ python3_isolation() {
   grep -Fqx 'Direct parent pane for result return: wG:p1 (bob)' "$HERDR_TEST_MESSAGE"
 }
 
+call_counts_are_exactly_once() {
+  [ "$(grep -Ec '^pane ' "$HERDR_TEST_CALLS")" -eq 1 ]
+  grep -Fqx 'pane get wG:p1' "$HERDR_TEST_CALLS"
+  [ "$(grep -Ec '^agent prompt ' "$HERDR_TEST_CALLS")" -eq 1 ]
+  grep -Fqx 'agent prompt wG:p2' "$HERDR_TEST_CALLS"
+}
+
 wrappers_are_thin() {
   ! grep -Eq -- '--wait|herdr (workspace|worktree|agent (get|read))' \
     "$PARENT_SCRIPT" "$CHILD_SCRIPT"
@@ -159,11 +166,15 @@ wrappers_are_thin() {
   # The parent may resolve the display name with exactly one read-only lookup.
   grep -Eq 'herdr pane get' "$PARENT_SCRIPT"
   ! grep -Eo 'herdr pane [[:alnum:]_-]+' "$PARENT_SCRIPT" | grep -Fxv 'herdr pane get'
+  # Success path: one pane get and one agent prompt, no duplicates.
   : > "$HERDR_TEST_CALLS"
   HERDR_TEST_RC=0 "$PARENT_SCRIPT" wG:p2 'run the child'
-  [ "$(grep -Ec '^pane ' "$HERDR_TEST_CALLS")" -eq 1 ]
-  grep -Fqx 'pane get wG:p1' "$HERDR_TEST_CALLS"
-  grep -Fqx 'agent prompt wG:p2' "$HERDR_TEST_CALLS"
+  call_counts_are_exactly_once
+  # Lookup failure path: still one pane get and one agent prompt, no retries.
+  : > "$HERDR_TEST_CALLS"
+  HERDR_TEST_PANE_JSON="$TEST_TMP/missing.json" HERDR_TEST_RC=0 \
+    "$PARENT_SCRIPT" wG:p2 'run the child'
+  call_counts_are_exactly_once
 }
 
 run_test() {
