@@ -40,12 +40,13 @@ command -v herdr >/dev/null 2>&1 || fail 'herdr is required'
 
 # Best-effort display name for the parent pane, matching what Herdr shows on
 # the pane border: manual label first, then detected agent kind. Cosmetic only;
-# any lookup failure falls back to the bare pane ID.
+# any lookup failure falls back to the bare pane ID. -I keeps the caller's cwd
+# out of sys.path so a repo-local json.py cannot shadow the stdlib import.
 display_name="$parent_pane"
 if command -v python3 >/dev/null 2>&1; then
   pane_json="$(herdr pane get "$parent_pane" 2>/dev/null)" || pane_json=''
   if [ -n "$pane_json" ]; then
-    name="$(printf '%s' "$pane_json" | python3 -c '
+    name="$(printf '%s' "$pane_json" | python3 -I -c '
 import json, sys
 try:
     pane = json.load(sys.stdin)["result"]["pane"]

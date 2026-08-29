@@ -14,6 +14,7 @@ trap 'rm -rf "$TEST_TMP"' EXIT
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
+  'printf "%s %s %s\n" "${1:-}" "${2:-}" "${3:-}" >> "$HERDR_TEST_CALLS"' \
   'if [ "${1:-}" = pane ]; then' \
   '  [ "${2:-}" = get ] || exit 94' \
   '  [ "${3:-}" = "$HERDR_PANE_ID" ] || exit 95' \
@@ -36,6 +37,8 @@ export HERDR_PANE_ID=wG:p1
 export HERDR_TEST_TARGET="$MOCK_LOG/target"
 export HERDR_TEST_MESSAGE="$MOCK_LOG/message"
 export HERDR_TEST_PANE_JSON="$MOCK_LOG/pane.json"
+export HERDR_TEST_CALLS="$MOCK_LOG/calls"
+: > "$HERDR_TEST_CALLS"
 printf '%s\n' \
   '{"id":"cli:pane:get","result":{"pane":{"agent":"pi","label":"bob","pane_id":"wG:p1","workspace_id":"wG"}},"type":"pane_info"}' \
   > "$HERDR_TEST_PANE_JSON"
@@ -132,11 +135,35 @@ parent_display_name_fallbacks() {
   grep -Fqx 'Direct parent pane for result return: wG:p1' "$HERDR_TEST_MESSAGE"
 }
 
+python3_isolation() {
+  printf '%s\n' \
+    '{"id":"cli:pane:get","result":{"pane":{"agent":"pi","label":"bob","pane_id":"wG:p1","workspace_id":"wG"}},"type":"pane_info"}' \
+    > "$HERDR_TEST_PANE_JSON"
+  local hostile="$TEST_TMP/hostile-cwd"
+  local marker="$TEST_TMP/jsonpy-executed"
+  mkdir -p "$hostile"
+  printf '%s\n' \
+    'import os' \
+    "os.system(\"touch $marker\")" \
+    'print("pwned")' > "$hostile/json.py"
+  (cd "$hostile" && HERDR_TEST_RC=0 "$PARENT_SCRIPT" wG:p2 'run the child')
+  [ ! -e "$marker" ]
+  grep -Fqx 'Direct parent pane for result return: wG:p1 (bob)' "$HERDR_TEST_MESSAGE"
+}
+
 wrappers_are_thin() {
   ! grep -Eq -- '--wait|herdr (workspace|worktree|agent (get|read))' \
     "$PARENT_SCRIPT" "$CHILD_SCRIPT"
   ! grep -Eq -- 'herdr (pane|workspace|worktree|agent (get|read))' \
     "$CHILD_SCRIPT"
+  # The parent may resolve the display name with exactly one read-only lookup.
+  grep -Eq 'herdr pane get' "$PARENT_SCRIPT"
+  ! grep -Eo 'herdr pane [[:alnum:]_-]+' "$PARENT_SCRIPT" | grep -Fxv 'herdr pane get'
+  : > "$HERDR_TEST_CALLS"
+  HERDR_TEST_RC=0 "$PARENT_SCRIPT" wG:p2 'run the child'
+  [ "$(grep -Ec '^pane ' "$HERDR_TEST_CALLS")" -eq 1 ]
+  grep -Fqx 'pane get wG:p1' "$HERDR_TEST_CALLS"
+  grep -Fqx 'agent prompt wG:p2' "$HERDR_TEST_CALLS"
 }
 
 run_test() {
@@ -145,7 +172,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=8
+expected_count=9
 
 run_test parent_success
 run_test child_success
@@ -154,6 +181,7 @@ run_test invalid_arguments
 run_test preflight_failures
 run_test cli_failure_is_propagated
 run_test parent_display_name_fallbacks
+run_test python3_isolation
 run_test wrappers_are_thin
 
 [ "$pass_count" -eq "$expected_count" ] || {
