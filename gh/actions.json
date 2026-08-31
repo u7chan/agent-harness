@@ -2148,7 +2148,7 @@
     },
     {
       "name": "review-comments.reply",
-      "description": "Reply to a review comment with operation-scoped transport idempotency and post-write verification",
+      "description": "Reply to a review comment with exact-body dedup and post-write verification",
       "category": "review-comment",
       "permission": "write",
       "requires_auth": true,
@@ -2166,37 +2166,12 @@
         "reply_to": {
           "type": "number",
           "required": true,
-          "description": "Review comment ID to reply to"
-        },
-        "thread_id": {
-          "type": "string",
-          "required": true,
-          "description": "GraphQL review thread ID from the operation baseline"
-        },
-        "baseline_thread_resolved": {
-          "type": "boolean",
-          "required": true,
-          "description": "Resolved state of thread_id in the operation baseline"
+          "description": "Review comment ID to reply to (a reply is posted to its root comment)"
         },
         "body": {
           "type": "string",
           "required": true,
           "description": "Reply body in Markdown"
-        },
-        "plan_fingerprint": {
-          "type": "string",
-          "required": true,
-          "description": "Fingerprint of the caller's recheck plan snapshot"
-        },
-        "baseline_comment_ids": {
-          "type": "array",
-          "required": true,
-          "description": "All REST review comment IDs in the operation baseline"
-        },
-        "baseline_comments": {
-          "type": "array",
-          "required": false,
-          "description": "Optional normalized baseline comments for edit detection"
         },
         "grant": {
           "type": "string",
@@ -2221,9 +2196,7 @@
             "created_at": "string",
             "updated_at": "string",
             "author_association": "string",
-            "last_edited_at": "string",
             "transport_outcome": "string",
-            "operation_scoped": "boolean",
             "position": "integer"
           }
         }
