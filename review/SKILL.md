@@ -24,10 +24,10 @@ Pull Request またはローカル変更について、差分によって生じ�
 - PR の URL から特定した `owner/repo` を全アクションの `reference` に渡し、解決した対象が途中で変わっていないことを確認する。
 - 開始時の head コミットの SHA を記録する。投稿直前に `pr.read` で head の SHA とドラフト状態を再取得し、SHA が変わっていれば投稿せず報告する。
 - `reviews.create` には固定した SHA を `commit_id` として渡す。レビューイベントには `COMMENT` だけを使う。
-- マージ、Issue のクローズ、`APPROVE` レビューは行わない。通常のレビューではスレッドを Resolve せず、再チェックで [recheck.md](references/recheck.md) が定める対象だけを、検証済み LGTM の後に自動 Resolve する。
-- 再チェックの自動 Resolve 対象は、同じ PR の `thread_id`、root comment の `root_comment_id`、root と返信の `reviewer_login`、今回の分類 anchor `classification_reply_id`（分類が `Resolved`）の組で一意に特定する。他者の root、ユーザー判断待ちの会話、`Partial`、`Unresolved`、`Unknown` は対象にしない。
-- 再チェックの分類・snapshot reconciliation・fingerprint・`post|reuse|stop`・Resolve eligibility は `review/scripts/recheck-state.py` に入力し、`new_reply_verified`、`reused_reply_verified`、`already_applied_reply_verified`、`transport_already_applied`、`precondition_changed`、`failed`、`unknown_outcome` を混同しない。REST にない edit history は GraphQL `lastEditedAt` を正本として扱い、Resolve record の `verified_fingerprint` は対象 thread 単位にする。別 thread の変更は、同一 run の helper 検証済み `resolved_by_run` 結果を `this_run_resolve_records` で明示した場合の state-only delta 以外は許可しない。Resolve の `already_applied` は fresh target が `resolved=true` と検証できた場合だけ `already_resolved_external` に分離し、未解決・欠落・不一致・取得不能は fail closed にする。skill は元 finding の再評価と LGTM policy だけを判断し、Action に分類判断を移さない。
-- LGTM の投稿と本文・head の検証が成功する前に Resolve してはならない。各 Resolve の直前に `pr.read` で現在の `head.sha` が検証済み LGTM の固定 `commit_id` と一致することも確認し、Resolve ごとに対象と状態を再取得して対応するスレッドが `resolved=true` であることを確認する。head の変化、失敗、`unknown_outcome`、再取得失敗、対象不一致は Resolve せず、成功として扱わず報告する。
+- マージ、Issue のクローズ、`APPROVE` レビューは行わない。スレッドの Resolve は明示指示があった場合だけ、[recheck.md](references/recheck.md) に従って、そのスレッドに閉会コメントを付けてから行う。LGTM から自動的に Resolve しない。
+- 再チェックの Resolve 対象は、同じ PR の `thread_id`、root comment の `root_comment_id`、root と返信の `reviewer_login`、今回の分類 anchor `classification_reply_id`（分類が `Resolved`）の組で一意に特定する。明示指示のあった thread だけを対象にし、他者の root、ユーザー判断待ちの会話、`Partial`、`Unresolved`、`Unknown` は対象にしない。
+- 再チェックの分類パース・thread snapshot の正規化・`post|reuse|stop`・LGTM policy の判定は `review/scripts/recheck-state.py` に入力する。返信結果は「投稿成功 / already-applied / stop」の 3 種だけを扱う。skill は元 finding の再評価と LGTM policy だけを判断し、Action に分類判断を移さない。
+- LGTM の投稿と本文・head の検証が成功して初めて LGTM と報告する。Resolve は LGTM と独立した「会話を閉じる」記録であり、明示指示のあった thread だけを対象に、`review-threads.resolve` の前後で対象と状態を再取得して、対応するスレッドが `resolved=true` であることを確認する。head の変化、失敗、`unknown_outcome`、再取得失敗、対象不一致は Resolve せず、成功として扱わず報告する。
 - 投稿後はレスポンスを再取得し、対象、本文、コメント位置、`commit_id` が意図どおりか確認する。
 
 ## 手順

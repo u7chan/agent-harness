@@ -7,28 +7,23 @@ Review skill は元 finding の再評価、分類理由、full review、LGTM 可
 helper の入力は次の操作を持つ JSON である。
 
 - `parse`: current output template の direct reply の strict header だけを `Resolved`、`Partial`、`Unresolved`、`Unknown` として認識する。
-- `reconcile`: REST comments と GraphQL threads/comments を、GraphQL connection の順序を保ったまま ID、actor、body、reply topology、edit metadata で一意に照合し、ordered fingerprint を返す。ID 欠落・重複、片 API の欠落、pagination incomplete、topology/body/edit metadata 不一致は `stop` になる。REST にない edit history は比較せず、GraphQL `lastEditedAt` を fingerprint の正本にする。
-- `plan`: 現在 head で再評価した分類と tail を比較し、`post`、`reuse`、`stop` を返す。semantic reuse は自分の同じ root への direct `Resolved` tail だけに限定する。
-- `verify_reuse` / `verify_transport`: plan fingerprint と fresh fingerprint の一致、または `F0 -> expected reply 1件だけ -> F1` を検証し、`new_reply_verified`、`reused_reply_verified`、`already_applied_reply_verified`、`transport_already_applied`、`precondition_changed`、`failed`、`unknown_outcome` を区別する。
-- `resolve_eligibility` / `resolve_post`: head、検証済み LGTM、root/thread/reviewer/anchor、対象 thread 単位の fingerprint、tail、未 Resolve 状態と、Resolve 後の `resolved=false -> true` 以外の差分がないことを判定する。PR 全体の snapshot checkpoint は保持するが、対象外 thread の変更は無条件に許可しない。先行する同一 run の `resolved_by_run` 結果を `this_run_resolve_records` として渡した場合だけ、その thread のコメント不変な `false -> true` delta を許可する。Resolve Action の `already_applied` は対象 thread が fresh read で検証済みの `resolved=true` になった場合だけ `already_resolved_external` とし、未解決・欠落・不一致・取得不能は fail closed にする。
+- `reconcile`: `review-threads.read` の出力を正規化し、thread ごとの root、tail、コメント一覧を持つ canonical snapshot を返す。ID 欠落・重複、root が一意でない、直接 root への返信でない、pagination が不完全な場合は `stop` になる。REST との相互照合は行わない。
+- `plan`: 対象 thread の root が自分の指摘か、未 Resolve か、同じ分類の返信が既に tail にあるか（同 actor・同 root・同分類 = plan レベルの dedup）を判定し、`reuse`（投稿不要）か `post`（投稿する）を返す。対象の特定に失敗した場合は `stop` になる。
+- `gate`: 分類返信の record と最新 head の full review 結果から LGTM 可否を判定し、`lgtm_eligible` か `blocked` を返す。
 
 各 record は実行中だけ次を保持し、ファイルや再起動後へ持ち越さない。
 
 ```text
 thread_id, root_comment_id, reviewer_login, classification,
-classification_reply_id, reply_source, materialization_state,
-transport_outcome, verification_head_sha, plan_fingerprint,
-verified_fingerprint, verified_snapshot_fingerprint
+classification_reply_id, verification_head_sha
 ```
 
-`verified_fingerprint` は record の対象 thread だけの fingerprint、`verified_snapshot_fingerprint` は分類返信を検証した PR 全体 snapshot の checkpoint である。`verified_snapshot` は同一 run の memory-only reconciliation に使い、再起動後へ持ち越さない。
-
-`verification_head_sha == lgtm_commit_id == Resolve 直前の current head.sha` を満たさない record は、LGTM/Resolve eligibility に入れない。
+`verification_head_sha` はその分類返信を再評価した時点の head SHA である。edit history や snapshot checkpoint は使わない。
 
 ## 対象と初期スナップショット
 
 - 明示的に再チェックを依頼された場合だけ実行する。初回レビューを Round 1、再チェックを Round 2、Round 3 と数え、最大 3 ラウンドまで行う。Round 3 を終えても Blocker が残る場合は追加で投稿せず、Draft のまま報告する。
-- `pr.read` で対象の repository、PR 番号、開始時の head SHA を固定し、`review-threads.read` と `review-comments.read` は全ページ取得する。途中で head が変わった場合は、そのスナップショットを最新 head として扱わず、再取得した head を対象に確認をやり直す。
+- `pr.read` で対象の repository、PR 番号、開始時の head SHA を固定し、`review-threads.read` は全ページ取得する。途中で head が変わった場合は、そのスナップショットを最新 head として扱わず、再取得した head を対象に確認をやり直す。
 - 再分類の候補は、初期取得時に `resolved == false` で、同じ PR の同じレビュースレッドにある次のすべてを満たす root comment だけとする。ここで `reviewer_login` は API の `user.login` を正規化した値である。
   1. `in_reply_to_id == null` の root である。
   2. `review-threads.read` の `database_id` と `review-comments.read` の数値 ID が一致する。
@@ -45,41 +40,45 @@ verified_fingerprint, verified_snapshot_fingerprint
 - **Unresolved**: 元の失敗条件または影響が残る。
 - **Unknown**: コード、実行条件、仕様、権限の情報が不足しているため判定できない。
 
-候補を一意に特定できた場合だけ、[output-templates.md](output-templates.md) の対応する返信を root comment への同じレビュースレッドに投稿する。`review-comments.reply` には同じ baseline の `thread_id` と `baseline_thread_resolved` も渡し、Action は POST 直前に GraphQL の全 comment connection を再取得して baseline/current の comment set、reply topology、identity、必要 metadata、PR 所属、resolved state を照合する。`Resolved` の `reuse` は write せず、fresh snapshot で既存 tail anchor を `reused_reply_verified` として記録する。`post` の `status=ok` は expected delta を fresh REST/GraphQL snapshot で検証できた場合だけ `new_reply_verified` とする。`status=already_applied` は、同じ operation の expected delta を検証できた場合だけ `already_applied_reply_verified` として採用し、古い non-tail exact match は `transport_already_applied` のまま対象にしない。失敗、`unknown_outcome`、`precondition_changed` は同じ run で retry せず、Resolve target に追加しない。
+候補を一意に特定できた場合だけ、[output-templates.md](output-templates.md) の対応する返信を root comment への同じレビュースレッドに投稿する。返信結果は次の 3 種だけを区別する。
 
-`Partial`、`Unresolved`、`Unknown` の返信は分類として記録してもスレッドを Resolve しない。root の特定自体が曖昧な場合は `Unknown` として返信せず、Resolve もしない。他者のスレッドやユーザー判断待ちの議論に、同じレビュアーが `Resolved` と返信しても自動 Resolve の対象にはならない。
+- **投稿成功**: `review-comments.reply` の `status=ok`。返信を投稿し、レスポンスの再取得で本文・投稿者・root への `in_reply_to_id` を検証できた。
+- **already-applied**: `status=already_applied`。同 body・同 actor・同 root の返信が既に存在するため投稿しなかった（リトライや二重実行の結果）。返された既存コメント ID を `classification_reply_id` として採用してよい。
+- **stop**: `status=failed` / `unknown_outcome`（投稿失敗で再読取しても exact match を adopt できなかった場合など）。同じ run で retry せず、Resolve の対象にもしない。
+
+`plan` が `reuse` を返した場合は投稿せず、既存の tail 返信を今回の分類 anchor として記録する。`Partial`、`Unresolved`、`Unknown` の返信は分類として記録してもスレッドを Resolve しない。root の特定自体が曖昧な場合は `Unknown` として返信せず、Resolve もしない。
 
 ## 最新 head のフルレビュー
 
 - 対象候補の分類返信を終えた後、`pr.read` で head SHA を再確認し、その SHA の差分、影響範囲、関連テストを初回レビューと同じ深さでレビューする。再チェック中に新しく見つけた論点や fix が導入した回帰を対象外にしない。
 - 既存 Blocker がすべて `Resolved` と確認でき、かつ最新 head のフルレビューで新しい Blocker がない場合だけ、最新 head に固定した `reviews.create` の `COMMENT` レビューで `LGTM` を投稿する。`Partial`、`Unresolved`、`Unknown` の既存 Blocker、フルレビューで判断できない Blocker、または新しい Blocker が一つでもあれば LGTM を投稿しない。
-- LGTM の投稿前に payload を検証し、投稿後に対象、本文、head SHA、レビュー状態を再取得して検証する。検証済み LGTM の `commit_id` を `lgtm_commit_id` として保持し、投稿後の `pr.read` で `head.sha == lgtm_commit_id` も確認する。LGTM の投稿または検証が失敗・不明な場合は、Resolve を開始せず、LGTM として報告しない。
+- LGTM の投稿前に payload を検証し、投稿後に対象、本文、head SHA、レビュー状態を再取得して検証する。検証できた LGTM だけを LGTM として報告し、失敗・不明な場合は LGTM として報告しない。
 
-## 安全な投稿・Resolve 順序
+## 安全な投稿順序
 
 ### 1. 返信と分類
 
-初期スナップショットから候補を一意に特定し、各 root comment に今回の分類を materialize する。`Resolved` で、`new_reply_verified`、`reused_reply_verified`、`already_applied_reply_verified` のいずれかであり、同じ head の record だけを `(thread_id, root_comment_id, reviewer_login, classification_reply_id)` の provisional Resolve 集合に入れる。`reuse` は過去の返信を現在 head の証明として扱わず、今回の再検証結果を既存 anchor に結び付けるだけである。
+初期スナップショットから候補を一意に特定し、各 root comment に今回の分類を materialize する（`reuse` は過去の返信を現在 head の証明として扱わず、今回の再検証結果を既存 anchor に結び付けるだけである）。投稿成功または already-applied の返信について `(thread_id, root_comment_id, reviewer_login, classification_reply_id)` を record として保持する。
 
 ### 2. 最新 head のフルレビュー
 
-最新 head を再取得して全体をレビューし、新しい指摘を通常のレビュー結果に含める。Blocker が残る、または重要な判定が `Unknown` の場合は LGTM と Resolve を行わない。
+最新 head を再取得して全体をレビューし、新しい指摘を通常のレビュー結果に含める。Blocker が残る、または重要な判定が `Unknown` の場合は LGTM を投稿しない。
 
 ### 3. 検証済み LGTM
 
-Blocker がないことを確認した後でだけ、固定した最新 head に対する `COMMENT` の LGTM を投稿する。レスポンスを再取得し、PR、本文、commit、レビュー状態が意図どおりであることを確認する。この確認が終わるまで、対象集合を一つも Resolve しない。
+Blocker がないことを確認した後でだけ、固定した最新 head に対する `COMMENT` の LGTM を投稿し、レスポンスを再取得して PR、本文、commit、レビュー状態が意図どおりであることを確認する。LGTM は「レビューが通った」記録であり、スレッドを自動的に Resolve しない。
 
-### 4. 個別 Resolve と再取得
+## 明示指示による Resolve
 
-対象集合を一件ずつ処理する。各件で次を行う。
+Resolve は「この会話は終わった」記録であり、LGTM とは独立して、明示指示があった thread だけを対象に行う。自動 Resolve は行わない。
 
-1. `pr.read` を Resolve の直前に実行し、対象の PR が同じで、現在の `head.sha` が検証済み LGTM の `lgtm_commit_id` と一致することを確認する。head が変化した、取得に失敗した、または一致を確認できない場合は Resolve せず、その時点で不明または未解決として報告する。
-2. `review-threads.read` と `review-comments.read` を再実行し、対象の PR、`thread_id`、`root_comment_id`、root の `reviewer_login`、今回の `classification_reply_id`、返信本文の `Resolved` 分類が変わっていないことを確認する。ユーザー判断待ち、他者の root、返信の欠落、対象不一致なら Resolve しない。
-3. 対象がまだ未解決なら `review-threads.resolve` を実行する。すでに解決済みなら、外部で変更された可能性として状態を検証し、対象集合との一致を確認する。複数の provisional target を逐次処理する場合、先行してこの run で `resolved_by_run` を検証した結果だけを `this_run_resolve_records` に渡す。未検証の他 thread の編集、削除、identity変更、state変更は許可しない。
-4. Resolve の直後に同じ対象を再取得し、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。`already_applied` で fresh target が `resolved=false` のまま、または target が欠落・不一致の場合は成功件数にも target にも加えない。
-5. `failed`、`unknown_outcome`、head の取得失敗・変化、再取得失敗、状態不一致は成功として扱わず、その thread を未解決または不明として報告する。別の thread の成功で置き換えたり、結果不明のまま再試行したりしない。
+1. ユーザーが Resolve を明示指示した thread だけを対象にする。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は、指示があっても Resolve しない。
+2. Resolve の前に、そのスレッドに閉会コメント（対象の会話と判断を要約した返信）を投稿する。投稿には `review-comments.reply` を使い、投稿成功または already-applied を確認する。
+3. `review-threads.read` で対象の PR、`thread_id`、`root_comment_id`、root の `reviewer_login` が指示の対象と一致することを確認する。対象不一致、取得失敗、root の特定不能なら Resolve しない。
+4. 対象がまだ未解決なら `review-threads.resolve` を実行し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
+5. `failed`、`unknown_outcome`、取得失敗、状態不一致は成功として扱わず、その thread を未解決または不明として報告する。結果不明のまま再試行しない。
 
-この順序により、LGTM のない Resolve、単なる push を根拠にした Resolve、対象を取り違えた Resolve を防ぐ。対象集合に入らないすべてのスレッドは、`Partial`、`Unresolved`、`Unknown`、他者の投稿、ユーザー判断待ちを含め、未解決のまま保持する。
+この方針により、LGTM のない自動 Resolve、単なる push を根拠にした Resolve、対象を取り違えた Resolve は設計上存在しない。明示指示のないすべてのスレッドは、`Partial`、`Unresolved`、`Unknown`、他者の投稿、ユーザー判断待ちを含め、未解決のまま保持する。
 
 ## レビュースレッドの特定
 
@@ -89,4 +88,4 @@ Blocker がないことを確認した後でだけ、固定した最新 head に
 
 ## 報告
 
-ラウンド、最新 head SHA、フルレビュー結果、分類返信件数、検証済み LGTM の有無、対象集合の Resolve 成功・未解決・不明件数を簡潔に伝える。`new_reply_verified`、`reused_reply_verified`、`already_applied_reply_verified`、raw `transport_already_applied`、`precondition_changed`、`failed`、`unknown_outcome`、`resolved_by_run`、`already_resolved_external`、`unresolved`、`unknown` は別集計する。Resolve の失敗や結果不明を成功件数に含めず、対象外として保持した `Partial`、`Unresolved`、`Unknown`、他者のスレッド、ユーザー判断待ちの議論も明示する。
+ラウンド、最新 head SHA、フルレビュー結果、分類返信件数（投稿成功 / already-applied / stop を別集計）、検証済み LGTM の有無、明示指示による Resolve の成功・未解決・不明件数を簡潔に伝える。Resolve の失敗や結果不明を成功件数に含めず、対象外として保持した `Partial`、`Unresolved`、`Unknown`、他者のスレッド、ユーザー判断待ちの議論も明示する。

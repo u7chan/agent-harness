@@ -835,15 +835,8 @@ echo "{\"number\":$TEST_PR_NUMBER, \"body\": \"smoke-test-review-comment\", \"co
 ```bash
 # Test: reply to a review comment (use dynamic comment ID if available)
 if [ -n "$TEST_COMMENT_ID" ]; then
-  BASELINE_COMMENT_IDS=$(echo "{\"number\":$TEST_PR_NUMBER}" \
-    | bash gh/scripts/gh.sh review-comments.read | jq -c '.data.items | map(.id)')
-  THREAD_ID=$(echo "{\"number\":$TEST_PR_NUMBER}" \
-    | bash gh/scripts/gh.sh review-threads.read \
-    | jq -r --argjson id "$TEST_COMMENT_ID" '.data.threads[] | select(any(.comments[]; .database_id == $id)) | .thread_id' \
-    | head -n 1)
-  jq -n --argjson ids "$BASELINE_COMMENT_IDS" --arg thread_id "$THREAD_ID" \
-    --argjson reply_to "$TEST_COMMENT_ID" \
-    '{number: '$TEST_PR_NUMBER', reply_to: $reply_to, thread_id: $thread_id, baseline_thread_resolved: false, body: "smoke-test-review-reply", plan_fingerprint: "smoke-test-plan", baseline_comment_ids: $ids, grant: "write"}' \
+  jq -n --argjson reply_to "$TEST_COMMENT_ID" \
+    '{number: '$TEST_PR_NUMBER', reply_to: $reply_to, body: "smoke-test-review-reply", grant: "write"}' \
     | bash gh/scripts/gh.sh review-comments.reply \
     | jq -e '.status == "ok" or .status == "already_applied"'
 fi
@@ -854,11 +847,13 @@ fi
 | status ok or already_applied | `.status` in `("ok", "already_applied")` |
 | reply has in_reply_to_id | `.data.in_reply_to_id != null` |
 
+再実行すると exact-body dedup により `already_applied` になり、2 重投稿されない。
+
 ### review-comments.reply (reply mismatch)
 
 ```bash
-# Test: reply_to comment does not belong to given PR (operation identity is still required)
-echo "{\"number\":999999, \"reply_to\":$TEST_COMMENT_ID, \"thread_id\":\"unknown-thread\", \"baseline_thread_resolved\":false, \"body\": \"reply fail\", \"plan_fingerprint\": \"smoke-test-plan\", \"baseline_comment_ids\": [], \"grant\": \"write\"}" | bash gh/scripts/gh.sh review-comments.reply 2>&1 | jq -e '.status == "failed"'
+# Test: reply_to comment does not belong to given PR
+echo "{\"number\":999999, \"reply_to\":$TEST_COMMENT_ID, \"body\": \"reply fail\", \"grant\": \"write\"}" | bash gh/scripts/gh.sh review-comments.reply 2>&1 | jq -e '.status == "failed"'
 ```
 
 | Check | Pass Condition |
@@ -1307,10 +1302,10 @@ Additional verification points for review without destructive side effects:
 - Same body on different file/line must NOT match.
 
 ### Review comment dedup (review-comments.reply)
-- Dedup is operation-scoped: pass `plan_fingerprint` and the complete `baseline_comment_ids`.
-- Pass the baseline `thread_id` and `baseline_thread_resolved` as well; immediately before POST the action rechecks the root node's thread identity, PR, and resolved state through GraphQL.
-- A baseline exact-body reply is not reused just because its actor/body/root match; only one baseline-outside expected direct reply may be returned as `already_applied`.
-- A nonmatching comment, multiple effects, edit/delete, or an unexpected post-write delta must return `PRECONDITION_CHANGED` without creating a success target.
+- Dedup is exact-body: when a reply with the same body, the same actor (`user.login`), and the same root (`in_reply_to_id == root`) already exists in the PR's full REST comment list, the action returns `already_applied` without POST.
+- The dedup scan paginates the whole comment list; a match on any page is adopted and no write is performed.
+- The write always targets the resolved root comment; a failed POST response is re-read and an exact match is adopted instead of retried (double-post guard). When no match can be adopted, the outcome is `unknown_outcome`.
+- Inputs are `number`, `reply_to`, `body`, and `grant` only; no baseline IDs or thread ID is passed.
 
 ### Thread state verification
 - `review-threads.resolve` and `review-threads.unresolve` use GraphQL mutations.
