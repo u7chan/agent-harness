@@ -157,6 +157,16 @@ expect_doc_contains recheck-helper-contract "$RECHECK_REFERENCE" 'recheck-state.
 expect_doc_contains recheck-operation-dedup "$POSTING_REFERENCE" '同 body・同 actor・同 root'
 expect_doc_contains recheck-verified-outcomes "$RECHECK_REFERENCE" 'already-applied'
 expect_doc_order recheck-order "$RECHECK_REFERENCE" '### 3. 検証済み LGTM' '## 明示指示による Resolve'
+expect_doc_contains workflow-resolve-section "$RECHECK_REFERENCE" '## Workflow コンテキストの自動 Resolve'
+expect_doc_contains workflow-resolve-trigger "$RECHECK_REFERENCE" '自動 Resolve を明示的に指定した場合（workflow コンテキスト）に限り'
+expect_doc_contains workflow-resolve-outside-scope "$RECHECK_REFERENCE" 'workflow 外・手動フロー'
+expect_doc_contains workflow-resolve-reply-tail "$RECHECK_REFERENCE" 'tail に `Resolved` 分類の返信がある'
+expect_doc_contains workflow-resolve-anchor-forms "$RECHECK_REFERENCE" 'plan の `reuse` anchor を含む'
+expect_doc_contains workflow-resolve-two-points "$RECHECK_REFERENCE" '① thread が対象 PR に属し未解決であること'
+expect_doc_contains workflow-resolve-tail-owner "$RECHECK_REFERENCE" '② tail の返信が review 担当自身の `Resolved` 分類であること'
+expect_doc_contains workflow-resolve-execution "$RECHECK_REFERENCE" '`review-threads.resolve` で解決し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。'
+expect_doc_contains workflow-resolve-no-state-restore "$RECHECK_REFERENCE" '廃止した機構も再導入しない'
+expect_doc_contains workflow-resolve-closing-reply "$RECHECK_REFERENCE" '`Resolved` 分類返信が閉会コメントを兼ねる'
 expect_doc_contains skill-auto-resolve "$REVIEW_SKILL" '明示指示'
 expect_doc_contains skill-verifies-lgtm-head "$REVIEW_SKILL" 'LGTM の投稿と本文・head の検証が成功して初めて'
 expect_doc_contains skill-start-materials "$REVIEW_SKILL" '利用可能な変更目的、受け入れ条件、禁止される結果、維持すべき既存契約、変更の伝播先、実行済みテストと結果、人間の判断が必要な未決事項'
@@ -193,7 +203,9 @@ expect_doc_contains workflow-requires-recheck "$WORKFLOW_SKILL" 'explicitly to r
 expect_doc_absent workflow-optional-recheck "$WORKFLOW_SKILL" 'If the agent also rechecks prior findings'
 expect_doc_contains posting-order "$POSTING_REFERENCE" '再チェック返信、最新 head のフルレビュー、最終 LGTM はこの順序'
 expect_doc_contains posting-verifies-lgtm-head "$POSTING_REFERENCE" '明示指示があった thread だけを対象に'
-expect_doc_contains workflow-delegates-resolution "$WORKFLOW_SKILL" 'Conversation resolution is explicit instruction only.'
+expect_doc_contains workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'Conversation resolution outside this workflow remains explicit instruction only'
+expect_doc_contains workflow-resolve-scoped-auto "$WORKFLOW_SKILL" "Within this workflow's fix"
+expect_doc_contains workflow-resolve-reply-first "$WORKFLOW_SKILL" 'Resolve only after this confirmation'
 expect_doc_absent workflow-old-confirmation "$WORKFLOW_SKILL" 'requires user confirmation before resolving them'
 
 echo "PASS: $pass_count review payload and recheck contract cases"
