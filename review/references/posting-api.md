@@ -26,7 +26,7 @@ baseline 入力（`baseline_comment_ids` 等）や thread 入力は渡さない�
 ## 再チェックの投稿と Resolve
 
 - 再チェック返信、最新 head のフルレビュー、最終 LGTM はこの順序で行う。LGTM の投稿自体はスレッドを Resolve しない。workflow コンテキストの自動 Resolve は、LGTM 検証の成立後に [recheck.md](recheck.md) の「Workflow コンテキストの自動 Resolve」に従う別操作である。
-- Resolve は明示指示があった thread だけを対象に、`SKILL.md` / [recheck.md](recheck.md) の手順に従って閉会コメントを投稿してから `review-threads.resolve` を呼ぶ。pi-issue-pr-workflow の委譲による workflow コンテキストも明示指示の一種であり、閉会コメントは `Resolved` 分類返信が兼ねる。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は、指示があっても対象外である。
+- Resolve は明示指示があった thread だけを対象に、`SKILL.md` / [recheck.md](recheck.md) の手順に従って閉会コメントを投稿してから `review-threads.resolve` を呼ぶ。自動 Resolve を明示指定した委譲タスクによる workflow コンテキストも明示指示の一種であり、閉会コメントは `Resolved` 分類返信が兼ねる。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は、指示があっても対象外である。
 - `review-comments.reply` の `status=ok`（投稿成功）または exact-match dedup の `already_applied` だけを分類 record（`classification_reply_id` は返されたコメント ID）として採用する。`failed`、`unknown_outcome` は今回の record に加えず、retry もしない。
 - Resolve は一件ずつ行い、直前に `review-threads.read` で対象の `thread_id`・`root_comment_id`・root の `reviewer_login` が指示対象と一致することを確認し、直後に同じ thread と root を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも再取得に失敗した場合や状態が不明な場合は成功として扱わない。
 

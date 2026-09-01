@@ -70,7 +70,7 @@ Blocker がないことを確認した後でだけ、固定した最新 head に
 
 ## 明示指示による Resolve
 
-Resolve は「この会話は終わった」記録であり、LGTM とは独立した操作である。明示指示があった thread だけを対象に行い、自動 Resolve は pi-issue-pr-workflow の委譲による workflow コンテキスト（次節）を除いて行わない。
+Resolve は「この会話は終わった」記録であり、LGTM とは独立した操作である。明示指示があった thread だけを対象に行い、自動 Resolve は、委譲タスクで自動 Resolve を明示指定された場合（workflow コンテキスト、次節）を除いて行わない。
 
 1. ユーザーが Resolve を明示指示した thread だけを対象にする。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は、指示があっても Resolve しない。
 2. Resolve の前に、そのスレッドに閉会コメント（対象の会話と判断を要約した返信）を投稿する。投稿には `review-comments.reply` を使い、投稿成功または already-applied を確認する。
@@ -82,7 +82,7 @@ Resolve は「この会話は終わった」記録であり、LGTM とは独立�
 
 ## Workflow コンテキストの自動 Resolve
 
-pi-issue-pr-workflow の fix → recheck ループでは、再チェックの委譲タスクが自動 Resolve を明示的に指定した場合に限り、次の条件をすべて満たす thread だけを自動で Resolve できる。それ以外（workflow 外・手動フロー）は前節のとおり明示指示のみで、自動 Resolve はしない。
+再チェックの委譲タスクが自動 Resolve を明示的に指定した場合（workflow コンテキスト）に限り、次の条件をすべて満たす thread だけを自動で Resolve できる。それ以外（workflow 外・手動フロー）は前節のとおり明示指示のみで、自動 Resolve はしない。
 
 - 対象: この run の再チェックで root が自分の指摘・未 Resolve と確認でき、tail に `Resolved` 分類の返信がある thread（投稿成功、already-applied で採用した既存返信、plan の `reuse` anchor を含む）。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は対象にしない。
 - 前提: LGTM 検証が成立していること（`gate` が `lgtm_eligible`）。LGTM 自体が Resolve を意味するわけではなく、返信の確認と軽量チェックは独立に行う。

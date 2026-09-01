@@ -158,7 +158,7 @@ expect_doc_contains recheck-operation-dedup "$POSTING_REFERENCE" '同 body・同
 expect_doc_contains recheck-verified-outcomes "$RECHECK_REFERENCE" 'already-applied'
 expect_doc_order recheck-order "$RECHECK_REFERENCE" '### 3. 検証済み LGTM' '## 明示指示による Resolve'
 expect_doc_contains workflow-resolve-section "$RECHECK_REFERENCE" '## Workflow コンテキストの自動 Resolve'
-expect_doc_contains workflow-resolve-trigger "$RECHECK_REFERENCE" '自動 Resolve を明示的に指定した場合に限り'
+expect_doc_contains workflow-resolve-trigger "$RECHECK_REFERENCE" '自動 Resolve を明示的に指定した場合（workflow コンテキスト）に限り'
 expect_doc_contains workflow-resolve-outside-scope "$RECHECK_REFERENCE" 'workflow 外・手動フロー'
 expect_doc_contains workflow-resolve-reply-tail "$RECHECK_REFERENCE" 'tail に `Resolved` 分類の返信がある'
 expect_doc_contains workflow-resolve-anchor-forms "$RECHECK_REFERENCE" 'plan の `reuse` anchor を含む'
