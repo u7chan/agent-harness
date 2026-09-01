@@ -193,7 +193,9 @@ expect_doc_contains workflow-requires-recheck "$WORKFLOW_SKILL" 'explicitly to r
 expect_doc_absent workflow-optional-recheck "$WORKFLOW_SKILL" 'If the agent also rechecks prior findings'
 expect_doc_contains posting-order "$POSTING_REFERENCE" '再チェック返信、最新 head のフルレビュー、最終 LGTM はこの順序'
 expect_doc_contains posting-verifies-lgtm-head "$POSTING_REFERENCE" '明示指示があった thread だけを対象に'
-expect_doc_contains workflow-delegates-resolution "$WORKFLOW_SKILL" 'Conversation resolution is explicit instruction only.'
+expect_doc_contains workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'Conversation resolution outside this workflow remains explicit instruction only'
+expect_doc_contains workflow-resolve-scoped-auto "$WORKFLOW_SKILL" "Within this workflow's fix"
+expect_doc_contains workflow-resolve-reply-first "$WORKFLOW_SKILL" 'Resolve only after this confirmation'
 expect_doc_absent workflow-old-confirmation "$WORKFLOW_SKILL" 'requires user confirmation before resolving them'
 
 echo "PASS: $pass_count review payload and recheck contract cases"

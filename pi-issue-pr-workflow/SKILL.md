@@ -125,6 +125,8 @@ The fixer must return `blocked` when required verification fails or cannot run. 
 
 After a confirmed fix push, ask the same `review` agent explicitly to recheck all prior unresolved findings and, in that same task, perform a full review of the latest head using the Review skill's recheck procedure. Do not request only normal PR mode or make the recheck optional: the delegation must require both reclassification of the prior root comments and review of the full current diff and affected code for regressions. Recheck replies alone are never sufficient to establish LGTM.
 
+The recheck delegation also carries this workflow's auto-resolve designation: after posting its classification replies and a verified LGTM, the reviewer either resolves the threads it classified `Resolved` (see Conversation resolution below) or hands the verified target set to the orchestrator, which then resolves them.
+
 Count the initial full review as Round 1 and allow at most three full review rounds in total.
 
 - If the latest full review of the current head posts LGTM with no Blocker, complete the workflow.
@@ -142,8 +144,18 @@ Complete only when all of the following are confirmed:
 - every required verification has succeeded on the current PR head;
 - the PR exists and remains Draft;
 - the current PR head matches the commit covered by the latest full Review-skill LGTM review (including a recheck's full latest-head review), with no Blocker;
-- no required review fix remains unaddressed.
+- no required review fix remains unaddressed;
+- every thread the latest recheck classified `Resolved` has been resolved after reply confirmation and the lightweight checks (this workflow's auto-resolve), while `Partial`, `Unresolved`, `Unknown`, other authors' threads, and user-decision discussions remain open.
 
-Conversation resolution is explicit instruction only. A thread may be resolved only when the user explicitly instructed to resolve that thread: the orchestrator (or, when delegated, the reviewer) posts a closing comment on the thread and then resolves it with `review-threads.resolve`. A verified LGTM does not auto-resolve any thread, and the orchestrator must not resolve threads outside an explicit instruction. `Partial`, `Unresolved`, `Unknown`, other authors' threads, and user-decision discussions remain open. Do not automatically mark the PR ready, close panes, merge the PR, or close the Issue.
+Conversation resolution outside this workflow remains explicit instruction only (manual flow, #140 rule): the orchestrator (or, when delegated, the reviewer) resolves a thread with `review-threads.resolve` only when the user explicitly instructed to resolve it, after posting a closing comment on that thread. A verified LGTM never auto-resolves a thread by itself, and the orchestrator must not resolve threads outside an explicit instruction or the workflow-internal auto-resolve below.
+
+Within this workflow's fix → recheck loop, auto-resolve the threads that the Review skill's latest recheck classified `Resolved`:
+
+- Trigger: the recheck classified the thread `Resolved` and its LGTM verification (full latest-head review with no Blocker) holds.
+- Reply requirement: confirm in a fresh read that the recheck's classification reply is on that thread — a `review-comments.reply` post result, an already-applied exact match, or a plan `reuse` anchor. Resolve only after this confirmation (the `Resolved` classification reply doubles as the closing comment).
+- Lightweight checks only: the fresh read confirms ① the thread belongs to this PR and is unresolved, and ② the tail reply is the reviewer's `Resolved` classification. No snapshot or state machinery removed by #140 is restored.
+- Execution: the orchestrator (or the delegated review agent) runs `review-threads.resolve` via the GH skill and verifies `resolved=true` in a re-read.
+
+This auto-resolve is scoped to the workflow loop: `Partial`, `Unresolved`, `Unknown`, other authors' threads, and user-decision discussions remain open, and manual flow or reviews outside this workflow are never auto-resolved. Do not automatically mark the PR ready, close panes, merge the PR, or close the Issue.
 
 Report the Issue, base and work branches, Draft PR, latest commit, verification, review round count, unresolved optional feedback or conversations, and every created pane's role and observed state. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup.

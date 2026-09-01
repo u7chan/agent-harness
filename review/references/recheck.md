@@ -70,7 +70,7 @@ Blocker がないことを確認した後でだけ、固定した最新 head に
 
 ## 明示指示による Resolve
 
-Resolve は「この会話は終わった」記録であり、LGTM とは独立して、明示指示があった thread だけを対象に行う。自動 Resolve は行わない。
+Resolve は「この会話は終わった」記録であり、LGTM とは独立した操作である。明示指示があった thread だけを対象に行い、自動 Resolve は pi-issue-pr-workflow の委譲による workflow コンテキスト（次節）を除いて行わない。
 
 1. ユーザーが Resolve を明示指示した thread だけを対象にする。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は、指示があっても Resolve しない。
 2. Resolve の前に、そのスレッドに閉会コメント（対象の会話と判断を要約した返信）を投稿する。投稿には `review-comments.reply` を使い、投稿成功または already-applied を確認する。
@@ -78,7 +78,21 @@ Resolve は「この会話は終わった」記録であり、LGTM とは独立�
 4. 対象がまだ未解決なら `review-threads.resolve` を実行し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
 5. `failed`、`unknown_outcome`、取得失敗、状態不一致は成功として扱わず、その thread を未解決または不明として報告する。結果不明のまま再試行しない。
 
-この方針により、LGTM のない自動 Resolve、単なる push を根拠にした Resolve、対象を取り違えた Resolve は設計上存在しない。明示指示のないすべてのスレッドは、`Partial`、`Unresolved`、`Unknown`、他者の投稿、ユーザー判断待ちを含め、未解決のまま保持する。
+この方針により、LGTM のない自動 Resolve、単なる push を根拠にした Resolve、対象を取り違えた Resolve は設計上存在しない。明示指示がなく、workflow コンテキストの委譲（次節）による自動 Resolve の指定もないすべてのスレッドは、`Partial`、`Unresolved`、`Unknown`、他者の投稿、ユーザー判断待ちを含め、未解決のまま保持する。
+
+## Workflow コンテキストの自動 Resolve
+
+pi-issue-pr-workflow の fix → recheck ループでは、再チェックの委譲タスクが自動 Resolve を明示的に指定した場合に限り、次の条件をすべて満たす thread だけを自動で Resolve できる。それ以外（workflow 外・手動フロー）は前節のとおり明示指示のみで、自動 Resolve はしない。
+
+- 対象: この run の再チェックで root が自分の指摘・未 Resolve と確認でき、tail に `Resolved` 分類の返信がある thread（投稿成功、already-applied で採用した既存返信、plan の `reuse` anchor を含む）。`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの議論は対象にしない。
+- 前提: LGTM 検証が成立していること（`gate` が `lgtm_eligible`）。LGTM 自体が Resolve を意味するわけではなく、返信の確認と軽量チェックは独立に行う。
+- 手順:
+  1. fresh read（`review-threads.read`）で、① thread が対象 PR に属し未解決であること、② tail の返信が review 担当自身の `Resolved` 分類であること、の 2 点を確認する。この 2 点が確認できた thread だけを対象にする。
+  2. `review-threads.resolve` で解決し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
+  3. `failed`、`unknown_outcome`、取得失敗、対象不一致は成功として扱わず、その thread を未解決または不明として報告する。結果不明のまま再試行しない。
+- 軽量チェックのみ: 事前条件は上記 2 点の確認と `review-threads.resolve` の検証だけにする。Resolve 判定に追加のスナップショット検証や run をまたぐ状態を持ち込まない（#140 の削除方針を維持し、廃止した機構は復活させない）。
+
+workflow では `Resolved` 分類返信が閉会コメントを兼ねる。前節の手動フローと異なり、Resolve のために追加の返信を投稿する必要はない。
 
 ## レビュースレッドの特定
 
@@ -88,4 +102,4 @@ Resolve は「この会話は終わった」記録であり、LGTM とは独立�
 
 ## 報告
 
-ラウンド、最新 head SHA、フルレビュー結果、分類返信件数（投稿成功 / already-applied / stop を別集計）、検証済み LGTM の有無、明示指示による Resolve の成功・未解決・不明件数を簡潔に伝える。Resolve の失敗や結果不明を成功件数に含めず、対象外として保持した `Partial`、`Unresolved`、`Unknown`、他者のスレッド、ユーザー判断待ちの議論も明示する。
+ラウンド、最新 head SHA、フルレビュー結果、分類返信件数（投稿成功 / already-applied / stop を別集計）、検証済み LGTM の有無、Resolve（明示指示 / workflow コンテキスト）の成功・未解決・不明件数を簡潔に伝える。Resolve の失敗や結果不明を成功件数に含めず、対象外として保持した `Partial`、`Unresolved`、`Unknown`、他者のスレッド、ユーザー判断待ちの議論も明示する。
