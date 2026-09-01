@@ -103,3 +103,5 @@ workflow では `Resolved` 分類返信が閉会コメントを兼ねる。前�
 ## 報告
 
 ラウンド、最新 head SHA、フルレビュー結果、分類返信件数（投稿成功 / already-applied / stop を別集計）、検証済み LGTM の有無、Resolve（明示指示 / workflow コンテキスト）の成功・未解決・不明件数を簡潔に伝える。Resolve の失敗や結果不明を成功件数に含めず、対象外として保持した `Partial`、`Unresolved`、`Unknown`、他者のスレッド、ユーザー判断待ちの議論も明示する。
+
+workflow コンテキストで自動 Resolve が指定された run では、reviewer が自分で Resolve せずオーケストレーターへ引き渡す場合（handoff）、報告に対象 thread ごとの verified target set として `(thread_id, root_comment_id, reviewer_login, classification_reply_id)`（「レビュースレッドの特定」の組と同一）を必ず含める。オーケストレーターはこの報告された組を対象の正とし、fresh read から対象を再構成しない。オーケストレーター側の完了確認は、`review-threads.resolve` の実行後に `review-threads.read` で各対象を再取得し、対象が一致したまま `resolved=true` であることを確認することである。
