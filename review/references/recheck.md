@@ -90,7 +90,7 @@ Resolve は「この会話は終わった」記録であり、LGTM とは独立�
   1. fresh read（`review-threads.read`）で、① thread が対象 PR に属し未解決であること、② tail の返信が review 担当自身の `Resolved` 分類であること、の 2 点を確認する。この 2 点が確認できた thread だけを対象にする。
   2. `review-threads.resolve` で解決し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
   3. `failed`、`unknown_outcome`、取得失敗、対象不一致は成功として扱わず、その thread を未解決または不明として報告する。結果不明のまま再試行しない。
-- 軽量チェックのみ: 事前条件は上記 2 点の確認と `review-threads.resolve` の検証だけにする。Resolve 判定に追加のスナップショット検証や run をまたぐ状態を持ち込まない（#140 の削除方針を維持し、廃止した機構は復活させない）。
+- 軽量チェックのみ: 事前条件は上記 2 点の確認と `review-threads.resolve` の検証だけにする。Resolve 判定に追加のスナップショット検証や run をまたぐ状態を持ち込まない（廃止した機構は復活させない）。
 
 workflow では `Resolved` 分類返信が閉会コメントを兼ねる。前節の手動フローと異なり、Resolve のために追加の返信を投稿する必要はない。
 

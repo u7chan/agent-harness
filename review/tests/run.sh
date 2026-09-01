@@ -165,7 +165,7 @@ expect_doc_contains workflow-resolve-anchor-forms "$RECHECK_REFERENCE" 'plan の
 expect_doc_contains workflow-resolve-two-points "$RECHECK_REFERENCE" '① thread が対象 PR に属し未解決であること'
 expect_doc_contains workflow-resolve-tail-owner "$RECHECK_REFERENCE" '② tail の返信が review 担当自身の `Resolved` 分類であること'
 expect_doc_contains workflow-resolve-execution "$RECHECK_REFERENCE" '`review-threads.resolve` で解決し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。'
-expect_doc_contains workflow-resolve-no-state-restore "$RECHECK_REFERENCE" '#140 の削除方針を維持し、廃止した機構は復活させない'
+expect_doc_contains workflow-resolve-no-state-restore "$RECHECK_REFERENCE" '廃止した機構は復活させない'
 expect_doc_contains workflow-resolve-closing-reply "$RECHECK_REFERENCE" '`Resolved` 分類返信が閉会コメントを兼ねる'
 expect_doc_contains skill-auto-resolve "$REVIEW_SKILL" '明示指示'
 expect_doc_contains skill-verifies-lgtm-head "$REVIEW_SKILL" 'LGTM の投稿と本文・head の検証が成功して初めて'
