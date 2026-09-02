@@ -252,7 +252,7 @@
         "attachments": {
           "type": "array",
           "required": false,
-          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB, mp4/mov/webm up to 100 MB, at most 50 files, no duplicates"
+          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB; mp4/mov/webm up to 10 MB in Free-plan repositories (10-100 MB requires a paid plan); at most 50 files, no duplicates"
         },
         "labels": {
           "type": "array",
@@ -327,7 +327,7 @@
         "attachments": {
           "type": "array",
           "required": false,
-          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB, mp4/mov/webm up to 100 MB, at most 50 files, no duplicates"
+          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB; mp4/mov/webm up to 10 MB in Free-plan repositories (10-100 MB requires a paid plan); at most 50 files, no duplicates"
         },
         "grant": {
           "type": "string",
@@ -1326,7 +1326,7 @@
         "attachments": {
           "type": "array",
           "required": false,
-          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB, mp4/mov/webm up to 100 MB, at most 50 files, no duplicates"
+          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB; mp4/mov/webm up to 10 MB in Free-plan repositories (10-100 MB requires a paid plan); at most 50 files, no duplicates"
         },
         "grant": {
           "type": "string",
@@ -1486,7 +1486,7 @@
         "attachments": {
           "type": "array",
           "required": false,
-          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB, mp4/mov/webm up to 100 MB, at most 50 files, no duplicates"
+          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB; mp4/mov/webm up to 10 MB in Free-plan repositories (10-100 MB requires a paid plan); at most 50 files, no duplicates"
         },
         "base": {
           "type": "string",
@@ -1596,7 +1596,7 @@
         "attachments": {
           "type": "array",
           "required": false,
-          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB, mp4/mov/webm up to 100 MB, at most 50 files, no duplicates"
+          "description": "Local image/video files to attach ('path#alt', alt is images-only). Requires gh >= 2.99.0 on github.com and repository write permission; paths resolve against the current working directory. Allowed: png/jpg/jpeg/gif/webp/svg up to 10 MB; mp4/mov/webm up to 10 MB in Free-plan repositories (10-100 MB requires a paid plan); at most 50 files, no duplicates"
         },
         "base": {
           "type": "string",

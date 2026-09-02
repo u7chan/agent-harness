@@ -177,11 +177,10 @@ attach_verify() {
   local expected_body_file="$1"
   local fetched_body_file="$2"
 
-  local referenced=0 unreferenced=0 path expected_size fetched_size
+  local unreferenced=0 path expected_size fetched_size
 
   for path in "${ATTACH_PATHS[@]}"; do
     if grep -Fq -- "$path" "$expected_body_file"; then
-      referenced=1
       if grep -Fq -- "$path" "$fetched_body_file"; then
         echo "attachment reference was not rewritten: $path" >&2
         return 1
