@@ -32,7 +32,7 @@ get_host() {
 }
 EOF
 
-  for common_name in envelope target http file; do
+  for common_name in envelope target http file attach; do
     ln -s "$gh_dir/scripts/common/$common_name.sh" \
       "$FIXTURE_DIR/scripts/common/$common_name.sh"
   done
