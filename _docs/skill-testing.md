@@ -6,7 +6,8 @@
 
 ## なぜこのナレッジが必要か
 
-スキルの操作セットは**ピン留めクローン** `~/.pi/agent/git/github.com/u7chan/agent-harness@<sha>`(pi install 経由)であり、
+スキルの操作セットは**ピン留めクローン**(pi install が配置する固定 SHA のクローン。
+配置先パスについては [_docs/skill-distribution.md](skill-distribution.md) 参照)であり、
 開発チェックアウト・worktree はスキャンパスにない(_docs/skill-distribution.md 参照)。
 
 つまりブランチ上のスキル変更は、別ペインの pi を普通に起動しても**見えない**。
@@ -18,12 +19,14 @@
 
 ```bash
 pi --provider opencode-go --model deepseek-v4-flash --thinking max \
-  --skill /home/u7dev/workspace/agent-harness/gh/SKILL.md
+  --skill <checkout>/gh/SKILL.md
 ```
+
+(`<checkout>` はこのリポジトリの開発チェックアウトの絶対パス)
 
 - pi の仕様: 同名スキルは**最初に見つかったものを保持**(docs/skills.md "Name collisions ... keep the first skill found")
 - 実測(2026-09-02): インストール済み gh スキル(git:...@da12c84)が優先され、明示パスは
-  `✗ ~/workspace/agent-harness/gh/SKILL.md (skipped)` となった(ロードされない)
+  `✗ <checkout>/gh/SKILL.md (skipped)` となった(ロードされない)
 - 回避案(未実測・docs より): `--no-skills` で discovery を無効化すると `--skill` のみ additive に
   ロードされる。ただし**全スキル無効化**なので herdr 等他スキルも消える。要実測
 
@@ -41,9 +44,10 @@ pi --provider opencode-go --model deepseek-v4-flash --thinking max \
 
 ```text
 スキルの読み方: ロード済みの旧 gh スキルは使わず、以下を直接読んで手順を把握すること:
-- /home/u7dev/workspace/agent-harness/gh/SKILL.md
-- /home/u7dev/workspace/agent-harness/gh/actions.json
-- /home/u7dev/workspace/agent-harness/gh/scripts/gh.sh(引数: <アクション名> <入力JSONファイル>)
+(<checkout> は開発チェックアウトの絶対パス。ワークスペース固有の実パスは渡さない)
+- <checkout>/gh/SKILL.md
+- <checkout>/gh/actions.json
+- <checkout>/gh/scripts/gh.sh(引数: <アクション名> <入力JSONファイル>)
 ```
 
 ## 実機テストの運用ルール
