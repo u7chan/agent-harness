@@ -10,10 +10,11 @@ source "$SCRIPT_DIR/../common/file.sh"
 main() {
   local input="$1"
 
-  local title body base head
+  local title body base head attachments_json
   title="$(echo "$input" | jq -r '.title')"
   head="$(echo "$input" | jq -r '.head')"
   base="$(echo "$input" | jq -r '.base')"
+  attachments_json="$(echo "$input" | jq -c '.attachments // []')"
 
   local _has_body _has_draft _has_maintainer_can_modify _has_head_repository
   _has_body="$(echo "$input" | jq -r 'has("body")')"
@@ -90,51 +91,89 @@ main() {
     payload_head_repo=""
   fi
 
-  local body_file
-  body_file="$(gh_make_temp "write-body")"
+  local created_number=""
+  if [ "$attachments_json" = "[]" ]; then
+    local body_file
+    body_file="$(gh_make_temp "write-body")"
 
-  jq -nc \
-    --arg title "$title" \
-    --arg head "$payload_head" \
-    --arg base "$base" \
-    --arg body "$body" \
-    --argjson draft "$draft" \
-    --argjson maintainer_can_modify "$maintainer_can_modify" \
-    --argjson has_body "$_has_body" \
-    --argjson has_draft "$_has_draft" \
-    --argjson has_maintainer_can_modify "$_has_maintainer_can_modify" \
-    --arg head_repo "$payload_head_repo" \
-    --argjson has_head_repository "$_has_head_repository" \
-    '{
-      title: $title,
-      head: $head,
-      base: $base
-    } + (if $has_body and $body != "" then {body: $body} else {} end)
-      + (if $has_draft and $draft != null then {draft: $draft} else {} end)
-      + (if $has_maintainer_can_modify and $maintainer_can_modify != null then {maintainer_can_modify: $maintainer_can_modify} else {} end)
-      + (if $has_head_repository and $head_repo != "" then {head_repo: $head_repo} else {} end)' > "$body_file"
+    jq -nc \
+      --arg title "$title" \
+      --arg head "$payload_head" \
+      --arg base "$base" \
+      --arg body "$body" \
+      --argjson draft "$draft" \
+      --argjson maintainer_can_modify "$maintainer_can_modify" \
+      --argjson has_body "$_has_body" \
+      --argjson has_draft "$_has_draft" \
+      --argjson has_maintainer_can_modify "$_has_maintainer_can_modify" \
+      --arg head_repo "$payload_head_repo" \
+      --argjson has_head_repository "$_has_head_repository" \
+      '{
+        title: $title,
+        head: $head,
+        base: $base
+      } + (if $has_body and $body != "" then {body: $body} else {} end)
+        + (if $has_draft and $draft != null then {draft: $draft} else {} end)
+        + (if $has_maintainer_can_modify and $maintainer_can_modify != null then {maintainer_can_modify: $maintainer_can_modify} else {} end)
+        + (if $has_head_repository and $head_repo != "" then {head_repo: $head_repo} else {} end)' > "$body_file"
 
-  local _saved_retry="${GH_RETRY_MAX:-3}"
-  GH_RETRY_MAX=1
-  local _res
-  _res="$(call_gh_api "repos/$owner_repo/pulls" "POST" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
+    local _saved_retry="${GH_RETRY_MAX:-3}"
+    GH_RETRY_MAX=1
+    local _res
+    _res="$(call_gh_api "repos/$owner_repo/pulls" "POST" --input "$body_file" 2>"$GH_TEMP_DIR/gh-stderr")" || {
+      GH_RETRY_MAX="$_saved_retry"
+      gh_cleanup "$body_file"
+      envelope_unknown_outcome "pr.create" "$target" "{}"
+      exit 1
+    }
     GH_RETRY_MAX="$_saved_retry"
     gh_cleanup "$body_file"
-    envelope_unknown_outcome "pr.create" "$target" "{}"
-    exit 1
-  }
-  GH_RETRY_MAX="$_saved_retry"
-  gh_cleanup "$body_file"
 
-  local created_number
-  created_number="$(echo "$_res" | jq -r '.number')"
+    created_number="$(echo "$_res" | jq -r '.number')"
+  else
+    # gh CLI subcommand path (--attach is CLI-only); non-interactive: all
+    # required flags are supplied and the body always goes through
+    # --body-file. The PR URL is printed even when some uploads fail, so a
+    # failed exit still proceeds to read-back verification.
+    source "$SCRIPT_DIR/../common/attach.sh"
+
+    if ! attach_prepare "pr.create" "$attachments_json"; then
+      exit 1
+    fi
+
+    local cli_body_file
+    cli_body_file="$(gh_make_temp "cli-body")"
+    printf '%s' "$body" > "$cli_body_file"
+
+    local cli_args=("pr" "create" "--repo" "$owner_repo" "--title" "$title" "--body-file" "$cli_body_file" "--base" "$base" "--head" "$payload_head")
+    local _a
+    for _a in "${ATTACH_FLAGS[@]}"; do
+      cli_args+=(--attach "$_a")
+    done
+    if [ "$draft" = "true" ]; then
+      cli_args+=(--draft)
+    fi
+    if [ "$maintainer_can_modify" = "false" ]; then
+      cli_args+=(--no-maintainer-edit)
+    fi
+
+    local cli_out=""
+    cli_out="$(gh "${cli_args[@]}" 2>"$GH_TEMP_DIR/gh-stderr")" || true
+    gh_cleanup "$cli_body_file"
+
+    created_number="$(printf '%s\n' "$cli_out" | grep -oE 'https://github.com/[^/]+/[^/]+/pull/[0-9]+' | head -n1 | sed -E 's#.*/##')" || created_number=""
+    if [ -z "$created_number" ]; then
+      envelope_unknown_outcome "pr.create" "$target" "{}"
+      exit 1
+    fi
+  fi
 
   local pr_target
   pr_target="$(echo "$target" | jq --argjson number "$created_number" '{type: "pull_request", repository: .repository, number: $number}')"
 
   local verified
   verified="$(call_gh_api "repos/$owner_repo/pulls/$created_number")" || {
-    envelope_unknown_outcome "pr.create" "$pr_target" "$_res"
+    envelope_unknown_outcome "pr.create" "$pr_target" "${_res:-}"
     exit 1
   }
 
@@ -142,13 +181,29 @@ main() {
   _title_ok="$(echo "$verified" | jq -r --arg expected "$title" '.title == $expected')"
 
   _body_ok="true"
-  if [ "$_has_body" = "true" ]; then
+  if [ "$_has_body" = "true" ] && [ "$attachments_json" = "[]" ]; then
     _body_ok="$(echo "$verified" | jq -r --arg expected "$body" '
       ((.body // "") == $expected)
     ')"
   fi
 
   _base_ok="$(echo "$verified" | jq -r --arg expected "$base" '.base.ref == $expected')"
+
+  if [ "$attachments_json" != "[]" ]; then
+    local expect_body_file verified_body_file
+    expect_body_file="$(gh_make_temp "expect-body")"
+    verified_body_file="$(gh_make_temp "verify-body")"
+    printf '%s' "$body" > "$expect_body_file"
+    echo "$verified" | jq -j '.body // ""' > "$verified_body_file"
+    if ! attach_verify "$expect_body_file" "$verified_body_file"; then
+      gh_cleanup "$expect_body_file"
+      gh_cleanup "$verified_body_file"
+      envelope_unknown_outcome "pr.create" "$pr_target" "$verified"
+      exit 1
+    fi
+    gh_cleanup "$expect_body_file"
+    gh_cleanup "$verified_body_file"
+  fi
 
   if [ "$_title_ok" != "true" ] || [ "$_body_ok" != "true" ] || [ "$_base_ok" != "true" ]; then
     envelope_unknown_outcome "pr.create" "$pr_target" "$verified"

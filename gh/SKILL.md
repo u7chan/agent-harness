@@ -44,3 +44,14 @@ Select the smallest matching category set.
 - All actions return a common JSON envelope with `status`, `action`, `target`, `data`, and optional `error`.
 - Large output is saved to working-directory temp files, not streamed into conversation context.
 - Do not modify API arguments or endpoints on retry.
+
+## Attachments
+
+`issue.create`, `issue.update`, `pr.create`, `pr.update`, and `comments.create` accept an `attachments` input: an array of local file references in `'path#alt'` form (alt text is images-only). Attachments route the write through the gh CLI subcommand (`--attach`; gh >= 2.99.0) instead of `gh api`.
+
+- Requires gh >= 2.99.0, the `github.com` host, and repository write permission (write actions already require write).
+- Supported formats: PNG/JPEG/GIF/WebP/SVG images up to 10 MB, MP4/MOV/WebM videos up to 100 MB. At most 50 files per command; the same file cannot be attached twice. Videos do not support alt text.
+- Paths resolve against the current working directory; actions never `cd`. Make every body reference and its attachment item the same literal string (e.g. `![alt](./shot.png)` with `attachments: ["./shot.png"]`).
+- A body reference to an attached path is rewritten in place to the uploaded URL (a video referenced as a standalone paragraph `![](path)` renders as a player; in a sentence it renders as a link). Attachments the body does not reference are appended to the end of the body.
+- Post-write verification cannot compare uploaded URLs, so it checks: identity match; referenced path literals are gone from the stored body; and, when unreferenced attachments were appended, the submitted body is an exact prefix of the stored body. Do not mix referenced and unreferenced attachments in one command: the prefix check cannot hold and the result reports `unknown_outcome`.
+- Errors: `ATTACH_UNSUPPORTED` (gh version below 2.99.0, non-github.com host, or more than 50 files), `ATTACH_INVALID` (bad item format, unsupported extension, missing or empty file, size over the limit, video alt text, duplicate file, or `maintainer_can_modify` combined with `attachments` on `pr.update` - `gh pr edit` has no maintainer flag).
