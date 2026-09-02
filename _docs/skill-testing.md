@@ -44,7 +44,7 @@ pi --provider opencode-go --model deepseek-v4-flash --thinking max \
 
 ```text
 スキルの読み方: ロード済みの旧 gh スキルは使わず、以下を直接読んで手順を把握すること:
-(<checkout> は開発チェックアウトの絶対パス。ワークスペース固有の実パスは渡さない)
+(実行時は <checkout> を開発チェックアウトの絶対パスへ置換してエージェントに渡す。この文書内では実パスを記載しない)
 - <checkout>/gh/SKILL.md
 - <checkout>/gh/actions.json
 - <checkout>/gh/scripts/gh.sh(引数: <アクション名> <入力JSONファイル>)
