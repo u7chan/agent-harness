@@ -56,17 +56,6 @@ pi --provider opencode-go --model deepseek-v4-flash --thinking max \
 - テスト痕跡(本文・コメントへの画像埋め込み)は「残す(検証証跡)」か「戻す」かを事前に決める
 - マージ後も、配布手順([_docs/skill-distribution.md](skill-distribution.md))が最終確認
   (gate チェック → pi install → 全セッション /reload → スモーク)
-
-## 実測記録
-
-### 2026-09-02: gh v2.99.0 `--attach`(PR #145)
-
-- issue.update / pr.update(参照置換)、comments.create(末尾追記)の 3 パターン成功
-- 追記で PR コメント(comments.create を PR 指定)も成功:**issue 本文・PR 本文・
-  issue コメント・PR コメントの 4 モードすべて実機確認済み**
-- アップロード URL 形式: `https://github.com/user-attachments/assets/<uuid>`
-- 「コメントへの --attach は NG」という情報は gh 2.99.0 では該当せず(実機で成功)
-- 検証エージェント: opencode-go/deepseek-v4-flash(絶対パス直読み方式)、
-  画像生成: openai-codex/gpt-5.6-luna(codex_generate_image、リポジトリ外に出力)
-- 検証上の副産物: スキーマ非準拠入力は envelope `failed / UNKNOWN_FIELDS` で弾かれる
-  (正規化前の挙動確認ができた)
+- 注意: 「コメントへの --attach は NG」という情報が流布しているが、gh 2.99.0 では
+  issue コメント・PR コメントとも実機で成功した(2026-09-02 実測)。外部情報を鵜呑みにせず
+  実機で確認すること
