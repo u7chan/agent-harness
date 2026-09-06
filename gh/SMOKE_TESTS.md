@@ -1065,8 +1065,10 @@ echo '{"number":1, "per_page":1.5}' | bash gh/scripts/gh.sh review-threads.read 
 ```bash
 # Test: resolve a review thread (thread_id is GraphQL node ID string)
 # 動的取得した最初のthread IDを使用
+# reference pins the target repository to the PR-derived owner/repo (review
+# skill contract); omit it to use the current working directory's repository.
 if [ -n "$THREAD_IDS" ]; then
-  echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "ok" or .status == "already_applied"'
+  echo "{\"reference\":\"$TEST_OWNER/$TEST_REPO\", \"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "ok" or .status == "already_applied"'
 fi
 ```
 
@@ -1093,6 +1095,8 @@ fi
 
 ```bash
 # Test: unresolve a review thread
+# reference pins the target repository (same contract as resolve); omitted
+# here to exercise the CWD-based path.
 if [ -n "$THREAD_IDS" ]; then
   echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.unresolve | jq -e '.status == "ok" or .status == "already_applied"'
 fi

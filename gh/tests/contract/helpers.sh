@@ -51,7 +51,9 @@ run_test() {
     test_fail_count=$((test_fail_count + 1))
     test_failures+=("$test_name: $output")
     echo "FAIL: $test_name"
-    [ -n "$output" ] && echo "$output"
+    if [ -n "$output" ]; then
+      echo "$output"
+    fi
   fi
 }
 
