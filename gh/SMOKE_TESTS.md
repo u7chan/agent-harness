@@ -1330,6 +1330,7 @@ Additional verification points for review without destructive side effects:
 - Each thread includes its comments connection.
 - thread_id is the GraphQL PullRequestReviewThread node ID (string).
 - Each thread outputs: `thread_id` (string), `resolved` (boolean), `comments` (array).
+- With `thread_id`, only that thread node is fetched (one `node(id:)` lookup plus comment pages) after verifying it belongs to the target PR (number and repository); the input contract and envelope shape stay the same as the collection read. See `gh/actions.json` for the authoritative action description.
 
 ### Review submit-comment body verification
 - POST response body compares against refetched body and expected body.

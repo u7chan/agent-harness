@@ -2509,7 +2509,7 @@
     },
     {
       "name": "review-threads.read",
-      "description": "Read review comment threads on a pull request via GraphQL (cursor-paginated reviewThreads connection)",
+      "description": "Read review comment threads on a pull request via GraphQL (cursor-paginated reviewThreads connection). With thread_id, only that thread node is fetched and returned after verifying it belongs to the target PR; without it, the full thread list is read.",
       "category": "review-thread",
       "permission": "read",
       "requires_auth": true,
@@ -2527,7 +2527,7 @@
         "thread_id": {
           "type": "string",
           "required": false,
-          "description": "Specific thread GraphQL node ID"
+          "description": "Specific thread GraphQL node ID; scoped fetch of only this thread (PR membership verified)"
         },
         "per_page": {
           "type": "number",

@@ -58,6 +58,18 @@ if args[1] == "user":
 if args[1] == "graphql":
     state = load()
     query = arg_value("query=", "")
+    gql_calls_file = os.environ.get("MOCK_GH_GQL_CALLS")
+    if gql_calls_file:
+        if "reviewThreads(" in query:
+            fingerprint = "reviewThreads"
+        elif "resolveReviewThread" in query:
+            fingerprint = "resolveReviewThread"
+        elif "node(id:" in query:
+            fingerprint = "node"
+        else:
+            fingerprint = "other"
+        with open(gql_calls_file, "a", encoding="utf-8") as f:
+            f.write("graphql " + fingerprint + "\n")
     if os.environ.get("MOCK_GQL_MODE") != "1":
         output({"errors": [{"message": "graphql mode disabled"}]})
         sys.exit(0)
@@ -148,23 +160,50 @@ if args[1] == "graphql":
         output({"data": {"resolveReviewThread": {"thread": {"id": resolved_id, "isResolved": True}}}})
         sys.exit(0)
     if "node(id:" in query:
+        # Failure injection for regression tests: return the raw body from
+        # MOCK_GQL_NODE_FAIL with the exit code MOCK_GQL_NODE_FAIL_RC
+        # (default 1), mirroring how the real gh CLI surfaces GraphQL errors
+        # (body on stdout, message on stderr, non-zero exit).
+        node_fail = os.environ.get("MOCK_GQL_NODE_FAIL")
+        if node_fail is not None:
+            print(node_fail)
+            print("gh: mock injected failure", file=sys.stderr)
+            sys.exit(int(os.environ.get("MOCK_GQL_NODE_FAIL_RC", "1")))
         thread = next((t for t in threads if (t.get("node_id", t["id"]) if isinstance(t, dict) else t) == thread_id), None)
         if thread is None:
-            output({"data": {"node": None}})
-            sys.exit(0)
+            # Mirror the real gh behavior for an unresolvable node id: the
+            # body with data.node == null goes to stdout, the message to
+            # stderr, and the exit code is non-zero.
+            print(json.dumps({"data": {"node": None},
+                              "errors": [{"type": "NOT_FOUND",
+                                          "path": ["node"],
+                                          "message": f"Could not resolve to a node with the global id of '{thread_id}'"}]},
+                             ensure_ascii=False, separators=(",", ":")))
+            print(f"gh: Could not resolve to a node with the global id of '{thread_id}'", file=sys.stderr)
+            sys.exit(1)
         comments = graphql_comments(thread)
-        start = 0 if after in (None, "null", "") else 100
+        start = 0
+        if after not in (None, "null", ""):
+            try:
+                start = int(str(after).replace("comments-", ""))
+            except ValueError:
+                start = 0
         page = comments[start:start + 100]
         next_page = len(comments) > start + 100
+        # A thread may override the owning pull request so membership checks
+        # can be tested; the default is the fixture PR 200.
+        pr_info = thread.get("pull_request") or {
+            "url": "https://github.com/u7chan/agent-harness/pull/200",
+            "number": 200,
+            "repository": {"nameWithOwner": "u7chan/agent-harness"},
+        }
         output({"data": {"node": {
             "id": thread.get("node_id", thread["id"]) if isinstance(thread, dict) else thread,
             "isResolved": thread["isResolved"],
-            "pullRequest": {"url": "https://github.com/u7chan/agent-harness/pull/200",
-                            "number": 200,
-                            "repository": {"nameWithOwner": "u7chan/agent-harness"}},
+            "pullRequest": pr_info,
             "comments": {
                 "pageInfo": {"hasNextPage": next_page,
-                              "endCursor": "comments-100" if next_page else None},
+                              "endCursor": f"comments-{start + 100}" if next_page else None},
                 "nodes": page,
             },
         }}})
@@ -257,7 +296,27 @@ setup_fixture_env() {
   export MOCK_GQL_MODE=1
   export MOCK_GH_STATE="$FIXTURE_DIR/state.json"
   export MOCK_GH_CALLS="$FIXTURE_DIR/calls.log"
+  export MOCK_GH_GQL_CALLS="$FIXTURE_DIR/gql-calls.log"
   : > "$MOCK_GH_CALLS"
+  : > "$MOCK_GH_GQL_CALLS"
+}
+
+# Number of GraphQL calls recorded by the mock; pass a fingerprint
+# (reviewThreads, node, resolveReviewThread, other) or none for all calls.
+gql_call_count() {
+  local fingerprint="${1:-}"
+  if [ -n "$fingerprint" ]; then
+    grep -c "^graphql $fingerprint\$" "$MOCK_GH_GQL_CALLS" || true
+  else
+    grep -c "^graphql " "$MOCK_GH_GQL_CALLS" || true
+  fi
+}
+
+setup_threads_read_fixture() {
+  setup_fixture_env
+  cp "$GH_ROOT/scripts/actions/review-threads.read.sh" "$FIXTURE_DIR/scripts/actions/review-threads.read.sh"
+  chmod +x "$FIXTURE_DIR/scripts/actions/review-threads.read.sh"
+  write_mock_gh
 }
 
 setup_reply_fixture() {
@@ -465,11 +524,8 @@ test_manual_resolve() (
 )
 
 test_threads_read_pagination() (
-  setup_fixture_env
+  setup_threads_read_fixture
   trap teardown_fixture EXIT
-  cp "$GH_ROOT/scripts/actions/review-threads.read.sh" "$FIXTURE_DIR/scripts/actions/review-threads.read.sh"
-  chmod +x "$FIXTURE_DIR/scripts/actions/review-threads.read.sh"
-  write_mock_gh
   python3 - "$MOCK_GH_STATE" <<'PY'
 import json, sys
 def comment(thread, n, root=False):
@@ -495,6 +551,346 @@ PY
   assert_json_eq "$output" '.data.threads[0].comments[100].id' C0-100 || return 1
 )
 
+# Issue #153 acceptance 1/3/4: confirming one thread by thread_id must not
+# depend on the number of unrelated threads. The scoped read issues exactly
+# one GraphQL node call, no matter how many threads or unrelated comments the
+# PR holds, and the fresh read reflects a changed resolved state.
+test_threads_read_scoped_avoids_collection() (
+  setup_threads_read_fixture
+  trap teardown_fixture EXIT
+  python3 - "$MOCK_GH_STATE" <<'PY'
+import json, sys
+def comment(t, n, root=False):
+    tid = f"T{t}"
+    return {"id": f"C{t}-{n}", "databaseId": 1000 + n,
+            "body": "root" if root else f"reply-{n}", "url": "u", "path": "a",
+            "line": 1, "outdated": False, "commit": {"oid": "h"},
+            "replyTo": None if root else {"id": f"C{t}-0"},
+            "author": {"login": "reviewer"}, "authorAssociation": "OWNER",
+            "createdAt": "same", "updatedAt": "same", "lastEditedAt": None}
+threads = []
+for t in range(101):
+    count = 3 if t == 5 else 1
+    threads.append({"id": f"T{t}", "isResolved": False,
+                    "comments": [comment(t, n, n == 0) for n in range(count)]})
+json.dump({"gql_threads": threads}, open(sys.argv[1], "w"))
+PY
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{reference:"u7chan/agent-harness",number:200,thread_id:"T5"}' > "$request"
+
+  output="$(fixture_gh review-threads.read "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads | length' 1 || return 1
+  assert_json_eq "$output" '.data.threads[0].thread_id' T5 || return 1
+  assert_json_eq "$output" '.data.threads[0].resolved | tostring' "false" || return 1
+  assert_json_eq "$output" '.data.threads[0].comments | length' 3 || return 1
+  assert_json_eq "$output" '.data.threads[0].comments[1].in_reply_to_id' C5-0 || return 1
+  assert_json_eq "$output" '.data.pagination.threads_complete' true || return 1
+  assert_json_eq "$output" '.data.pagination.comments_complete' true || return 1
+  # 100 unrelated threads on the PR: no collection page, one node call.
+  assert_eq "$(gql_call_count reviewThreads)" "0" || return 1
+  assert_eq "$(gql_call_count)" "1" || return 1
+
+  # Growing the PR to 250 threads, 149 comments on an unrelated thread, and
+  # resolving the target thread must not change the scoped read's API count.
+  python3 - "$MOCK_GH_STATE" <<'PY'
+import json, sys
+def comment(t, n, root=False):
+    tid = f"T{t}"
+    return {"id": f"C{t}-{n}", "databaseId": 1000 + n,
+            "body": "root" if root else f"reply-{n}", "url": "u", "path": "a",
+            "line": 1, "outdated": False, "commit": {"oid": "h"},
+            "replyTo": None if root else {"id": f"C{t}-0"},
+            "author": {"login": "reviewer"}, "authorAssociation": "OWNER",
+            "createdAt": "same", "updatedAt": "same", "lastEditedAt": None}
+threads = []
+for t in range(250):
+    count = 3 if t == 5 else (150 if t == 0 else 1)
+    threads.append({"id": f"T{t}", "isResolved": t == 5,
+                    "comments": [comment(t, n, n == 0) for n in range(count)]})
+json.dump({"gql_threads": threads}, open(sys.argv[1], "w"))
+PY
+  : > "$MOCK_GH_GQL_CALLS"
+  output="$(fixture_gh review-threads.read "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads[0].thread_id' T5 || return 1
+  assert_json_eq "$output" '.data.threads[0].resolved' true || return 1
+  assert_json_eq "$output" '.data.threads[0].comments | length' 3 || return 1
+  assert_eq "$(gql_call_count reviewThreads)" "0" || return 1
+  assert_eq "$(gql_call_count)" "1" || return 1
+)
+
+# Issue #153 acceptance 2: the scoped read keeps fetch completeness. A thread
+# with more than one comment page is paginated to the tail with the same
+# pageInfo/nodes validation, so root and tail are fully available.
+test_threads_read_scoped_comment_pagination() (
+  setup_threads_read_fixture
+  trap teardown_fixture EXIT
+  python3 - "$MOCK_GH_STATE" <<'PY'
+import json, sys
+def comment(t, n, root=False):
+    tid = f"T{t}"
+    return {"id": f"C{t}-{n}", "databaseId": 1000 + n,
+            "body": "root" if root else f"reply-{n}", "url": "u", "path": "a",
+            "line": 1, "outdated": False, "commit": {"oid": "h"},
+            "replyTo": None if root else {"id": f"C{t}-0"},
+            "author": {"login": "reviewer"}, "authorAssociation": "OWNER",
+            "createdAt": "same", "updatedAt": "same", "lastEditedAt": None}
+threads = [{"id": "T0", "isResolved": False,
+            "comments": [comment(0, n, n == 0) for n in range(250)]}]
+for t in range(1, 4):
+    threads.append({"id": f"T{t}", "isResolved": False,
+                    "comments": [comment(t, 0, True)]})
+json.dump({"gql_threads": threads}, open(sys.argv[1], "w"))
+PY
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{reference:"u7chan/agent-harness",number:200,thread_id:"T0"}' > "$request"
+
+  output="$(fixture_gh review-threads.read "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads | length' 1 || return 1
+  assert_json_eq "$output" '.data.threads[0].thread_id' T0 || return 1
+  assert_json_eq "$output" '.data.threads[0].comments | length' 250 || return 1
+  assert_json_eq "$output" '.data.threads[0].comments[99].id' C0-99 || return 1
+  assert_json_eq "$output" '.data.threads[0].comments[100].id' C0-100 || return 1
+  assert_json_eq "$output" '.data.threads[0].comments[249].id' C0-249 || return 1
+  assert_json_eq "$output" '.data.threads[0].comments[249].in_reply_to_id' C0-0 || return 1
+  assert_json_eq "$output" '.data.pagination.comments_complete' true || return 1
+  # One first page plus two continuation pages; no collection calls.
+  assert_eq "$(gql_call_count reviewThreads)" "0" || return 1
+  assert_eq "$(gql_call_count node)" "3" || return 1
+)
+
+# Issue #153 acceptance 2: PR membership is verified, not weakened. A node
+# that is unknown, not a review thread, or owned by another repository or
+# another PR is not returned as a thread of the target PR (the same
+# filtered-empty contract the collection path had), while a matching thread
+# is returned.
+test_threads_read_scoped_membership() (
+  setup_threads_read_fixture
+  trap teardown_fixture EXIT
+  python3 - "$MOCK_GH_STATE" <<'PY'
+import json, sys
+def comment(t):
+    tid = f"T{t}"
+    return {"id": f"C{t}-0", "databaseId": 1000,
+            "body": "root", "url": "u", "path": "a",
+            "line": 1, "outdated": False, "commit": {"oid": "h"},
+            "replyTo": None,
+            "author": {"login": "reviewer"}, "authorAssociation": "OWNER",
+            "createdAt": "same", "updatedAt": "same", "lastEditedAt": None}
+threads = [
+    {"id": "Tok", "isResolved": False, "comments": [comment("ok")]},
+    {"id": "Tforeign", "isResolved": False, "comments": [comment("foreign")],
+     "pull_request": {"url": "https://github.com/octocat/other/pull/7", "number": 7,
+                      "repository": {"nameWithOwner": "octocat/other"}}},
+    {"id": "Totherpr", "isResolved": False, "comments": [comment("Totherpr")],
+     "pull_request": {"url": "https://github.com/u7chan/agent-harness/pull/999", "number": 999,
+                      "repository": {"nameWithOwner": "u7chan/agent-harness"}}},
+]
+json.dump({"gql_threads": threads}, open(sys.argv[1], "w"))
+PY
+  run_scoped_read() {
+    local tid="$1"
+    jq -n --arg tid "$tid" '{reference:"u7chan/agent-harness",number:200,thread_id:$tid}' > "$FIXTURE_DIR/request.json"
+    fixture_gh review-threads.read "$FIXTURE_DIR/request.json"
+  }
+
+  output="$(run_scoped_read Tforeign)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads' '[]' || return 1
+
+  output="$(run_scoped_read Totherpr)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads' '[]' || return 1
+
+  output="$(run_scoped_read Tmissing)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads' '[]' || return 1
+
+  output="$(run_scoped_read Tok)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads | length' 1 || return 1
+  assert_json_eq "$output" '.data.threads[0].thread_id' Tok || return 1
+  assert_json_eq "$output" '.data.threads[0].comments[0].user.login' reviewer || return 1
+)
+
+# Issue #162 Blocker regression: only the exact NOT_FOUND response for an
+# unresolvable node id maps to the filtered-empty contract. FORBIDDEN,
+# HTTP-level error JSON, and incomplete success bodies must surface as
+# API_ERROR like the collection path, not as an empty success.
+test_threads_read_scoped_failure_classification() (
+  setup_threads_read_fixture
+  trap teardown_fixture EXIT
+  python3 - "$MOCK_GH_STATE" <<'PY'
+import json, sys
+def comment(t, n, root=False):
+    tid = f"T{t}"
+    return {"id": f"C{t}-{n}", "databaseId": 1000 + n,
+            "body": "root" if root else f"reply-{n}", "url": "u", "path": "a",
+            "line": 1, "outdated": False, "commit": {"oid": "h"},
+            "replyTo": None if root else {"id": f"C{t}-0"},
+            "author": {"login": "reviewer"}, "authorAssociation": "OWNER",
+            "createdAt": "same", "updatedAt": "same", "lastEditedAt": None}
+threads = [
+    {"id": "Tok", "isResolved": False,
+     "comments": [comment("ok", 0, True), comment("ok", 1)]},
+    {"id": "Tother", "isResolved": False, "comments": [comment("other", 0, True)]},
+]
+json.dump({"gql_threads": threads}, open(sys.argv[1], "w"))
+PY
+  run_scoped_read() {
+    local tid="$1"
+    jq -n --arg tid "$tid" '{reference:"u7chan/agent-harness",number:200,thread_id:$tid}' > "$FIXTURE_DIR/request.json"
+    fixture_gh review-threads.read "$FIXTURE_DIR/request.json"
+  }
+
+  # FORBIDDEN with a node-null body: non-zero exit, must stay a failure.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null},"errors":[{"type":"FORBIDDEN","path":["node"],"message":"Resource not accessible by integration"}]}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tok 2>&1)"; then
+    echo "FORBIDDEN unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # HTTP-level error JSON without data: non-zero exit, must stay a failure.
+  if output="$(MOCK_GQL_NODE_FAIL='{"message":"API rate limit exceeded"}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tok 2>&1)"; then
+    echo "rate-limit body unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # Incomplete success body: data present but the node key missing.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{}}' MOCK_GQL_NODE_FAIL_RC=0 run_scoped_read Tok 2>&1)"; then
+    echo "incomplete body unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # A NOT_FOUND error mixed with another type is not the unresolvable-node
+  # shape: it must stay a failure instead of an empty success.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node"],"message":"Could not resolve to a node"},{"type":"FORBIDDEN","path":["node"],"message":"Resource not accessible by integration"}]}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tok 2>&1)"; then
+    echo "mixed-error body unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # A node-null body without errors on a non-zero exit: the exit code is not
+  # discarded, so this stays a failure instead of an empty success.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null}}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tok 2>&1)"; then
+    echo "node-null body with non-zero exit unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # A non-object node (array) on a normal exit: invalid node form, failure.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":[]}}' MOCK_GQL_NODE_FAIL_RC=0 run_scoped_read Tok 2>&1)"; then
+    echo "array node unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # A NOT_FOUND on a child path (e.g. ["node","pullRequest"]) is a child
+  # fetch error, not an unresolvable id: must stay a failure.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node","pullRequest"],"message":"Could not fetch pullRequest"}]}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tok 2>&1)"; then
+    echo "child-path NOT_FOUND unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # Control: the exact NOT_FOUND shape for an unresolvable id keeps the
+  # filtered-empty contract, on a non-zero exit...
+  output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node"],"message":"Could not resolve to a node with the global id of Tmissing"}]}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tmissing 2>&1)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads' '[]' || return 1
+
+  # ...and on a normal exit.
+  output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node"],"message":"Could not resolve to a node with the global id of Tmissing"}]}' MOCK_GQL_NODE_FAIL_RC=0 run_scoped_read Tmissing 2>&1)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads' '[]' || return 1
+
+  # Control: without injection the matching thread is returned unchanged.
+  output="$(run_scoped_read Tok)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads[0].thread_id' Tok || return 1
+  assert_json_eq "$output" '.data.threads[0].comments | length' 2 || return 1
+)
+
+# Issue #162 Blocker regression: the membership comparison must be
+# case-insensitive. resolve_pr_target keeps the reference spelling while
+# nameWithOwner is canonical, so a differently cased owner/repo must still
+# find the existing thread instead of returning an empty list.
+test_threads_read_scoped_reference_case_insensitive() (
+  setup_threads_read_fixture
+  trap teardown_fixture EXIT
+  python3 - "$MOCK_GH_STATE" <<'PY'
+import json, sys
+def comment(t, n, root=False):
+    tid = f"T{t}"
+    return {"id": f"C{t}-{n}", "databaseId": 1000 + n,
+            "body": "root" if root else f"reply-{n}", "url": "u", "path": "a",
+            "line": 1, "outdated": False, "commit": {"oid": "h"},
+            "replyTo": None if root else {"id": f"C{t}-0"},
+            "author": {"login": "reviewer"}, "authorAssociation": "OWNER",
+            "createdAt": "same", "updatedAt": "same", "lastEditedAt": None}
+threads = [
+    {"id": "T0", "isResolved": False,
+     "comments": [comment(0, n, n == 0) for n in range(3)]},
+]
+json.dump({"gql_threads": threads}, open(sys.argv[1], "w"))
+PY
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{reference:"U7chan/Agent-Harness",number:200,thread_id:"T0"}' > "$request"
+
+  output="$(fixture_gh review-threads.read "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads | length' 1 || return 1
+  assert_json_eq "$output" '.data.threads[0].thread_id' T0 || return 1
+  assert_json_eq "$output" '.data.threads[0].resolved | tostring' "false" || return 1
+  assert_json_eq "$output" '.data.threads[0].comments | length' 3 || return 1
+  assert_json_eq "$output" '.data.threads[0].comments[1].in_reply_to_id' C0-0 || return 1
+)
+
+# The scoped read's envelope is byte-compatible with the collection path's
+# output filtered to the same thread (single authoritative schema).
+test_threads_read_scoped_matches_collection_shape() (
+  setup_threads_read_fixture
+  trap teardown_fixture EXIT
+  python3 - "$MOCK_GH_STATE" <<'PY'
+import json, sys
+def comment(t, n, root=False):
+    tid = f"T{t}"
+    return {"id": f"C{t}-{n}", "databaseId": 1000 + n,
+            "body": "root" if root else f"reply-{n}", "url": "u", "path": "a",
+            "line": 1, "outdated": False, "commit": {"oid": "h"},
+            "replyTo": None if root else {"id": f"C{t}-0"},
+            "author": {"login": "reviewer"}, "authorAssociation": "OWNER",
+            "createdAt": "same", "updatedAt": "same", "lastEditedAt": None}
+threads = [
+    {"id": "T0", "isResolved": False,
+     "comments": [comment(0, n, n == 0) for n in range(2)]},
+    {"id": "T1", "isResolved": False, "comments": [comment(1, 0, True)]},
+]
+json.dump({"gql_threads": threads}, open(sys.argv[1], "w"))
+PY
+  full_request="$FIXTURE_DIR/full.json"
+  scoped_request="$FIXTURE_DIR/scoped.json"
+  jq -n '{reference:"u7chan/agent-harness",number:200}' > "$full_request"
+  jq -n '{reference:"u7chan/agent-harness",number:200,thread_id:"T0"}' > "$scoped_request"
+
+  full_output="$(fixture_gh review-threads.read "$full_request")" || return 1
+  scoped_output="$(fixture_gh review-threads.read "$scoped_request")" || return 1
+
+  full_thread="$(jq -c '[.data.threads[] | select(.thread_id == "T0")]' <<< "$full_output")"
+  scoped_thread="$(jq -c '.data.threads' <<< "$scoped_output")"
+  assert_eq "$scoped_thread" "$full_thread" || return 1
+)
+
 main() {
   echo "=== review action contract tests ==="
   run_test test_reply_posts_and_dedups
@@ -504,6 +900,12 @@ main() {
   run_test test_reply_mismatch
   run_test test_manual_resolve
   run_test test_threads_read_pagination
+  run_test test_threads_read_scoped_avoids_collection
+  run_test test_threads_read_scoped_comment_pagination
+  run_test test_threads_read_scoped_membership
+  run_test test_threads_read_scoped_failure_classification
+  run_test test_threads_read_scoped_reference_case_insensitive
+  run_test test_threads_read_scoped_matches_collection_shape
   print_summary
 }
 
