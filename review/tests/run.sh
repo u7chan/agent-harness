@@ -96,6 +96,22 @@ expect_doc_keywords() {
   pass_count=$((pass_count + 1))
 }
 
+# Existence check for a term that must appear at least N times, e.g. once
+# per resolve procedure section, without pinning the surrounding wording.
+expect_doc_min_occurrences() {
+  local name="$1"
+  local file="$2"
+  local needle="$3"
+  local minimum="$4"
+  local count
+  count="$(grep -cF -- "$needle" "$file" || true)"
+  if [ "$count" -lt "$minimum" ]; then
+    echo "FAIL: $name appears $count times (need at least $minimum) in $file" >&2
+    exit 1
+  fi
+  pass_count=$((pass_count + 1))
+}
+
 expect_valid reviews.create "$FIXTURES/no-findings.json"
 expect_valid reviews.create "$FIXTURES/nit-only.json"
 expect_valid reviews.create "$FIXTURES/blocker.json"
@@ -192,6 +208,10 @@ expect_doc_keywords workflow-resolve-tail-owner "$RECHECK_REFERENCE" 'tail の�
 expect_doc_keywords workflow-resolve-execution "$RECHECK_REFERENCE" '`review-threads.resolve`' '再取得' '`resolved=true`'
 expect_doc_keywords workflow-resolve-no-state-restore "$RECHECK_REFERENCE" '廃止した機構' '再導入'
 expect_doc_keywords workflow-resolve-closing-reply "$RECHECK_REFERENCE" '閉会コメント' '`Resolved` 分類返信'
+# head 変化ガード: 両 Resolve 手順(明示指示・workflow)の失敗リストに存在すること。
+# PR #166 レビューの退行(head 変化条件の欠落)を検出するため、出現数も要求する。
+expect_doc_keywords recheck-resolve-head-guard "$RECHECK_REFERENCE" 'head の変化' '成功として扱わず'
+expect_doc_min_occurrences recheck-resolve-head-guard-both-sections "$RECHECK_REFERENCE" 'head の変化' 2
 expect_doc_keywords skill-verifies-lgtm-head "$REVIEW_SKILL" 'LGTM' '検証' 'head'
 expect_doc_keywords skill-start-materials "$REVIEW_SKILL" '変更目的' '受け入れ条件' '禁止される結果' '維持すべき既存契約'
 expect_doc_order skill-materials-before-lens "$REVIEW_SKILL" '維持すべき既存契約' '関係する観点'
