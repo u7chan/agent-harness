@@ -544,7 +544,9 @@ echo '{"number":12}' | bash gh/scripts/gh.sh pr.files.read | jq -e '.status == "
 | Files have filename | `.data[0].filename != null` |
 | Files have status | `.data[0].status != null` |
 | Returns a bounded object beyond the boundary | `.data.truncated == true`, `.data.omitted == "patch"`, `.data.output_file != null` |
+| Inline view within the byte budget | `jq '.data \| tostring \| utf8bytelength'` result stays at the `GH_INLINE_MAX_BYTES` level plus envelope metadata |
 | Artifact holds the complete data | `jq 'length' "$OUTPUT_FILE" == .data.total_count`; readable after the dispatcher exit; the caller deletes it when done |
+| Unwritable artifact target fails the action | with `GH_ARTIFACT_DIR=/dev/null`: `.status == "failed"` and `.error.code == "ARTIFACT_ERROR"` (never a truncated success) |
 
 ### pr.commits.read
 

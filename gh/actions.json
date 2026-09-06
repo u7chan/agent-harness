@@ -1129,7 +1129,7 @@
       },
       "output_schema": {
         "data": {
-          "description": "File list. Within the inline boundary (GH_INLINE_MAX_BYTES, default 20000 bytes): an array of file objects. Beyond it: a bounded object where items is the same file array without the omitted field(s), capped at inline_count (GH_INLINE_MAX_ITEMS, default 100); truncated is true, total_count is the full item count, and output_file holds the complete data including the omitted field(s) and items beyond inline_count (readable after the dispatcher exit; the caller deletes it).",
+          "description": "File list. Within the inline boundary (GH_INLINE_MAX_BYTES, default 20000 bytes): an array of file objects. Beyond it: a bounded object where items is the same file array without the omitted field(s), capped at inline_count (GH_INLINE_MAX_ITEMS, default 100 items and GH_INLINE_MAX_BYTES bytes of encoded items); truncated is true, total_count is the full item count, and output_file holds the complete data including the omitted field(s) and items beyond inline_count (readable after the dispatcher exit; the caller deletes it). A failed artifact save reports status failed with error.code ARTIFACT_ERROR instead of a truncated result.",
           "oneOf": [
             {
               "type": "array",

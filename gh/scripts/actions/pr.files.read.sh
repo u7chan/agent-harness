@@ -38,8 +38,12 @@ main() {
 
   # Large responses exceed the conversation boundary: the inline view drops
   # the patch field (differences belong to pr.diff.read; reading both would
-  # duplicate the diff) and the complete data is kept in an artifact.
-  data="$(echo "$data" | bounded_read_output "pr-files-$pr_number" 'map(del(.patch))' 'patch')"
+  # duplicate the diff) and the complete data is kept in an artifact. A
+  # failed artifact save is an error, not a truncated success.
+  if ! data="$(echo "$data" | bounded_read_output "pr-files-$pr_number" 'map(del(.patch))' 'patch')"; then
+    envelope_fail "pr.files.read" "ARTIFACT_ERROR" "Failed to save the complete data artifact for PR #$pr_number" false
+    exit 1
+  fi
 
   envelope_ok "pr.files.read" "$pr_target" "$data"
 }
