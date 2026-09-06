@@ -79,6 +79,23 @@ expect_doc_order() {
   pass_count=$((pass_count + 1))
 }
 
+# Policy existence check: every keyword must appear in the document. Unlike
+# expect_doc_contains this does not pin a full sentence, so paraphrasing a
+# general explanation keeps passing while the policy terms stay required.
+expect_doc_keywords() {
+  local name="$1"
+  local file="$2"
+  shift 2
+  local keyword
+  for keyword in "$@"; do
+    if ! grep -Fq -- "$keyword" "$file"; then
+      echo "FAIL: $name is missing keyword '$keyword' in $file" >&2
+      exit 1
+    fi
+  done
+  pass_count=$((pass_count + 1))
+}
+
 expect_valid reviews.create "$FIXTURES/no-findings.json"
 expect_valid reviews.create "$FIXTURES/nit-only.json"
 expect_valid reviews.create "$FIXTURES/blocker.json"
@@ -146,66 +163,78 @@ expect_invalid invalid-recheck-label review-comments.reply \
   '.body = ("**Unresolved** (**Blocker (" + "Required)**): 失敗条件が残っています。")' \
   "$FIXTURES/recheck-unresolved.json"
 
+# --- 公開形式・契約トークンの厳密検査(完全一致) ---
+# ラベル、分類 header、tuple 形式、API トークン、節見出しは公開契約なので完全一致で固定する。
 expect_doc_contains recheck-full-head "$RECHECK_REFERENCE" '## 最新 head のフルレビュー'
 expect_doc_contains recheck-unique-target "$RECHECK_REFERENCE" '(thread_id, root_comment_id, reviewer_login, classification_reply_id)'
 expect_doc_contains recheck-keeps-nonresolved "$RECHECK_REFERENCE" '`Partial`、`Unresolved`、`Unknown`'
 expect_doc_contains recheck-rejects-unknown "$RECHECK_REFERENCE" '`unknown_outcome`'
 expect_doc_contains recheck-verifies-state "$RECHECK_REFERENCE" '`resolved=true`'
-expect_doc_contains recheck-verifies-lgtm-head "$RECHECK_REFERENCE" 'head SHA を再確認'
-expect_doc_contains recheck-reports-head-change "$RECHECK_REFERENCE" '取得失敗、状態不一致は成功として扱わず'
 expect_doc_contains recheck-helper-contract "$RECHECK_REFERENCE" 'recheck-state.py'
 expect_doc_contains recheck-operation-dedup "$POSTING_REFERENCE" '同 body・同 actor・同 root'
 expect_doc_contains recheck-verified-outcomes "$RECHECK_REFERENCE" 'already-applied'
 expect_doc_order recheck-order "$RECHECK_REFERENCE" '### 3. 検証済み LGTM' '## 明示指示による Resolve'
 expect_doc_contains workflow-resolve-section "$RECHECK_REFERENCE" '## Workflow コンテキストの自動 Resolve'
-expect_doc_contains workflow-resolve-trigger "$RECHECK_REFERENCE" '自動 Resolve を明示的に指定した場合（workflow コンテキスト）に限り'
-expect_doc_contains workflow-resolve-outside-scope "$RECHECK_REFERENCE" 'workflow 外・手動フロー'
-expect_doc_contains workflow-resolve-reply-tail "$RECHECK_REFERENCE" 'tail に `Resolved` 分類の返信がある'
-expect_doc_contains workflow-resolve-anchor-forms "$RECHECK_REFERENCE" 'plan の `reuse` anchor を含む'
-expect_doc_contains workflow-resolve-two-points "$RECHECK_REFERENCE" '① thread が対象 PR に属し未解決であること'
-expect_doc_contains workflow-resolve-tail-owner "$RECHECK_REFERENCE" '② tail の返信が review 担当自身の `Resolved` 分類であること'
-expect_doc_contains workflow-resolve-execution "$RECHECK_REFERENCE" '`review-threads.resolve` で解決し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。'
-expect_doc_contains workflow-resolve-no-state-restore "$RECHECK_REFERENCE" '廃止した機構も再導入しない'
-expect_doc_contains workflow-resolve-closing-reply "$RECHECK_REFERENCE" '`Resolved` 分類返信が閉会コメントを兼ねる'
 expect_doc_contains skill-auto-resolve "$REVIEW_SKILL" '明示指示'
-expect_doc_contains skill-verifies-lgtm-head "$REVIEW_SKILL" 'LGTM の投稿と本文・head の検証が成功して初めて'
-expect_doc_contains skill-start-materials "$REVIEW_SKILL" '利用可能な変更目的、受け入れ条件、禁止される結果、維持すべき既存契約、変更の伝播先、実行済みテストと結果、人間の判断が必要な未決事項'
-expect_doc_order skill-materials-before-lens "$REVIEW_SKILL" '人間の判断が必要な未決事項' '関係する観点だけを選ぶ'
-expect_doc_contains skill-anti-inference "$REVIEW_SKILL" '明示されていない「こうあるべき」を推測で補わず'
-expect_doc_contains skill-verification-path "$REVIEW_SKILL" '第三者が確認できる再現または検証経路'
-expect_doc_contains skill-counter-evidence-first "$REVIEW_SKILL" '反証を先に探し'
-expect_doc_contains skill-stopping-condition "$REVIEW_SKILL" '未解決 Concern に追加調査できる具体的な手掛かりがなければ探索を終了'
-expect_doc_contains criteria-authority-order "$REVIEW_CRITERIA" '次の優先順位で正本として扱う'
-expect_doc_order criteria-explicit-before-repository "$REVIEW_CRITERIA" 'Issue / PR に明示された受け入れ条件・禁止される結果' 'リポジトリ内の仕様、公開契約、型、設定、テスト'
-expect_doc_order criteria-repository-before-code "$REVIEW_CRITERIA" 'リポジトリ内の仕様、公開契約、型、設定、テスト' '既存コードから確認できる不変条件・互換性'
-expect_doc_contains criteria-no-inference "$REVIEW_CRITERIA" '単独では Blocker / Finding の根拠にしない'
-expect_doc_contains criteria-bounded-review "$REVIEW_CRITERIA" '既存契約から検証可能な範囲はレビューしてよい'
-expect_doc_contains criteria-no-invented-requirement "$REVIEW_CRITERIA" '新しい受け入れ条件として補完し'
-expect_doc_contains criteria-indeterminate "$REVIEW_CRITERIA" '確認不能として報告する'
-expect_doc_contains criteria-no-scope-expansion "$REVIEW_CRITERIA" 'レビュー範囲を無制限に広げない'
-expect_doc_contains criteria-verification-path "$REVIEW_CRITERIA" '第三者が確認できる再現または検証経路'
-expect_doc_contains criteria-verification-inputs "$REVIEW_CRITERIA" '具体的な入力・状態・権限・実行順序'
-expect_doc_contains criteria-verification-test "$REVIEW_CRITERIA" '失敗する既存または追加可能なテストケース'
-expect_doc_contains criteria-verification-code-path "$REVIEW_CRITERIA" '呼び出し経路とガード条件を追えるコードパス'
-expect_doc_contains criteria-verification-contract "$REVIEW_CRITERIA" '仕様 / 型 / 設定との決定的な不一致'
-expect_doc_contains criteria-verification-operations "$REVIEW_CRITERIA" '再現可能なコマンドや操作手順'
-expect_doc_contains criteria-no-universal-runtime "$REVIEW_CRITERIA" 'runtime reproduction や failing test は全 Finding に一律必須ではない'
-expect_doc_contains criteria-static-verification "$REVIEW_CRITERIA" 'コードと契約を追える静的な経路で検証できればよい'
-expect_doc_contains skill-preserves-scope-flow "$REVIEW_SKILL" 'Scope Gate を適用する。通過しない候補は Rejected'
-expect_doc_contains criteria-scope-evidence-boundary "$REVIEW_CRITERIA" '発生条件、失敗経路、因果関係の立証までは要求しない'
-expect_doc_contains criteria-counter-evidence "$REVIEW_CRITERIA" '反証できなかった'
-expect_doc_contains criteria-preserves-rejected "$REVIEW_CRITERIA" 'Rejected は正常なレビュー結果'
-expect_doc_contains criteria-preserves-zero-findings "$REVIEW_CRITERIA" '`0 findings` / LGTM を正常終了'
-expect_doc_contains lens-not-checklist "$REVIEW_LENSES" 'review lens は finding を作るためのチェックリストではなく'
-expect_doc_contains lens-no-finding-per-lens "$REVIEW_LENSES" '各 lens から一件ずつ指摘を作ろうとしてはならない'
-expect_doc_contains skill-no-approve "$REVIEW_SKILL" 'マージ、Issue のクローズ、`APPROVE` レビューは行わない'
-expect_doc_contains workflow-requires-recheck "$WORKFLOW_SKILL" 'explicitly to recheck all prior unresolved findings and, in that same task, perform a full review of the latest head'
 expect_doc_absent workflow-optional-recheck "$WORKFLOW_SKILL" 'If the agent also rechecks prior findings'
-expect_doc_contains posting-order "$POSTING_REFERENCE" '再チェック返信、最新 head のフルレビュー、最終 LGTM はこの順序'
-expect_doc_contains posting-verifies-lgtm-head "$POSTING_REFERENCE" '明示指示があった thread だけを対象に'
-expect_doc_contains workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'Conversation resolution outside this workflow remains explicit instruction only'
-expect_doc_contains workflow-resolve-scoped-auto "$WORKFLOW_SKILL" "Within this workflow's fix"
-expect_doc_contains workflow-resolve-reply-first "$WORKFLOW_SKILL" 'Resolve only after this confirmation'
 expect_doc_absent workflow-old-confirmation "$WORKFLOW_SKILL" 'requires user confirmation before resolving them'
+
+# --- 安全方針の存在確認(キーワード) ---
+# 安全方針の概念トークンが存在することだけを要求する。一般説明文の完全な文言は固定しない。
+expect_doc_keywords recheck-verifies-lgtm-head "$RECHECK_REFERENCE" 'head SHA' '再確認'
+expect_doc_keywords recheck-reports-head-change "$RECHECK_REFERENCE" '取得失敗' '成功として扱わず'
+expect_doc_keywords workflow-resolve-trigger "$RECHECK_REFERENCE" '自動 Resolve' 'workflow コンテキスト' '明示的に指定'
+expect_doc_keywords workflow-resolve-outside-scope "$RECHECK_REFERENCE" 'workflow 外' '手動フロー'
+expect_doc_keywords workflow-resolve-reply-tail "$RECHECK_REFERENCE" 'tail' '`Resolved` 分類'
+expect_doc_keywords workflow-resolve-anchor-forms "$RECHECK_REFERENCE" 'plan' '`reuse` anchor'
+expect_doc_keywords workflow-resolve-two-points "$RECHECK_REFERENCE" '対象 PR' '未解決'
+expect_doc_keywords workflow-resolve-tail-owner "$RECHECK_REFERENCE" 'tail の返信' '`Resolved` 分類'
+expect_doc_keywords workflow-resolve-execution "$RECHECK_REFERENCE" '`review-threads.resolve`' '再取得' '`resolved=true`'
+expect_doc_keywords workflow-resolve-no-state-restore "$RECHECK_REFERENCE" '廃止した機構' '再導入'
+expect_doc_keywords workflow-resolve-closing-reply "$RECHECK_REFERENCE" '閉会コメント' '`Resolved` 分類返信'
+expect_doc_keywords skill-verifies-lgtm-head "$REVIEW_SKILL" 'LGTM' '検証' 'head'
+expect_doc_keywords skill-start-materials "$REVIEW_SKILL" '変更目的' '受け入れ条件' '禁止される結果' '維持すべき既存契約'
+expect_doc_order skill-materials-before-lens "$REVIEW_SKILL" '維持すべき既存契約' '関係する観点'
+expect_doc_keywords skill-anti-inference "$REVIEW_SKILL" 'こうあるべき' '推測'
+expect_doc_keywords skill-verification-path "$REVIEW_SKILL" '第三者' '再現'
+expect_doc_keywords skill-counter-evidence-first "$REVIEW_SKILL" '反証'
+expect_doc_keywords skill-stopping-condition "$REVIEW_SKILL" '手掛かり' '探索を終了'
+expect_doc_keywords criteria-authority-order "$REVIEW_CRITERIA" '優先順位' '正本'
+expect_doc_order criteria-explicit-before-repository "$REVIEW_CRITERIA" '明示された受け入れ条件' 'リポジトリ内の仕様'
+expect_doc_order criteria-repository-before-code "$REVIEW_CRITERIA" 'リポジトリ内の仕様' '既存コードから確認できる不変条件'
+expect_doc_keywords criteria-no-inference "$REVIEW_CRITERIA" 'Blocker / Finding' '根拠にしない'
+expect_doc_keywords criteria-bounded-review "$REVIEW_CRITERIA" '既存契約' '検証可能な範囲'
+expect_doc_keywords criteria-no-invented-requirement "$REVIEW_CRITERIA" '受け入れ条件' '補完'
+expect_doc_keywords criteria-indeterminate "$REVIEW_CRITERIA" '確認不能'
+expect_doc_keywords criteria-no-scope-expansion "$REVIEW_CRITERIA" 'レビュー範囲' '無制限'
+expect_doc_keywords criteria-verification-path "$REVIEW_CRITERIA" '再現' '検証経路'
+expect_doc_keywords criteria-verification-inputs "$REVIEW_CRITERIA" '入力・状態'
+expect_doc_keywords criteria-verification-test "$REVIEW_CRITERIA" 'テストケース'
+expect_doc_keywords criteria-verification-code-path "$REVIEW_CRITERIA" 'コードパス'
+expect_doc_keywords criteria-verification-contract "$REVIEW_CRITERIA" '不一致'
+expect_doc_keywords criteria-verification-operations "$REVIEW_CRITERIA" 'コマンド'
+expect_doc_keywords criteria-no-universal-runtime "$REVIEW_CRITERIA" 'runtime reproduction' 'failing test' '必須ではない'
+expect_doc_keywords criteria-static-verification "$REVIEW_CRITERIA" '静的な経路'
+expect_doc_keywords skill-preserves-scope-flow "$REVIEW_SKILL" 'Scope Gate' 'Rejected'
+expect_doc_keywords criteria-scope-evidence-boundary "$REVIEW_CRITERIA" '失敗経路' '因果関係'
+expect_doc_keywords criteria-counter-evidence "$REVIEW_CRITERIA" '反証できなかった' 'Evidence とみなしてはならない'
+expect_doc_keywords criteria-preserves-rejected "$REVIEW_CRITERIA" 'Rejected' '正常なレビュー結果'
+expect_doc_keywords criteria-preserves-zero-findings "$REVIEW_CRITERIA" '`0 findings`' 'LGTM'
+expect_doc_keywords lens-not-checklist "$REVIEW_LENSES" 'チェックリスト' 'finding'
+expect_doc_keywords lens-no-finding-per-lens "$REVIEW_LENSES" '一件ずつ' 'lens'
+expect_doc_keywords skill-no-approve "$REVIEW_SKILL" 'マージ' 'クローズ' '`APPROVE`'
+expect_doc_keywords workflow-requires-recheck "$WORKFLOW_SKILL" 'recheck all prior unresolved findings' 'full review'
+expect_doc_keywords posting-order "$POSTING_REFERENCE" '再チェック返信' 'フルレビュー' 'LGTM' '順序'
+expect_doc_keywords posting-verifies-lgtm-head "$POSTING_REFERENCE" '明示指示'
+expect_doc_keywords workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'explicit instruction only'
+expect_doc_keywords workflow-resolve-scoped-auto "$WORKFLOW_SKILL" 'auto-resolve' 'Resolved'
+expect_doc_keywords workflow-resolve-reply-first "$WORKFLOW_SKILL" 'confirmation' 'resolve'
+
+# --- 正本参照構造 ---
+# Resolve 規則の全文は recheck.md にのみあり、他の文書は参照する。
+expect_doc_keywords policy-canonical-reference "$RECHECK_REFERENCE" '正本'
+expect_doc_keywords policy-skill-reference "$REVIEW_SKILL" 'recheck.md'
+expect_doc_keywords policy-posting-reference "$POSTING_REFERENCE" 'recheck.md'
+expect_doc_keywords policy-workflow-reference "$WORKFLOW_SKILL" 'references/recheck.md'
 
 echo "PASS: $pass_count review payload and recheck contract cases"

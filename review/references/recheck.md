@@ -1,5 +1,7 @@
 # 再チェック手順
 
+この文書は再チェック・LGTM・Resolve の規則の正本である。`SKILL.md` の安全条件はこの文書への参照に留め、[posting-api.md](posting-api.md) と workflow 側の SKILL も手順や対象判定を再記述せずこの文書を参照する。したがってこの規則の全文修正はこのファイル 1 つにのみ行う。
+
 ## 決定的なスナップショットと責任境界
 
 Review skill は元 finding の再評価、分類理由、full review、LGTM 可否、ラウンド制御を担当する。取得・投稿・mutation は `gh` Action が担当し、分類や LGTM policy を Action に実装しない。skill は各 read Action の結果を、ネットワーク・時刻・永続 state に依存しない `review/scripts/recheck-state.py` に渡して判定する。
