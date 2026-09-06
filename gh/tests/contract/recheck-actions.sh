@@ -62,6 +62,8 @@ if args[1] == "graphql":
     if gql_calls_file:
         if "reviewThreads(" in query:
             fingerprint = "reviewThreads"
+        elif "unresolveReviewThread" in query:
+            fingerprint = "unresolveReviewThread"
         elif "resolveReviewThread" in query:
             fingerprint = "resolveReviewThread"
         elif "node(id:" in query:
@@ -146,6 +148,19 @@ if args[1] == "graphql":
         sys.exit(0)
 
     thread_id = arg_value("threadId=", "")
+    if "unresolveReviewThread" in query:
+        thread = next((t for t in threads if (t.get("node_id", t["id"]) if isinstance(t, dict) else t) == thread_id), None)
+        if thread is None:
+            output({"errors": [{"message": "thread not found"}]})
+            sys.exit(0)
+        if isinstance(thread, dict):
+            thread["isResolved"] = False
+            resolved_id = thread.get("node_id", thread["id"])
+        else:
+            resolved_id = thread
+        save(state)
+        output({"data": {"unresolveReviewThread": {"thread": {"id": resolved_id, "isResolved": False}}}})
+        sys.exit(0)
     if "resolveReviewThread" in query:
         thread = next((t for t in threads if (t.get("node_id", t["id"]) if isinstance(t, dict) else t) == thread_id), None)
         if thread is None:
@@ -331,6 +346,13 @@ setup_resolve_fixture() {
   setup_fixture_env
   cp "$GH_ROOT/scripts/actions/review-threads.resolve.sh" "$FIXTURE_DIR/scripts/actions/review-threads.resolve.sh"
   chmod +x "$FIXTURE_DIR/scripts/actions/review-threads.resolve.sh"
+  write_mock_gh
+}
+
+setup_unresolve_fixture() {
+  setup_fixture_env
+  cp "$GH_ROOT/scripts/actions/review-threads.unresolve.sh" "$FIXTURE_DIR/scripts/actions/review-threads.unresolve.sh"
+  chmod +x "$FIXTURE_DIR/scripts/actions/review-threads.unresolve.sh"
   write_mock_gh
 }
 
@@ -521,6 +543,109 @@ test_manual_resolve() (
   output="$(fixture_gh review-threads.resolve "$request")" || return 1
   assert_json_eq "$output" '.status' already_applied || return 1
   assert_json_eq "$output" '.data.outcome' already_resolved_external || return 1
+)
+
+# A foreign-PR thread entry: the thread lives in octocat/other-repo, not the
+# fixture CWD repository u7chan/agent-harness.
+foreign_thread() {
+  local resolved="${1:-false}"
+  jq -n --argjson resolved "$resolved" '{
+    id: "T1",
+    isResolved: $resolved,
+    pull_request: {
+      url: "https://github.com/octocat/other-repo/pull/7",
+      number: 7,
+      repository: {nameWithOwner: "octocat/other-repo"}
+    }
+  }'
+}
+
+# Issue #155: the review skill pins every action to the PR-derived owner/repo
+# via reference. resolve must accept a reference-bearing request and anchor
+# the target (and the membership check) to that repository, not the CWD one.
+test_manual_resolve_accepts_reference () (
+  setup_resolve_fixture
+  trap teardown_fixture EXIT
+  jq -n --argjson thread "$(foreign_thread false)" '{gql_threads: [$thread]}' > "$MOCK_GH_STATE"
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{reference: "octocat/other-repo", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+
+  output="$(fixture_gh review-threads.resolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.outcome' resolved_by_run || return 1
+  assert_json_eq "$output" '.data.resolved' true || return 1
+  assert_json_eq "$output" '.target.repository' "octocat/other-repo" || return 1
+)
+
+# Issue #155: a reference that does not match the thread's owning repository
+# must be rejected before the mutation fires.
+test_manual_resolve_reference_mismatch_rejected_before_mutation () (
+  setup_resolve_fixture
+  trap teardown_fixture EXIT
+
+  # reference (u7chan/agent-harness) vs the thread's actual repository.
+  jq -n --argjson thread "$(foreign_thread false)" '{gql_threads: [$thread]}' > "$MOCK_GH_STATE"
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{reference: "u7chan/agent-harness", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.resolve "$request" 2>&1)" && return 1 || true
+  assert_json_eq "$output" '.error.code' TARGET_MISMATCH || return 1
+  [ "$(gql_call_count unresolveReviewThread)" = 0 ] || return 1
+  [ "$(gql_call_count resolveReviewThread)" = 0 ] || return 1
+
+  # Reverse direction: reference points elsewhere, thread belongs to the
+  # fixture CWD repository.
+  echo '{"gql_threads": [{"id": "T1", "isResolved": false}]}' > "$MOCK_GH_STATE"
+  jq -n '{reference: "octocat/other-repo", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.resolve "$request" 2>&1)" && return 1 || true
+  assert_json_eq "$output" '.error.code' TARGET_MISMATCH || return 1
+  [ "$(gql_call_count resolveReviewThread)" = 0 ] || return 1
+)
+
+# Issue #155: reference omitted keeps the CWD-based behavior (existing
+# callers and the smoke path are unaffected).
+test_manual_resolve_cwd_compat () (
+  setup_resolve_fixture
+  trap teardown_fixture EXIT
+  echo '{"gql_threads": [{"id": "T1", "isResolved": false}]}' > "$MOCK_GH_STATE"
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{thread_id: "T1", grant: "sensitive-write"}' > "$request"
+
+  output="$(fixture_gh review-threads.resolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.target.repository' "u7chan/agent-harness" || return 1
+)
+
+# Issue #155: unresolve shares the resolve input shape, so it gets the same
+# optional-reference contract: accepted and pinned, mismatch rejected before
+# the mutation, and omission keeps the CWD repository.
+test_manual_unresolve_reference_contract () (
+  setup_unresolve_fixture
+  trap teardown_fixture EXIT
+  request="$FIXTURE_DIR/request.json"
+
+  # Reference accepted and pinned.
+  echo '{"gql_threads": [{"id": "T1", "isResolved": true}]}' > "$MOCK_GH_STATE"
+  jq -n '{reference: "u7chan/agent-harness", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.unresolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.resolved | tostring' false || return 1
+  assert_json_eq "$output" '.target.repository' "u7chan/agent-harness" || return 1
+
+  # Mismatch is rejected before the mutation. Truncate the call log first so
+  # the count reflects only this dispatch (case 1 legitimately mutated).
+  : > "$MOCK_GH_GQL_CALLS"
+  jq -n --argjson thread "$(foreign_thread true)" '{gql_threads: [$thread]}' > "$MOCK_GH_STATE"
+  jq -n '{reference: "u7chan/agent-harness", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.unresolve "$request" 2>&1)" && return 1 || true
+  assert_json_eq "$output" '.error.code' TARGET_MISMATCH || return 1
+  [ "$(gql_call_count unresolveReviewThread)" = 0 ] || return 1
+
+  # Reference omitted keeps the CWD repository.
+  echo '{"gql_threads": [{"id": "T1", "isResolved": true}]}' > "$MOCK_GH_STATE"
+  jq -n '{thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.unresolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.target.repository' "u7chan/agent-harness" || return 1
 )
 
 test_threads_read_pagination() (
@@ -899,6 +1024,10 @@ main() {
   run_test test_reply_post_failure_adopts
   run_test test_reply_mismatch
   run_test test_manual_resolve
+  run_test test_manual_resolve_accepts_reference
+  run_test test_manual_resolve_reference_mismatch_rejected_before_mutation
+  run_test test_manual_resolve_cwd_compat
+  run_test test_manual_unresolve_reference_contract
   run_test test_threads_read_pagination
   run_test test_threads_read_scoped_avoids_collection
   run_test test_threads_read_scoped_comment_pagination

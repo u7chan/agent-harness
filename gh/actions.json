@@ -2587,6 +2587,11 @@
       "permission": "sensitive-write",
       "requires_auth": true,
       "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo that pins the target repository; the thread must belong to it (TARGET_MISMATCH otherwise). When omitted, the current working directory's repository is used"
+        },
         "thread_id": {
           "type": "string",
           "required": true,
@@ -2616,6 +2621,11 @@
       "permission": "sensitive-write",
       "requires_auth": true,
       "input_schema": {
+        "reference": {
+          "type": "string",
+          "required": false,
+          "description": "PR URL or owner/repo that pins the target repository; the thread must belong to it (TARGET_MISMATCH otherwise). When omitted, the current working directory's repository is used"
+        },
         "thread_id": {
           "type": "string",
           "required": true,

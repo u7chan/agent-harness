@@ -21,11 +21,15 @@ call_graphql() {
 main() {
   local request_file="$1"
 
-  local thread_id
+  local thread_id reference
   thread_id="$(jq -r '.thread_id' "$request_file")"
+  # Optional reference pins the target repository to the caller's PR-derived
+  # owner/repo (review skill contract); absent or null falls back to the
+  # current working directory's repository.
+  reference="$(jq -r '.reference // empty' "$request_file")"
 
   local target
-  target="$(resolve_target)" || {
+  target="$(resolve_target "$reference")" || {
     envelope_fail "review-threads.unresolve" "TARGET_ERROR" "Failed to resolve repository target" false
     exit 1
   }
