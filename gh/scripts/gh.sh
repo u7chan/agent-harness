@@ -33,74 +33,17 @@ EOF
   exit 2
 }
 
-validate_input() {
-  local action_name="$1"
-  local input_json="$2"
-  local action_def="$3"
-
-  local input_schema
-  input_schema="$(echo "$action_def" | jq -c '.input_schema // {}')"
-
-  if [ "$input_schema" = "{}" ] || [ "$input_schema" = "null" ]; then
-    if [ -n "$input_json" ] && [ "$input_json" != "{}" ]; then
-      envelope_fail "$action_name" "UNEXPECTED_INPUT" "Action '$action_name' expects no input" false
-      return 1
-    fi
-    return 0
-  fi
-
-  if [ -z "$input_json" ] || [ "$input_json" = "{}" ]; then
-    local has_required
-    has_required="$(echo "$input_schema" | jq -r '[to_entries[] | select(.value.required == true)] | length')"
-    if [ "$has_required" -gt 0 ]; then
-      envelope_fail "$action_name" "MISSING_INPUT" "Action '$action_name' requires input" false
-      return 1
-    fi
-    return 0
-  fi
-
-  local known_fields
-  known_fields="$(echo "$input_schema" | jq -r 'keys[]' 2>/dev/null || true)"
-
-  if [ -n "$known_fields" ]; then
-    local unknown_fields
-    unknown_fields="$(echo "$input_json" | jq -r --argjson known "$(echo "$input_schema" | jq 'keys')" '
-      keys - $known | .[]
-    ' 2>/dev/null || true)"
-
-    if [ -n "$unknown_fields" ]; then
-      local formatted
-      formatted="$(echo "$unknown_fields" | tr '\n' ', ' | sed 's/, $//')"
-      envelope_fail "$action_name" "UNKNOWN_FIELDS" "Unknown fields: $formatted" false
-      return 1
-    fi
-
-    local field type required value
-    while IFS='|' read -r field type required; do
-      [ -z "$field" ] && continue
-
-      value="$(echo "$input_json" | jq -r --arg f "$field" 'if has($f) then .[$f] else empty end' 2>/dev/null || true)"
-
-      if [ "$required" = "true" ] && [ -z "$value" ]; then
-        envelope_fail "$action_name" "MISSING_REQUIRED_FIELD" "Required field '$field' is missing" false
-        return 1
-      fi
-
-      if [ -n "$value" ]; then
-        local actual_type
-        actual_type="$(echo "$input_json" | jq -r --arg f "$field" '.[$f] | type' 2>/dev/null || true)"
-
-        if [ "$actual_type" != "$type" ] && [ "$actual_type" != "null" ]; then
-          envelope_fail "$action_name" "TYPE_MISMATCH" "Field '$field' must be of type '$type', got '$actual_type'" false
-          return 1
-        fi
-      fi
-    done < <(echo "$input_schema" | jq -r 'to_entries[] | "\(.key)|\(.value.type // "")|\(.value.required // false)"')
-  fi
-
-  return 0
-}
-
+# Shared request validation for both input paths (the string-input path
+# materializes its JSON into a request file first, so there is exactly one
+# validator). Field semantics:
+# - required field: the key must be present with a non-null, non-empty value
+#   of the declared type. Missing key, explicit null, and empty string are
+#   all MISSING_REQUIRED_FIELD; a required number must never reach an
+#   action as null.
+# - optional field: absent passes; when present it must match the declared
+#   type, except an explicit null, which is allowed as a per-action contract
+#   (update actions use null to clear a value while absence means "keep").
+# - unknown keys are rejected as UNKNOWN_FIELDS.
 validate_input_file() {
   local action_name="$1"
   local request_file="$2"
@@ -151,24 +94,28 @@ validate_input_file() {
   while IFS='|' read -r field type required; do
     [ -z "$field" ] && continue
 
-    if [ "$required" = "true" ]; then
-      local field_present
-      field_present="$(jq -r --arg f "$field" 'has($f)' "$request_file")"
-      if [ "$field_present" != "true" ]; then
-        envelope_fail "$action_name" "MISSING_REQUIRED_FIELD" "Required field '$field' is missing" false
-        return 1
-      fi
+    local field_state
+    field_state="$(jq -r --arg f "$field" '
+      if has($f) | not then "missing"
+      elif .[$f] == null then "null"
+      elif ((.[$f] | type) == "string") and ((.[$f] | length) == 0) then "empty"
+      else "ok"
+      end' "$request_file")"
+
+    if [ "$required" = "true" ] && [ "$field_state" != "ok" ]; then
+      envelope_fail "$action_name" "MISSING_REQUIRED_FIELD" "Required field '$field' is missing" false
+      return 1
     fi
 
-    local field_present
-    field_present="$(jq -r --arg f "$field" 'has($f)' "$request_file")"
-    if [ "$field_present" = "true" ]; then
-      local actual_type
-      actual_type="$(jq -r --arg f "$field" '.[$f] | type' "$request_file")"
-      if [ "$actual_type" != "$type" ] && [ "$actual_type" != "null" ]; then
-        envelope_fail "$action_name" "TYPE_MISMATCH" "Field '$field' must be of type '$type', got '$actual_type'" false
-        return 1
-      fi
+    if [ "$field_state" = "missing" ]; then
+      continue
+    fi
+
+    local actual_type
+    actual_type="$(jq -r --arg f "$field" '.[$f] | type' "$request_file")"
+    if [ "$actual_type" != "$type" ] && [ "$actual_type" != "null" ]; then
+      envelope_fail "$action_name" "TYPE_MISMATCH" "Field '$field' must be of type '$type', got '$actual_type'" false
+      return 1
     fi
   done <<< "$entries"
 
@@ -218,8 +165,11 @@ main() {
       [ "$rc" -gt 0 ] && exit "$rc"
     }
 
+    # jq's // treats false as empty, so only a missing or null key may be
+    # defaulted to true; an explicit catalog requires_auth:false must keep
+    # the action auth-free.
     local requires_auth
-    requires_auth="$(jq -r '.requires_auth // true' <<< "$action_def")"
+    requires_auth="$(jq -r 'if (.requires_auth == null) then "true" else (.requires_auth | tostring) end' <<< "$action_def")"
 
     if [ "$requires_auth" = "true" ]; then
       if ! check_auth 2>/dev/null; then
@@ -265,6 +215,12 @@ main() {
       exit 1
     fi
 
+    # An empty or whitespace-only input means "no input": normalize it to {}
+    # so the shared file validator and the action always see a JSON object.
+    if [ -z "$(printf '%s' "$input_json" | tr -d '[:space:]')" ]; then
+      input_json="{}"
+    fi
+
     local action_def
     action_def="$(jq -c --arg name "$action_name" '
       .actions[] | select(.name == $name)
@@ -275,13 +231,23 @@ main() {
       exit 1
     fi
 
-    validate_input "$action_name" "$input_json" "$action_def" || {
+    # The string-input path validates through the same shared validator as
+    # the file-input path: materialize the JSON into a request file so both
+    # entry points share one set of field semantics.
+    local request_file
+    request_file="$(gh_make_temp "request-json")"
+    printf '%s\n' "$input_json" > "$request_file"
+
+    validate_input_file "$action_name" "$request_file" "$action_def" || {
       local rc=$?
       [ "$rc" -gt 0 ] && exit "$rc"
     }
 
+    # jq's // treats false as empty, so only a missing or null key may be
+    # defaulted to true; an explicit catalog requires_auth:false must keep
+    # the action auth-free.
     local requires_auth
-    requires_auth="$(echo "$action_def" | jq -r '.requires_auth // true')"
+    requires_auth="$(echo "$action_def" | jq -r 'if (.requires_auth == null) then "true" else (.requires_auth | tostring) end')"
 
     if [ "$requires_auth" = "true" ]; then
       if ! check_auth 2>/dev/null; then
