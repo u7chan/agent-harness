@@ -42,7 +42,8 @@ Select the smallest matching category set.
 - Only the active `gh` account is used; stop on any host other than `github.com`.
 - Stop when the target is ambiguous; do not guess.
 - All actions return a common JSON envelope with `status`, `action`, `target`, `data`, and optional `error`.
-- Large output is saved to working-directory temp files, not streamed into conversation context.
+- Internal scratch files live in the dispatcher temp dir and are deleted when the dispatcher exits.
+- Large output is saved to an artifact file, not streamed into conversation context. Artifacts are saved under `$GH_ARTIFACT_DIR` (default: a per-invocation `/tmp/gh-artifacts-XXXXXXXX` directory) and survive the dispatcher exit, so a later step can read `output_file`. The caller is responsible for deleting artifacts after use (`rm -f "$output_file"`). Set `GH_ARTIFACT_DIR` to control the save location.
 - Do not modify API arguments or endpoints on retry.
 
 ## Attachments

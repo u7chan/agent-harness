@@ -364,6 +364,131 @@ jq -nc --arg received "$1" '"'"'{received: $received}'"'"''
   assert_contains "$output" 'hello' || return 1
 }
 
+register_artifact_mock() {
+  register_mock_action contract.artifact.write '#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_DIR="$SCRIPT_DIR/../common"
+source "$COMMON_DIR/envelope.sh"
+source "$COMMON_DIR/file.sh"
+scratch_dir="${GH_TEMP_DIR:-}"
+info="$(printf "%s\\n" "artifact-body-contract" | large_output "contract-artifact")"
+data="$(jq -nc --argjson artifact "$info" --arg scratch_dir "$scratch_dir" \
+  "{artifact: \$artifact, scratch_dir: \$scratch_dir}")"
+envelope_ok "contract.artifact.write" "{}" "$data"'
+}
+
+# Artifacts returned to callers must survive the dispatcher EXIT trap while
+# internal scratch is still cleaned up. Fully offline via the fixture.
+test_artifact_survives_dispatcher_exit() (
+  setup_fixture
+  trap teardown_fixture EXIT
+
+  register_artifact_mock
+
+  local input_file output output_file scratch_dir body
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{}' > "$input_file"
+  output="$(unset GH_TEMP_DIR GH_ARTIFACT_DIR; fixture_gh contract.artifact.write "$input_file" 2>&1)"
+  rm -f "$input_file"
+
+  assert_json_eq "$output" '.status' "ok" || return 1
+  output_file="$(printf '%s\n' "$output" | jq -r '.data.artifact.output_file')"
+  scratch_dir="$(printf '%s\n' "$output" | jq -r '.data.scratch_dir')"
+  if [ -z "$output_file" ] || [ "$output_file" = "null" ]; then
+    echo "no output_file returned"
+    return 1
+  fi
+  if [ -z "$scratch_dir" ] || [ "$scratch_dir" = "null" ]; then
+    echo "no scratch_dir returned"
+    return 1
+  fi
+  case "$output_file" in
+    "$scratch_dir"/*)
+      echo "artifact saved inside dispatcher scratch dir: $output_file"
+      return 1
+      ;;
+  esac
+  case "$output_file" in
+    /tmp/gh-artifacts-*/*) ;;
+    *)
+      echo "artifact not saved under the default artifact dir: $output_file"
+      return 1
+      ;;
+  esac
+
+  # The dispatcher process has exited; the artifact must still be readable.
+  if ! body="$(cat "$output_file")"; then
+    echo "artifact not readable after dispatcher exit: $output_file"
+    return 1
+  fi
+  assert_eq "$body" "artifact-body-contract" || return 1
+
+  # Internal scratch is still removed by the dispatcher EXIT trap.
+  if [ -e "$scratch_dir" ]; then
+    echo "dispatcher scratch dir was not cleaned: $scratch_dir"
+    return 1
+  fi
+
+  # Deleting the artifact explicitly is the caller's responsibility.
+  rm -f "$output_file"
+  if [ -e "$output_file" ]; then
+    echo "artifact was not deleted: $output_file"
+    return 1
+  fi
+)
+
+# Caller-provided directories: a GH_TEMP_DIR with the cleanup marker is still
+# removed on exit, a marker-less one survives (escape hatch), and
+# GH_ARTIFACT_DIR pins the artifact save location.
+test_artifact_caller_dirs() (
+  setup_fixture
+  trap teardown_fixture EXIT
+
+  register_artifact_mock
+
+  local input_file output output_file
+  local marked_scratch unmarked_scratch artifact_dir
+
+  artifact_dir="$FIXTURE_DIR/artifacts"
+  marked_scratch="$FIXTURE_DIR/scratch-marked"
+  unmarked_scratch="$FIXTURE_DIR/scratch-unmarked"
+  mkdir -p "$marked_scratch" "$unmarked_scratch"
+  touch "$marked_scratch/.gh-tmp-marker"
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{}' > "$input_file"
+
+  output="$(export GH_TEMP_DIR="$marked_scratch" GH_ARTIFACT_DIR="$artifact_dir"; fixture_gh contract.artifact.write "$input_file" 2>&1)"
+  assert_json_eq "$output" '.status' "ok" || return 1
+  output_file="$(printf '%s\n' "$output" | jq -r '.data.artifact.output_file')"
+  case "$output_file" in
+    "$artifact_dir"/*) ;;
+    *)
+      echo "artifact not saved under caller-provided GH_ARTIFACT_DIR: $output_file"
+      return 1
+      ;;
+  esac
+  if [ ! -r "$output_file" ]; then
+    echo "artifact not readable after dispatcher exit: $output_file"
+    return 1
+  fi
+  if [ -e "$marked_scratch" ]; then
+    echo "marked caller scratch dir was not cleaned: $marked_scratch"
+    return 1
+  fi
+  rm -f "$output_file"
+
+  output="$(export GH_TEMP_DIR="$unmarked_scratch" GH_ARTIFACT_DIR="$artifact_dir"; fixture_gh contract.artifact.write "$input_file" 2>&1)"
+  assert_json_eq "$output" '.status' "ok" || return 1
+  if [ ! -d "$unmarked_scratch" ]; then
+    echo "unmarked caller scratch dir should survive: $unmarked_scratch"
+    return 1
+  fi
+  rm -f "$input_file"
+)
+
 test_recheck_action_contracts() {
   "$SCRIPT_DIR/recheck-actions.sh" >/dev/null
 }
@@ -411,6 +536,8 @@ main() {
   # Group D: envelope and dispatch
   run_test test_envelope
   run_test test_dispatch
+  run_test test_artifact_survives_dispatcher_exit
+  run_test test_artifact_caller_dirs
   run_test test_recheck_action_contracts
   run_test test_workflow_runs_contracts
   run_test test_attach_contracts
