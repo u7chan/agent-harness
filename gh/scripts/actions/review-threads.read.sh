@@ -21,6 +21,206 @@ call_graphql() {
   printf '%s\n' "$result"
 }
 
+# Like call_graphql, but also accepts a response whose only problem is that
+# the node id does not resolve: GitHub returns data.node == null plus a
+# NOT_FOUND error, and the gh CLI exits non-zero for any GraphQL error body
+# while still printing the body to stdout. The scoped read maps that to its
+# filtered-empty contract instead of a transport failure, matching the
+# collection path where an unknown or foreign thread_id filtered to an empty
+# list. Any other failure (empty or non-JSON stdout, data missing or not an
+# object, node present with errors) still fails.
+call_graphql_node_may_be_missing() {
+  local query="$1"
+  shift
+  local result
+  result="$(gh api graphql -f query="$query" "$@" 2>/dev/null)" || true
+  if echo "$result" | jq -e '((.errors // []) | length) == 0 or ((.data | type == "object") and .data.node == null)' >/dev/null 2>&1; then
+    printf '%s\n' "$result"
+    return 0
+  fi
+  return 1
+}
+
+# Single authoritative mapping from one GraphQL review comment node to the
+# internal comment fields. Shared by the full snapshot and the scoped read so
+# the two paths cannot drift.
+COMMENT_FIELDS_JQ='{
+  id: (.id // empty),
+  database_id: (.databaseId // null),
+  body: (.body // ""),
+  url: (.url // ""),
+  path: (.path // ""),
+  line: (.line // null),
+  outdated: (.outdated // false),
+  commit_oid: (.commit.oid // ""),
+  reply_to_id: (.replyTo.id // null),
+  author_login: (.author.login // ""),
+  author_association: (.authorAssociation // ""),
+  created_at: (.createdAt // ""),
+  updated_at: (.updatedAt // ""),
+  last_edited_at: (.lastEditedAt // null)
+}'
+
+emit_threads_envelope() {
+  local collection_target="$1"
+  local threads_json="$2"
+  local wrapper
+  wrapper="$(jq -n --argjson threads "$threads_json" '{threads: $threads, pagination: {threads_complete: true, comments_complete: true}}')"
+  envelope_ok "review-threads.read" "$collection_target" "$wrapper"
+}
+
+# Scoped read for an explicit thread_id: fetch only the requested thread node
+# and its comments instead of the PR-wide reviewThreads collection, so the
+# cost of confirming one thread does not grow with the number of unrelated
+# threads. The envelope is the collection path's output filtered to one
+# thread. Safety checks are kept, not dropped: the node must be the requested
+# PullRequestReviewThread belonging to the target PR (number and repository,
+# like review-threads.resolve), and comment pages are paginated to
+# completeness with the same pageInfo/nodes validation as the collection path.
+read_scoped_thread() {
+  local thread_id="$1"
+  local owner_repo="$2" pr_number="$3"
+  local collection_target="$4"
+
+  local scoped_query
+  scoped_query='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { id isResolved pullRequest { number repository { nameWithOwner } } comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt lastEditedAt } } } } }'
+
+  local comments_tmp
+  comments_tmp="$(gh_make_temp "scoped-thread-comments")" || {
+    envelope_fail "review-threads.read" "API_ERROR" "Failed to create scratch file" false
+    exit 1
+  }
+  echo "[]" > "$comments_tmp"
+
+  local cursor="null"
+  local membership_verified="false"
+  local is_resolved="false"
+
+  while :; do
+    local page_result
+    if [ "$membership_verified" != "true" ]; then
+      # First page: tolerate "node does not resolve" errors so an unknown or
+      # foreign thread_id keeps the filtered-empty contract; any other
+      # failure still reports API_ERROR.
+      page_result="$(call_graphql_node_may_be_missing "$scoped_query" \
+        -F threadId="$thread_id" \
+        -F after="$cursor" \
+       2>/dev/null)" || {
+        gh_cleanup "$comments_tmp"
+        envelope_fail "review-threads.read" "API_ERROR" "Failed to fetch review thread" false
+        exit 1
+      }
+    else
+      page_result="$(call_graphql "$scoped_query" \
+        -F threadId="$thread_id" \
+        -F after="$cursor" \
+       2>/dev/null)" || {
+        gh_cleanup "$comments_tmp"
+        envelope_fail "review-threads.read" "API_ERROR" "Failed to fetch review thread" false
+        exit 1
+      }
+    fi
+
+    if [ "$membership_verified" != "true" ]; then
+      if ! echo "$page_result" | jq -e --arg tid "$thread_id" \
+        '.data.node | type == "object" and .id == $tid' >/dev/null 2>&1; then
+        # Unknown ID or not a PullRequestReviewThread: no thread of the target
+        # PR matches, which is the collection path's filtered-empty contract.
+        gh_cleanup "$comments_tmp"
+        emit_threads_envelope "$collection_target" "[]"
+        exit 0
+      fi
+      if ! echo "$page_result" | jq -e --argjson pr "$pr_number" --arg owner_repo "$owner_repo" \
+        '.data.node.pullRequest | type == "object" and .number == $pr and .repository.nameWithOwner == $owner_repo' >/dev/null 2>&1; then
+        # The node exists but belongs to another PR or repository, so it is
+        # not a thread of the target PR. Membership is verified, not assumed;
+        # the result stays the filtered-empty contract.
+        gh_cleanup "$comments_tmp"
+        emit_threads_envelope "$collection_target" "[]"
+        exit 0
+      fi
+      membership_verified="true"
+      is_resolved="$(echo "$page_result" | jq -r '.data.node.isResolved // false')"
+    fi
+
+    if ! echo "$page_result" | jq -e '.data.node.comments.pageInfo | type == "object" and (.hasNextPage | type == "boolean")' >/dev/null 2>&1; then
+      gh_cleanup "$comments_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL comment pageInfo is incomplete" false
+      exit 1
+    fi
+    if ! echo "$page_result" | jq -e '.data.node.comments.nodes | type == "array"' >/dev/null 2>&1; then
+      gh_cleanup "$comments_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "GraphQL comment nodes are incomplete" false
+      exit 1
+    fi
+
+    local new_comments
+    new_comments="$(echo "$page_result" | jq -c "[.data.node.comments.nodes[]? | $COMMENT_FIELDS_JQ]" 2>/dev/null)" || {
+      gh_cleanup "$comments_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to normalize review thread comments" false
+      exit 1
+    }
+
+    local merged
+    merged="$(echo "$new_comments" | jq -c --slurpfile old "$comments_tmp" '$old[0] + .')" || {
+      gh_cleanup "$comments_tmp"
+      envelope_fail "review-threads.read" "API_ERROR" "Failed to merge review thread comments" false
+      exit 1
+    }
+    echo "$merged" > "$comments_tmp"
+
+    local has_next end_cursor
+    has_next="$(echo "$page_result" | jq -r '.data.node.comments.pageInfo.hasNextPage // false')"
+    end_cursor="$(echo "$page_result" | jq -r '.data.node.comments.pageInfo.endCursor // "null"')"
+
+    if [ "$has_next" != "true" ] || [ "$end_cursor" = "null" ]; then
+      if [ "$has_next" = "true" ] && [ "$end_cursor" = "null" ]; then
+        gh_cleanup "$comments_tmp"
+        envelope_fail "review-threads.read" "API_ERROR" "GraphQL comment pagination has no endCursor" false
+        exit 1
+      fi
+      break
+    fi
+    cursor="$end_cursor"
+  done
+
+  local comments_json
+  comments_json="$(cat "$comments_tmp")" || {
+    gh_cleanup "$comments_tmp"
+    envelope_fail "review-threads.read" "API_ERROR" "Failed to read review thread comments" false
+    exit 1
+  }
+  gh_cleanup "$comments_tmp"
+
+  local threads_json
+  threads_json="$(echo "$comments_json" | jq -c --arg tid "$thread_id" --argjson resolved "$is_resolved" \
+    '[{
+      thread_id: $tid,
+      resolved: $resolved,
+      comments: [.[] | {
+        id: .id,
+        database_id: .database_id,
+        body: .body,
+        html_url: .url,
+        path: .path,
+        line: .line,
+        outdated: .outdated,
+        commit_id: .commit_oid,
+        in_reply_to_id: .reply_to_id,
+        user: {login: .author_login},
+        created_at: .created_at,
+        updated_at: .updated_at,
+        last_edited_at: .last_edited_at,
+        author_association: .author_association
+      }]
+    }]')" || {
+    envelope_fail "review-threads.read" "API_ERROR" "Failed to format review thread" false
+    exit 1
+  }
+
+  emit_threads_envelope "$collection_target" "$threads_json"
+}
+
 main() {
   local request_file="$1"
 
@@ -74,6 +274,14 @@ main() {
       url: $url
     }')"
 
+  # Scoped read: with an explicit thread_id, fetch only that thread node
+  # instead of the PR-wide reviewThreads collection (initial snapshots without
+  # thread_id keep the full read below).
+  if [ -n "$thread_id" ]; then
+    read_scoped_thread "$thread_id" "$owner_repo" "$pr_number" "$collection_target"
+    return 0
+  fi
+
   local threads_tmp
   threads_tmp="$(gh_make_temp "threads-raw")"
   echo "[]" > "$threads_tmp"
@@ -120,27 +328,12 @@ main() {
     fi
 
     local page_threads
-    page_threads="$(echo "$page_result" | jq -c '[.data.repository.pullRequest.reviewThreads.nodes[]? | {
+    page_threads="$(echo "$page_result" | jq -c "[.data.repository.pullRequest.reviewThreads.nodes[]? | {
       thread_id: .id,
       is_resolved: (.isResolved // false),
-      comments: [.comments.nodes[]? | {
-        id: (.id // empty),
-        database_id: (.databaseId // null),
-        body: (.body // ""),
-        url: (.url // ""),
-        path: (.path // ""),
-        line: (.line // null),
-        outdated: (.outdated // false),
-        commit_oid: (.commit.oid // ""),
-        reply_to_id: (.replyTo.id // null),
-        author_login: (.author.login // ""),
-        author_association: (.authorAssociation // ""),
-        created_at: (.createdAt // ""),
-        updated_at: (.updatedAt // ""),
-        last_edited_at: (.lastEditedAt // null)
-      }],
+      comments: [.comments.nodes[]? | $COMMENT_FIELDS_JQ],
       comments_pageInfo: .comments.pageInfo
-    }]' 2>/dev/null)" || {
+    }]" 2>/dev/null)" || {
       gh_cleanup "$threads_tmp"
       envelope_fail "review-threads.read" "API_ERROR" "Failed to normalize review thread comments" false
       exit 1
@@ -211,22 +404,7 @@ main() {
     fi
 
     local new_comments
-    new_comments="$(echo "$cresult" | jq -c '[.data.node.comments.nodes[]? | {
-      id: (.id // empty),
-      database_id: (.databaseId // null),
-      body: (.body // ""),
-      url: (.url // ""),
-      path: (.path // ""),
-      line: (.line // null),
-      outdated: (.outdated // false),
-      commit_oid: (.commit.oid // ""),
-      reply_to_id: (.replyTo.id // null),
-      author_login: (.author.login // ""),
-      author_association: (.authorAssociation // ""),
-      created_at: (.createdAt // ""),
-      updated_at: (.updatedAt // ""),
-      last_edited_at: (.lastEditedAt // null)
-    }]' 2>/dev/null)" || {
+    new_comments="$(echo "$cresult" | jq -c "[.data.node.comments.nodes[]? | $COMMENT_FIELDS_JQ]" 2>/dev/null)" || {
       gh_cleanup "$threads_tmp"
       envelope_fail "review-threads.read" "API_ERROR" "Failed to normalize paginated review comments" false
       exit 1
@@ -273,19 +451,9 @@ main() {
     exit 1
   }
 
-  if [ -n "$thread_id" ]; then
-    local filtered
-    filtered="$(echo "$formatted_threads" | jq --arg tid "$thread_id" '
-      [ .[] | select(.thread_id == $tid) ]
-    ')"
-    local wrapper
-    wrapper="$(jq -n --argjson threads "$filtered" '{threads: $threads, pagination: {threads_complete: true, comments_complete: true}}')"
-    envelope_ok "review-threads.read" "$collection_target" "$wrapper"
-  else
-    local wrapper
-    wrapper="$(jq -n --argjson threads "$formatted_threads" '{threads: $threads, pagination: {threads_complete: true, comments_complete: true}}')"
-    envelope_ok "review-threads.read" "$collection_target" "$wrapper"
-  fi
+  local wrapper
+  wrapper="$(jq -n --argjson threads "$formatted_threads" '{threads: $threads, pagination: {threads_complete: true, comments_complete: true}}')"
+  envelope_ok "review-threads.read" "$collection_target" "$wrapper"
 }
 
 main "$@"
