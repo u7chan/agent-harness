@@ -1,5 +1,7 @@
 # 再チェック手順
 
+この文書は再チェック・LGTM・Resolve の規則の正本である。`SKILL.md` の安全条件はこの文書への参照に留め、[posting-api.md](posting-api.md) と workflow 側の SKILL も手順や対象判定を再記述せずこの文書を参照する。したがってこの規則の全文修正はこのファイル 1 つにのみ行う。
+
 ## 決定的なスナップショットと責任境界
 
 Review skill は元 finding の再評価、分類理由、full review、LGTM 可否、ラウンド制御を担当する。取得・投稿・mutation は `gh` Action が担当し、分類や LGTM policy を Action に実装しない。skill は各 read Action の結果を、ネットワーク・時刻・永続 state に依存しない `review/scripts/recheck-state.py` に渡して判定する。
@@ -76,7 +78,7 @@ Resolve は「この会話は終わった」記録であり、LGTM とは独立�
 2. Resolve の前に、そのスレッドに閉会コメント（対象の会話と判断を要約した返信）を投稿する。投稿には `review-comments.reply` を使い、投稿成功または already-applied を確認する。
 3. `review-threads.read` で対象の PR、`thread_id`、`root_comment_id`、root の `reviewer_login` が指示の対象と一致することを確認する。対象不一致、取得失敗、root の特定不能なら Resolve しない。
 4. 対象がまだ未解決なら `review-threads.resolve` を実行し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
-5. `failed`、`unknown_outcome`、取得失敗、状態不一致は成功として扱わず、その thread を未解決または不明として報告する。結果不明のまま再試行しない。
+5. `failed`、`unknown_outcome`、head の変化（開始時に記録した head、または LGTM・分類評価時から head が進んでいる場合）、取得失敗、状態不一致は成功として扱わず、その thread を未解決または不明として報告する。結果不明のまま再試行しない。
 
 この方針により、LGTM のない自動 Resolve、単なる push を根拠にした Resolve、対象を取り違えた Resolve は設計上存在しない。明示指示がなく、workflow コンテキストの委譲（次節）による自動 Resolve の指定もないすべてのスレッドは、`Partial`、`Unresolved`、`Unknown`、他者の投稿、ユーザー判断待ちを含め、未解決のまま保持する。
 
@@ -89,7 +91,7 @@ Resolve は「この会話は終わった」記録であり、LGTM とは独立�
 - 手順:
   1. fresh read（`review-threads.read`）で、① thread が対象 PR に属し未解決であること、② tail の返信が review 担当自身の `Resolved` 分類であること、の 2 点を確認する。この 2 点が確認できた thread だけを対象にする。
   2. `review-threads.resolve` で解決し、直後に同じ対象を再取得して、対象が一致したまま `resolved=true` であることを確認する。`status=ok` または `status=already_applied` でも、この再取得を通らなければ成功と数えない。
-  3. `failed`、`unknown_outcome`、取得失敗、対象不一致は成功として扱わず、その thread を未解決または不明として報告する。結果不明のまま再試行しない。
+  3. `failed`、`unknown_outcome`、head の変化（LGTM 検証または分類評価時から head が進んでいる場合）、取得失敗、対象不一致は成功として扱わず、その thread を未解決または不明として報告する。結果不明のまま再試行しない。
 - 軽量チェックのみ: 事前条件は上記 2 点の確認と `review-threads.resolve` の検証だけにする。Resolve 判定に追加のスナップショット検証や run をまたぐ状態を持ち込まず、廃止した機構も再導入しない。
 
 workflow では `Resolved` 分類返信が閉会コメントを兼ねる。前節の手動フローと異なり、Resolve のために追加の返信を投稿する必要はない。
