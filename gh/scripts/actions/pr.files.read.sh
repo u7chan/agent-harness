@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common/envelope.sh"
 source "$SCRIPT_DIR/../common/target.sh"
 source "$SCRIPT_DIR/../common/http.sh"
+source "$SCRIPT_DIR/../common/file.sh"
 
 main() {
   local input="$1"
@@ -34,6 +35,11 @@ main() {
     sha, filename, status, additions, deletions, changes,
     blob_url, raw_url, contents_url, patch
   }]')"
+
+  # Large responses exceed the conversation boundary: the inline view drops
+  # the patch field (differences belong to pr.diff.read; reading both would
+  # duplicate the diff) and the complete data is kept in an artifact.
+  data="$(echo "$data" | bounded_read_output "pr-files-$pr_number" 'map(del(.patch))' 'patch')"
 
   envelope_ok "pr.files.read" "$pr_target" "$data"
 }

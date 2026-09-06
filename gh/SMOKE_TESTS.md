@@ -533,16 +533,18 @@ rm -f "$OUTPUT_FILE"
 ### pr.files.read
 
 ```bash
-# Test: list PR files
-echo '{"number":12}' | bash gh/scripts/gh.sh pr.files.read | jq -e '.status == "ok" and (.data | type == "array")'
+# Test: list PR files (inline array within the boundary, bounded object beyond it)
+echo '{"number":12}' | bash gh/scripts/gh.sh pr.files.read | jq -e '.status == "ok" and ((.data | type == "array") or .data.truncated == true)'
 ```
 
 | Check | Pass Condition |
 |-------|---------------|
 | Status is `ok` | `.status == "ok"` |
-| Returns file array | `.data \| type == "array"` |
+| Returns file array within the boundary | `.data \| type == "array"` |
 | Files have filename | `.data[0].filename != null` |
 | Files have status | `.data[0].status != null` |
+| Returns a bounded object beyond the boundary | `.data.truncated == true`, `.data.omitted == "patch"`, `.data.output_file != null` |
+| Artifact holds the complete data | `jq 'length' "$OUTPUT_FILE" == .data.total_count`; readable after the dispatcher exit; the caller deletes it when done |
 
 ### pr.commits.read
 

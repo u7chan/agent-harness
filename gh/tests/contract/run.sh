@@ -364,6 +364,180 @@ jq -nc --arg received "$1" '"'"'{received: $received}'"'"''
   assert_contains "$output" 'hello' || return 1
 }
 
+register_large_envelope_mock() {
+  local mock
+  mock="$(cat <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_DIR="$SCRIPT_DIR/../common"
+source "$COMMON_DIR/envelope.sh"
+payload="$(jq -cn --argjson len 160000 '"x" * $len | {patch: .}')"
+envelope_ok "contract.large.envelope" "{}" "$payload"
+EOF
+)"
+  register_mock_action contract.large.envelope "$mock"
+}
+
+# The Issue #152 reproduction: a 160,000-character payload used to abort the
+# dispatcher with "jq: Argument list too long" (exit 126) because envelope_ok
+# passed the whole data JSON as a single jq argument. The envelope now routes
+# data through a temp file, so the same payload yields a valid envelope.
+test_envelope_large_payload() {
+  register_large_envelope_mock
+
+  local input_file output line_count
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{}' > "$input_file"
+  if ! output="$(fixture_gh contract.large.envelope "$input_file" 2>&1)"; then
+    rm -f "$input_file"
+    echo "large envelope unexpectedly failed"
+    return 1
+  fi
+  rm -f "$input_file"
+
+  line_count="$(printf '%s\n' "$output" | wc -l)"
+  assert_eq "$line_count" "1" || return 1
+  assert_json_eq "$output" '.status' "ok" || return 1
+  assert_json_eq "$output" '.data.patch | length' "160000" || return 1
+}
+
+register_bounded_read_mock() {
+  local mock
+  mock="$(cat <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_DIR="$SCRIPT_DIR/../common"
+source "$COMMON_DIR/envelope.sh"
+source "$COMMON_DIR/file.sh"
+data="$(jq -cn --argjson count "$CONTRACT_BOUND_ITEMS" --argjson patch_len "$CONTRACT_BOUND_PATCH_LEN" \
+  '[range(0; $count) | {
+    sha: ("sha-\(.)"),
+    filename: ("file-\(.).txt"),
+    status: "modified",
+    additions: 1,
+    deletions: 0,
+    patch: ("x" * $patch_len)
+  }]')"
+data="$(echo "$data" | bounded_read_output "contract-bounded" 'map(del(.patch))' 'patch')"
+envelope_ok "contract.bounded.read" "{}" "$data"
+EOF
+)"
+  register_mock_action contract.bounded.read "$mock"
+}
+
+# Small read responses keep the inline contract byte for byte: the data stays
+# an inline array and the patch field is kept.
+test_bounded_read_small_inline() (
+  setup_fixture
+  trap teardown_fixture EXIT
+  register_bounded_read_mock
+
+  local input_file output
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{}' > "$input_file"
+  if ! output="$(CONTRACT_BOUND_ITEMS=10 CONTRACT_BOUND_PATCH_LEN=20 fixture_gh contract.bounded.read "$input_file" 2>&1)"; then
+    rm -f "$input_file"
+    echo "bounded read unexpectedly failed"
+    return 1
+  fi
+  rm -f "$input_file"
+
+  assert_json_eq "$output" '.status' "ok" || return 1
+  assert_json_eq "$output" '.data | type' "array" || return 1
+  assert_json_eq "$output" '.data | length' "10" || return 1
+  assert_json_eq "$output" '.data[0].patch' "xxxxxxxxxxxxxxxxxxxx" || return 1
+)
+
+# Large read responses exceed the conversation boundary: the envelope stays
+# valid, the inline view drops the omitted field and caps the item count, and
+# the complete data is kept in an artifact that survives the dispatcher exit.
+test_bounded_read_large_artifact() (
+  setup_fixture
+  trap teardown_fixture EXIT
+  register_bounded_read_mock
+
+  local input_file output output_file stdout_bytes
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{}' > "$input_file"
+  # 120 items x 2000-character patches (~245 KB full data) against the default
+  # 20000-byte inline budget and a 50-item inline cap.
+  if ! output="$(CONTRACT_BOUND_ITEMS=120 CONTRACT_BOUND_PATCH_LEN=2000 GH_INLINE_MAX_ITEMS=50 fixture_gh contract.bounded.read "$input_file" 2>&1)"; then
+    rm -f "$input_file"
+    echo "bounded read unexpectedly failed"
+    return 1
+  fi
+  rm -f "$input_file"
+
+  assert_json_eq "$output" '.status' "ok" || return 1
+  assert_json_eq "$output" '.data.truncated' "true" || return 1
+  assert_json_eq "$output" '.data.total_count' "120" || return 1
+  assert_json_eq "$output" '.data.inline_count' "50" || return 1
+  assert_json_eq "$output" '.data.omitted' "patch" || return 1
+  assert_json_eq "$output" '.data.items | length' "50" || return 1
+  assert_json_eq "$output" '[.data.items[] | has("patch")] | any | not' "true" || return 1
+  assert_json_eq "$output" '.data.size_bytes > 20000' "true" || return 1
+
+  output_file="$(printf '%s\n' "$output" | jq -r '.data.output_file')"
+  case "$output_file" in
+    /tmp/gh-artifacts-*/*) ;;
+    *)
+      echo "artifact not saved under the default artifact dir: $output_file"
+      return 1
+      ;;
+  esac
+
+  # The dispatcher process has exited; the artifact must still be readable and
+  # hold the complete data: every item, patches included.
+  if [ ! -r "$output_file" ]; then
+    echo "artifact not readable after dispatcher exit: $output_file"
+    return 1
+  fi
+  assert_eq "$(jq 'length' "$output_file")" "120" || return 1
+  assert_eq "$(jq '.[0].patch | length' "$output_file")" "2000" || return 1
+
+  # Conversation bytes regression: the envelope returned to the caller must
+  # stay small even when the full data is two orders of magnitude larger.
+  stdout_bytes="$(printf '%s' "$output" | wc -c)"
+  if [ "$stdout_bytes" -ge 16000 ]; then
+    echo "envelope too large for the conversation: $stdout_bytes bytes"
+    return 1
+  fi
+
+  # Deleting the artifact explicitly is the caller's responsibility.
+  rm -f "$output_file"
+)
+
+# The item cap only applies beyond the byte boundary: many small items within
+# the inline budget are returned inline in full.
+test_bounded_read_items_within_budget() (
+  setup_fixture
+  trap teardown_fixture EXIT
+  register_bounded_read_mock
+
+  local input_file output
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{}' > "$input_file"
+  # 150 items x 1-character patches: ~17 KB total, within the default byte
+  # budget, above GH_INLINE_MAX_ITEMS=50 but never artifacted.
+  if ! output="$(CONTRACT_BOUND_ITEMS=150 CONTRACT_BOUND_PATCH_LEN=1 GH_INLINE_MAX_ITEMS=50 fixture_gh contract.bounded.read "$input_file" 2>&1)"; then
+    rm -f "$input_file"
+    echo "bounded read unexpectedly failed"
+    return 1
+  fi
+  rm -f "$input_file"
+
+  assert_json_eq "$output" '.status' "ok" || return 1
+  assert_json_eq "$output" '.data | type' "array" || return 1
+  assert_json_eq "$output" '.data | length' "150" || return 1
+  assert_json_eq "$output" '.data[0].patch' "x" || return 1
+)
+
 register_artifact_mock() {
   register_mock_action contract.artifact.write '#!/usr/bin/env bash
 set -euo pipefail
@@ -536,6 +710,10 @@ main() {
   # Group D: envelope and dispatch
   run_test test_envelope
   run_test test_dispatch
+  run_test test_envelope_large_payload
+  run_test test_bounded_read_small_inline
+  run_test test_bounded_read_large_artifact
+  run_test test_bounded_read_items_within_budget
   run_test test_artifact_survives_dispatcher_exit
   run_test test_artifact_caller_dirs
   run_test test_recheck_action_contracts
