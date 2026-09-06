@@ -73,8 +73,10 @@ SKILL.md 本文は on-demand で読む)に基づく設計であり、方法2 と
 git -C <checkout> rev-parse HEAD   # 想定 revision を記録。テスト中は checkout を切り替えない
 ```
 
-- 旧版に無い目印(マーカー)を 1 つ決める。`git diff <installed-sha>..<対象 revision> -- <skill>/SKILL.md`
-  の追加行から、応答の引用として現れやすい断片を選ぶ
+- 旧版に無い目印(マーカー)を 1 つ決める。選定元は skill ディレクトリ全体の差分
+  `git diff <installed-sha>..<対象 revision> -- <skill>/`(SKILL.md に限らない)の追加行から、
+  応答の引用として現れやすい断片を選ぶ。SKILL.md に追加行がない変更(スクリプトや actions.json
+  のみの修正)では、変更のあったファイルの追加行を選ぶ
 
 完了条件(テスト終了時に確認):
 
