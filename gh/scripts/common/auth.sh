@@ -7,13 +7,16 @@ check_auth() {
     return 1
   }
 
-  gh auth status >/dev/null 2>&1 || {
+  # One gh auth status call serves both the authentication check and the
+  # host determination; do not run the command twice.
+  local status
+  status="$(gh auth status 2>&1)" || {
     echo "gh is not authenticated. Run 'gh auth login'." >&2
     return 1
   }
 
   local host
-  host="$(gh auth status 2>&1 | grep -oP '(?<=Logged in to )[^\s]+' || true)"
+  host="$(echo "$status" | grep -oP '(?<=Logged in to )[^\s]+' || true)"
 
   if [ -z "$host" ]; then
     echo "Could not determine the gh authenticated host." >&2

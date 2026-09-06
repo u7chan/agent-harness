@@ -280,6 +280,229 @@ test_actions_list_filter_empty_result() (
   assert_json_eq "$output" '.data' '[]' || return 1
 )
 
+# Issue #154: a fake gh CLI that logs every invocation lets the tests pin
+# which gh commands a dispatch actually runs. FAKE_GH_AUTH selects what
+# `gh auth status` reports; any other gh command exits 64.
+make_fake_gh() {
+  local bin_dir="$1"
+  local log_file="$2"
+
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/gh" <<EOF
+#!/usr/bin/env bash
+printf 'gh %s\n' "\$*" >> "$log_file"
+if [ "\${1:-}" = "auth" ] && [ "\${2:-}" = "status" ]; then
+  case "\${FAKE_GH_AUTH:-fail}" in
+    fail)
+      echo "not logged into any hosts" >&2
+      exit 1
+      ;;
+    github.com)
+      printf 'github.com\n  ✓ Logged in to github.com account contract-test (keyring)\n'
+      exit 0
+      ;;
+    ghe.example.com)
+      printf 'ghe.example.com\n  ✓ Logged in to ghe.example.com account contract-test\n'
+      exit 0
+      ;;
+  esac
+fi
+exit 64
+EOF
+  chmod +x "$bin_dir/gh"
+}
+
+cleanup_fake_gh() {
+  rm -rf "$1"
+}
+
+# The catalog marks the catalog actions auth-free: they must run without any
+# gh invocation, gh auth status included, even with no gh CLI available.
+test_requires_auth_false_runs_without_auth () (
+  local bin_dir log_file input_file output rc
+  bin_dir="$(mktemp -d /tmp/gh-contract-fakegh-XXXXXX)"
+  log_file="$bin_dir/calls.log"
+  make_fake_gh "$bin_dir" "$log_file"
+  trap 'cleanup_fake_gh "$bin_dir"' EXIT
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{}' > "$input_file"
+  output="$(PATH="$bin_dir:$PATH" FAKE_GH_AUTH=fail "$GH_SCRIPT" actions.list "$input_file" 2>&1)"
+  rc=$?
+  rm -f "$input_file"
+
+  assert_eq "$rc" "0" || return 1
+  assert_json_eq "$output" '.status' "ok" || return 1
+  assert_json_eq "$output" '.data | length > 0' "true" || return 1
+  if [ -s "$log_file" ]; then
+    echo "gh was invoked for a requires_auth:false action:"
+    cat "$log_file"
+    return 1
+  fi
+)
+
+# A required number that is explicitly null must be rejected by the common
+# layer before any gh command runs: neither an auth check nor the dispatch
+# may observe it.
+test_required_number_null_rejected_before_dispatch () (
+  local bin_dir log_file input_file output rc
+  bin_dir="$(mktemp -d /tmp/gh-contract-fakegh-XXXXXX)"
+  log_file="$bin_dir/calls.log"
+  make_fake_gh "$bin_dir" "$log_file"
+  trap 'cleanup_fake_gh "$bin_dir"' EXIT
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{"number":null}' > "$input_file"
+  output="$(PATH="$bin_dir:$PATH" FAKE_GH_AUTH=fail "$GH_SCRIPT" issue.get "$input_file" 2>&1)"
+  rc=$?
+  rm -f "$input_file"
+
+  assert_eq "$rc" "1" || return 1
+  assert_json_eq "$output" '.status' "failed" || return 1
+  assert_json_eq "$output" '.error.code' "MISSING_REQUIRED_FIELD" || return 1
+  if [ -s "$log_file" ]; then
+    echo "a null required field reached gh:"
+    cat "$log_file"
+    return 1
+  fi
+)
+
+# Actions that the catalog marks requires_auth:true keep the auth gate: an
+# unauthenticated run and a non-github.com host both fail with AUTH_ERROR,
+# a github.com account passes, and one dispatch runs gh auth status exactly
+# once (the gate reuses a single call for the auth and host checks).
+test_requires_auth_true_single_auth_call () (
+  local bin_dir log_file input_file output rc auth_calls
+  bin_dir="$(mktemp -d /tmp/gh-contract-fakegh-XXXXXX)"
+  log_file="$bin_dir/calls.log"
+  make_fake_gh "$bin_dir" "$log_file"
+  trap 'cleanup_fake_gh "$bin_dir"' EXIT
+
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{"number":1}' > "$input_file"
+
+  output="$(PATH="$bin_dir:$PATH" FAKE_GH_AUTH=fail "$GH_SCRIPT" issue.get "$input_file" 2>/dev/null)"
+  rc=$?
+  assert_eq "$rc" "1" || return 1
+  assert_json_eq "$output" '.error.code' "AUTH_ERROR" || return 1
+  auth_calls="$(grep -c 'gh auth status' "$log_file" || true)"
+  assert_eq "${auth_calls:-0}" "1" || return 1
+
+  : > "$log_file"
+  output="$(PATH="$bin_dir:$PATH" FAKE_GH_AUTH=ghe.example.com "$GH_SCRIPT" issue.get "$input_file" 2>/dev/null)"
+  rc=$?
+  assert_eq "$rc" "1" || return 1
+  assert_json_eq "$output" '.error.code' "AUTH_ERROR" || return 1
+  auth_calls="$(grep -c 'gh auth status' "$log_file" || true)"
+  assert_eq "${auth_calls:-0}" "1" || return 1
+
+  # With a github.com active account the dispatch passes the gate and the
+  # action runs: issue.get reaches target resolution (which fails against
+  # the fake gh), proving the auth check did not consume the request.
+  : > "$log_file"
+  output="$(PATH="$bin_dir:$PATH" FAKE_GH_AUTH=github.com "$GH_SCRIPT" issue.get "$input_file" 2>/dev/null)"
+  rc=$?
+  rm -f "$input_file"
+  assert_eq "$rc" "1" || return 1
+  assert_json_eq "$output" '.error.code' "TARGET_ERROR" || return 1
+  auth_calls="$(grep -c 'gh auth status' "$log_file" || true)"
+  assert_eq "${auth_calls:-0}" "1" || return 1
+  assert_contains "$(cat "$log_file")" "gh repo view" || return 1
+)
+
+# Both entry points share one validator: missing, null, empty, and wrongly
+# typed values must mean the same thing whether the input arrives as an
+# argument (string-input path) or as a request file (comments.* path).
+test_input_semantics_match_both_entrypoints () (
+  setup_fixture
+  trap teardown_fixture EXIT
+  export GH_TEST_AUTH_RESULT=0
+
+  local schema='{"number":{"type":"number","required":true},"label":{"type":"string","required":false}}'
+  register_mock_action contract.matrix.str "$schema" '#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_DIR="$SCRIPT_DIR/../common"
+source "$COMMON_DIR/envelope.sh"
+envelope_ok "contract.matrix.str" "{}" "$1"'
+  register_mock_action comments.matrix.file "$schema" '#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_DIR="$SCRIPT_DIR/../common"
+source "$COMMON_DIR/envelope.sh"
+envelope_ok "comments.matrix.file" "{}" "$(cat "$1")"'
+
+  local input_file out_str out_file rc_str rc_file
+  run_both() {
+    local payload="$1"
+    input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+    printf '%s\n' "$payload" > "$input_file"
+    out_str="$(fixture_gh contract.matrix.str "$input_file" 2>&1 </dev/null)"
+    rc_str=$?
+    out_file="$(fixture_gh comments.matrix.file "$input_file" 2>&1 </dev/null)"
+    rc_file=$?
+    rm -f "$input_file"
+  }
+
+  local case_payload case_expect
+  while IFS='|' read -r case_payload case_expect; do
+    [ -z "$case_payload" ] && continue
+    run_both "$case_payload"
+    if [ "$case_expect" = "ok" ]; then
+      assert_eq "$rc_str" "0" || return 1
+      assert_eq "$rc_file" "$rc_str" || return 1
+      assert_eq "$(jq -c '.data' <<< "$out_str")" "$(jq -c '.data' <<< "$out_file")" || return 1
+    else
+      assert_eq "$rc_str" "1" || return 1
+      assert_eq "$rc_file" "$rc_str" || return 1
+      assert_json_eq "$out_str" '.error.code' "$case_expect" || return 1
+      assert_json_eq "$out_file" '.error.code' "$case_expect" || return 1
+    fi
+  done <<'CASES'
+{}|MISSING_INPUT
+{"number":null}|MISSING_REQUIRED_FIELD
+{"number":""}|MISSING_REQUIRED_FIELD
+{"number":"x"}|TYPE_MISMATCH
+{"number":1}|ok
+{"number":1,"label":null}|ok
+{"number":1,"label":""}|ok
+{"number":1,"label":3}|TYPE_MISMATCH
+CASES
+)
+
+# Update-style actions distinguish an absent optional field ("keep the
+# current value") from an explicit null ("clear it"): the null must pass
+# validation and reach the action with the key present.
+test_optional_null_contract_preserved () (
+  setup_fixture
+  trap teardown_fixture EXIT
+  export GH_TEST_AUTH_RESULT=0
+
+  local schema='{"number":{"type":"number","required":true},"title":{"type":"string","required":false},"body":{"type":"string","required":false}}'
+  register_mock_action contract.optional.null "$schema" '#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_DIR="$SCRIPT_DIR/../common"
+source "$COMMON_DIR/envelope.sh"
+envelope_ok "contract.optional.null" "{}" "$1"'
+
+  local input_file output
+  input_file="$(mktemp /tmp/gh-contract-input-XXXXXX)"
+  printf '%s\n' '{"number":1,"body":null}' > "$input_file"
+  if ! output="$(fixture_gh contract.optional.null "$input_file" 2>&1)"; then
+    rm -f "$input_file"
+    echo "explicit null on an optional field unexpectedly failed validation"
+    return 1
+  fi
+  rm -f "$input_file"
+
+  assert_json_eq "$output" '.status' "ok" || return 1
+  assert_json_eq "$output" '.data.number' "1" || return 1
+  assert_json_eq "$output" '(.data.body == null)' "true" || return 1
+  assert_json_eq "$output" '.data | has("body") | tostring' "true" || return 1
+  assert_json_eq "$output" '.data | has("title") | tostring' "false" || return 1
+)
+
 test_envelope() {
   local input_file
   local output
@@ -781,6 +1004,13 @@ main() {
   run_test test_actions_list_filter_combined
   run_test test_actions_list_filter_or_within_field
   run_test test_actions_list_filter_empty_result
+
+  # Group C2: catalog auth flags and unified input validation (Issue #154)
+  run_test test_requires_auth_false_runs_without_auth
+  run_test test_required_number_null_rejected_before_dispatch
+  run_test test_requires_auth_true_single_auth_call
+  run_test test_input_semantics_match_both_entrypoints
+  run_test test_optional_null_contract_preserved
 
   # Group D: envelope and dispatch
   run_test test_envelope
