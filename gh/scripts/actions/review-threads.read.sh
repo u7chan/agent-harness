@@ -21,20 +21,34 @@ call_graphql() {
   printf '%s\n' "$result"
 }
 
-# Like call_graphql, but also accepts a response whose only problem is that
-# the node id does not resolve: GitHub returns data.node == null plus a
-# NOT_FOUND error, and the gh CLI exits non-zero for any GraphQL error body
-# while still printing the body to stdout. The scoped read maps that to its
-# filtered-empty contract instead of a transport failure, matching the
-# collection path where an unknown or foreign thread_id filtered to an empty
-# list. Any other failure (empty or non-JSON stdout, data missing or not an
-# object, node present with errors) still fails.
+# Like call_graphql, but tolerates exactly two response shapes:
+# - a clean success (no errors, data is an object): the caller's own
+#   completeness checks validate the rest;
+# - GitHub's response for an unresolvable node id: data is an object with
+#   node explicitly null and a non-empty errors array whose every entry is a
+#   NOT_FOUND on the node path. The gh CLI exits non-zero for any GraphQL
+#   error body while still printing it to stdout, and the scoped read maps
+#   this one shape to its filtered-empty contract.
+# Everything else - other error types (FORBIDDEN), HTTP error JSON without
+# data, incomplete bodies, empty or non-JSON stdout - fails and surfaces as
+# API_ERROR, like the collection path.
 call_graphql_node_may_be_missing() {
   local query="$1"
   shift
   local result
   result="$(gh api graphql -f query="$query" "$@" 2>/dev/null)" || true
-  if echo "$result" | jq -e '((.errors // []) | length) == 0 or ((.data | type == "object") and .data.node == null)' >/dev/null 2>&1; then
+  if echo "$result" | jq -e '
+    (((.errors // []) | length) == 0 and (((.data // null) | type) == "object"))
+    or
+    (
+      (((.data // null) | type) == "object")
+      and (.data | has("node"))
+      and (.data.node == null)
+      and (((.errors // []) | type) == "array")
+      and (((.errors // []) | length) > 0)
+      and ([.errors[] | ((.type? // "") == "NOT_FOUND") and (((.path // []) | index("node")) != null)] | all)
+    )
+  ' >/dev/null 2>&1; then
     printf '%s\n' "$result"
     return 0
   fi
@@ -82,6 +96,12 @@ read_scoped_thread() {
   local owner_repo="$2" pr_number="$3"
   local collection_target="$4"
 
+  # Repository names are case-insensitive on GitHub: nameWithOwner comes back
+  # in canonical spelling while reference keeps the caller's spelling, so the
+  # membership comparison normalizes both sides.
+  local owner_repo_lc
+  owner_repo_lc="$(printf '%s' "$owner_repo" | tr '[:upper:]' '[:lower:]')"
+
   local scoped_query
   scoped_query='query($threadId: ID!, $after: String) { node(id: $threadId) { ... on PullRequestReviewThread { id isResolved pullRequest { number repository { nameWithOwner } } comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id databaseId body url path line outdated commit { oid } replyTo { id } author { login } authorAssociation createdAt updatedAt lastEditedAt } } } } }'
 
@@ -122,16 +142,34 @@ read_scoped_thread() {
     fi
 
     if [ "$membership_verified" != "true" ]; then
-      if ! echo "$page_result" | jq -e --arg tid "$thread_id" \
-        '.data.node | type == "object" and .id == $tid' >/dev/null 2>&1; then
-        # Unknown ID or not a PullRequestReviewThread: no thread of the target
-        # PR matches, which is the collection path's filtered-empty contract.
-        gh_cleanup "$comments_tmp"
-        emit_threads_envelope "$collection_target" "[]"
-        exit 0
-      fi
-      if ! echo "$page_result" | jq -e --argjson pr "$pr_number" --arg owner_repo "$owner_repo" \
-        '.data.node.pullRequest | type == "object" and .number == $pr and .repository.nameWithOwner == $owner_repo' >/dev/null 2>&1; then
+      # Classify the first response exactly: a missing node key or non-object
+      # data is an incomplete response and fails; an explicitly null node is
+      # an unresolvable id and a resolved object that is not the requested
+      # review thread is not a thread of the target PR - both keep the
+      # collection path's filtered-empty contract.
+      local node_state
+      node_state="$(echo "$page_result" | jq -r --arg tid "$thread_id" '
+        if (((.data // null) | type) != "object") or ((.data | has("node")) | not) then "incomplete"
+        elif .data.node == null then "unresolved"
+        elif ((.data.node | type) == "object") and (.data.node.id == $tid) then "match"
+        else "other_node"
+        end' 2>/dev/null)" || node_state="incomplete"
+      case "$node_state" in
+        unresolved|other_node)
+          gh_cleanup "$comments_tmp"
+          emit_threads_envelope "$collection_target" "[]"
+          exit 0
+          ;;
+        match)
+          ;;
+        *)
+          gh_cleanup "$comments_tmp"
+          envelope_fail "review-threads.read" "API_ERROR" "GraphQL node response is incomplete" false
+          exit 1
+          ;;
+      esac
+      if ! echo "$page_result" | jq -e --argjson pr "$pr_number" --arg owner_repo "$owner_repo_lc" \
+        '.data.node.pullRequest | type == "object" and .number == $pr and ((.repository.nameWithOwner // "" | ascii_downcase) == $owner_repo)' >/dev/null 2>&1; then
         # The node exists but belongs to another PR or repository, so it is
         # not a thread of the target PR. Membership is verified, not assumed;
         # the result stays the filtered-empty contract.
