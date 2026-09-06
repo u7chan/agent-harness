@@ -648,6 +648,51 @@ test_manual_unresolve_reference_contract () (
   assert_json_eq "$output" '.target.repository' "u7chan/agent-harness" || return 1
 )
 
+# PR #164 review follow-up: reference spellings that differ only in case
+# must not stop the membership check. The comparison is normalized like
+# review-threads.read (owner/repo lowercased on both sides) for both the
+# owner/repo and PR URL reference forms, on both mutation actions.
+test_manual_mutation_reference_case_insensitive () (
+  # Both action scripts share the fixture.
+  setup_unresolve_fixture
+  cp "$GH_ROOT/scripts/actions/review-threads.resolve.sh" "$FIXTURE_DIR/scripts/actions/review-threads.resolve.sh"
+  chmod +x "$FIXTURE_DIR/scripts/actions/review-threads.resolve.sh"
+  trap teardown_fixture EXIT
+  request="$FIXTURE_DIR/request.json"
+
+  # owner/repo form: uppercase spelling vs the thread's canonical lowercase
+  # repository; the envelope keeps the caller's spelling.
+  echo '{"gql_threads": [{"id": "T1", "isResolved": false}]}' > "$MOCK_GH_STATE"
+  jq -n '{reference: "U7chan/Agent-Harness", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.resolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.outcome' resolved_by_run || return 1
+  assert_json_eq "$output" '.target.repository' "U7chan/Agent-Harness" || return 1
+
+  # PR URL form: case-differing URL resolves to the same repository. Reset
+  # the thread state first - case 1's dispatch resolved it in the mock.
+  echo '{"gql_threads": [{"id": "T1", "isResolved": false}]}' > "$MOCK_GH_STATE"
+  jq -n '{reference: "https://github.com/U7chan/Agent-Harness/pull/200", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.resolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.outcome' resolved_by_run || return 1
+
+  # unresolve: same two forms against a currently resolved thread.
+  echo '{"gql_threads": [{"id": "T1", "isResolved": true}]}' > "$MOCK_GH_STATE"
+  jq -n '{reference: "U7chan/Agent-Harness", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.unresolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.resolved | tostring' false || return 1
+
+  # PR URL form on a fresh resolved thread (case 3's dispatch unresolved it
+  # in the mock).
+  echo '{"gql_threads": [{"id": "T1", "isResolved": true}]}' > "$MOCK_GH_STATE"
+  jq -n '{reference: "https://github.com/U7chan/Agent-Harness/pull/200", thread_id: "T1", grant: "sensitive-write"}' > "$request"
+  output="$(fixture_gh review-threads.unresolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.resolved | tostring' false || return 1
+)
+
 test_threads_read_pagination() (
   setup_threads_read_fixture
   trap teardown_fixture EXIT
@@ -1028,6 +1073,7 @@ main() {
   run_test test_manual_resolve_reference_mismatch_rejected_before_mutation
   run_test test_manual_resolve_cwd_compat
   run_test test_manual_unresolve_reference_contract
+  run_test test_manual_mutation_reference_case_insensitive
   run_test test_threads_read_pagination
   run_test test_threads_read_scoped_avoids_collection
   run_test test_threads_read_scoped_comment_pagination

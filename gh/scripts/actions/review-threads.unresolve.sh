@@ -59,7 +59,15 @@ main() {
   thread_url="$(echo "$thread_data" | jq -r '.pullRequest.url // ""')"
   thread_repo="$(echo "$thread_data" | jq -r '.pullRequest.repository.nameWithOwner // ""')"
 
-  if [ -n "$thread_repo" ] && [ "$thread_repo" != "null" ] && [ "$thread_repo" != "$owner_repo" ]; then
+  # Case-insensitive membership, matching review-threads.read: the reference
+  # (or CWD) spelling is preserved in the envelope, but the comparison is
+  # normalized on both sides so "U7chan/Agent-Harness" matches the API's
+  # canonical "u7chan/agent-harness".
+  local owner_repo_lc thread_repo_lc
+  owner_repo_lc="$(printf '%s' "$owner_repo" | tr '[:upper:]' '[:lower:]')"
+  thread_repo_lc="$(printf '%s' "$thread_repo" | tr '[:upper:]' '[:lower:]')"
+
+  if [ -n "$thread_repo" ] && [ "$thread_repo" != "null" ] && [ "$thread_repo_lc" != "$owner_repo_lc" ]; then
     envelope_fail "review-threads.unresolve" "TARGET_MISMATCH" "Thread belongs to $thread_repo, not $owner_repo" false
     exit 1
   fi
