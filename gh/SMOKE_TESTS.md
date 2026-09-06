@@ -514,8 +514,12 @@ echo '{"reference":"https://github.com/u7chan/agent-harness/pull/12"}' | bash gh
 ### pr.diff.read
 
 ```bash
-# Test: get PR diff
-echo '{"number":12}' | bash gh/scripts/gh.sh pr.diff.read | jq -e '.status == "ok" and .data.output_file != null and .data.size_bytes > 0'
+# Test: get PR diff; the artifact file survives the dispatcher exit
+result="$(echo '{"number":12}' | bash gh/scripts/gh.sh pr.diff.read)"
+echo "$result" | jq -e '.status == "ok" and .data.output_file != null and .data.size_bytes > 0'
+OUTPUT_FILE="$(printf '%s' "$result" | jq -r '.data.output_file')"
+test -r "$OUTPUT_FILE" && echo "artifact readable"
+rm -f "$OUTPUT_FILE"
 ```
 
 | Check | Pass Condition |
@@ -523,6 +527,8 @@ echo '{"number":12}' | bash gh/scripts/gh.sh pr.diff.read | jq -e '.status == "o
 | Status is `ok` | `.status == "ok"` |
 | Returns output file | `.data.output_file != null` |
 | File size is positive | `.data.size_bytes > 0` |
+| Artifact readable after dispatcher exit | `test -r "$OUTPUT_FILE"` |
+| Caller deletes the artifact | `rm -f "$OUTPUT_FILE"` |
 
 ### pr.files.read
 
