@@ -55,13 +55,9 @@ Rejected alternatives:
 
 ### Development
 
-Work in the checkout or a linked worktree on a branch. To exercise unmerged skills locally, load them explicitly for that session only:
+Work in the checkout or a linked worktree on a branch. Nothing under development may be added to a global or project skill location.
 
-```bash
-pi --skill /path/to/checkout/gh/SKILL.md
-```
-
-Nothing under development may be added to a global or project skill location.
+Verifying unmerged skills is session-scoped; the canonical procedure lives in [skill-testing.md](skill-testing.md) (Japanese), and this document does not duplicate it. Do not load an unmerged skill for verification with `pi --skill <checkout>/<skill>/SKILL.md`: with a pinned install in place, the same-named installed skill wins (pi keeps the first skill found) and the explicit path is skipped - observed 2026-09-02 as `✗ <path> (skipped)` - so the session can exercise the installed revision while appearing to verify the development copy. The canonical procedure reads the target files by absolute path and includes a read-path and revision check as evidence.
 
 ### Merge → rollout
 
