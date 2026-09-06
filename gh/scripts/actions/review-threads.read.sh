@@ -21,32 +21,40 @@ call_graphql() {
   printf '%s\n' "$result"
 }
 
-# Like call_graphql, but tolerates exactly two response shapes:
-# - a clean success (no errors, data is an object): the caller's own
-#   completeness checks validate the rest;
-# - GitHub's response for an unresolvable node id: data is an object with
-#   node explicitly null and a non-empty errors array whose every entry is a
-#   NOT_FOUND on the node path. The gh CLI exits non-zero for any GraphQL
-#   error body while still printing it to stdout, and the scoped read maps
-#   this one shape to its filtered-empty contract.
-# Everything else - other error types (FORBIDDEN), HTTP error JSON without
-# data, incomplete bodies, empty or non-JSON stdout - fails and surfaces as
-# API_ERROR, like the collection path.
+# Fetch the scoped node and classify strictly. Accepts exactly two shapes:
+# - GitHub's unresolvable-node response: data is an object with node
+#   explicitly null and a non-empty errors array whose every entry is
+#   NOT_FOUND with path exactly ["node"]. This is the only failure mapped to
+#   the filtered-empty contract, and it is accepted at any exit code because
+#   the gh CLI exits non-zero for GraphQL error bodies while printing them.
+#   A NOT_FOUND on a child path (e.g. ["node", "pullRequest"]) is a child
+#   fetch error, not a missing id, and is not accepted.
+# - A normal success: exit code 0, no errors, and a data object holding a
+#   node object. Any other shape (missing node key, non-object node such as
+#   an array) fails, and every non-zero exit that is not the exception above
+#   fails, surfacing as API_ERROR like the collection path.
 call_graphql_node_may_be_missing() {
   local query="$1"
   shift
-  local result
-  result="$(gh api graphql -f query="$query" "$@" 2>/dev/null)" || true
-  if echo "$result" | jq -e '
-    (((.errors // []) | length) == 0 and (((.data // null) | type) == "object"))
-    or
+  local result rc=0
+  result="$(gh api graphql -f query="$query" "$@" 2>/dev/null)" || rc=$?
+  if echo "$result" | jq -e --argjson rc "$rc" '
     (
       (((.data // null) | type) == "object")
       and (.data | has("node"))
       and (.data.node == null)
       and (((.errors // []) | type) == "array")
       and (((.errors // []) | length) > 0)
-      and ([.errors[] | ((.type? // "") == "NOT_FOUND") and (((.path // []) | index("node")) != null)] | all)
+      and ([.errors[] | ((.type? // "") == "NOT_FOUND") and ((.path? // null) == ["node"])] | all)
+    )
+    or
+    (
+      ($rc == 0)
+      and (((.errors // []) | type) == "array")
+      and (((.errors // []) | length) == 0)
+      and (((.data // null) | type) == "object")
+      and (.data | has("node"))
+      and (((.data.node // null) | type) == "object")
     )
   ' >/dev/null 2>&1; then
     printf '%s\n' "$result"
@@ -142,17 +150,20 @@ read_scoped_thread() {
     fi
 
     if [ "$membership_verified" != "true" ]; then
-      # Classify the first response exactly: a missing node key or non-object
-      # data is an incomplete response and fails; an explicitly null node is
-      # an unresolvable id and a resolved object that is not the requested
-      # review thread is not a thread of the target PR - both keep the
-      # collection path's filtered-empty contract.
+      # Classify the first response exactly. The fetch helper only lets
+      # through the unresolvable-node NOT_FOUND response (node explicitly
+      # null) and normal successes with a node object; anything else -
+      # missing node key, a non-object node type, other error bodies - has
+      # already failed. A null node keeps the collection path's
+      # filtered-empty contract; a resolved object that is not the requested
+      # review thread is not a thread of the target PR and keeps it too.
       local node_state
       node_state="$(echo "$page_result" | jq -r --arg tid "$thread_id" '
         if (((.data // null) | type) != "object") or ((.data | has("node")) | not) then "incomplete"
         elif .data.node == null then "unresolved"
-        elif ((.data.node | type) == "object") and (.data.node.id == $tid) then "match"
-        else "other_node"
+        elif ((.data.node | type) == "object") then
+          (if .data.node.id == $tid then "match" else "other_node" end)
+        else "incomplete"
         end' 2>/dev/null)" || node_state="incomplete"
       case "$node_state" in
         unresolved|other_node)

@@ -777,9 +777,40 @@ PY
   fi
   assert_json_eq "$output" '.error.code' API_ERROR || return 1
 
+  # A node-null body without errors on a non-zero exit: the exit code is not
+  # discarded, so this stays a failure instead of an empty success.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null}}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tok 2>&1)"; then
+    echo "node-null body with non-zero exit unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # A non-object node (array) on a normal exit: invalid node form, failure.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":[]}}' MOCK_GQL_NODE_FAIL_RC=0 run_scoped_read Tok 2>&1)"; then
+    echo "array node unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
+  # A NOT_FOUND on a child path (e.g. ["node","pullRequest"]) is a child
+  # fetch error, not an unresolvable id: must stay a failure.
+  if output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node","pullRequest"],"message":"Could not fetch pullRequest"}]}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tok 2>&1)"; then
+    echo "child-path NOT_FOUND unexpectedly succeeded"
+    return 1
+  fi
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' API_ERROR || return 1
+
   # Control: the exact NOT_FOUND shape for an unresolvable id keeps the
-  # filtered-empty contract.
+  # filtered-empty contract, on a non-zero exit...
   output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node"],"message":"Could not resolve to a node with the global id of Tmissing"}]}' MOCK_GQL_NODE_FAIL_RC=1 run_scoped_read Tmissing 2>&1)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.threads' '[]' || return 1
+
+  # ...and on a normal exit.
+  output="$(MOCK_GQL_NODE_FAIL='{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node"],"message":"Could not resolve to a node with the global id of Tmissing"}]}' MOCK_GQL_NODE_FAIL_RC=0 run_scoped_read Tmissing 2>&1)" || return 1
   assert_json_eq "$output" '.status' ok || return 1
   assert_json_eq "$output" '.data.threads' '[]' || return 1
 
