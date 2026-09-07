@@ -1798,7 +1798,7 @@
     },
     {
       "name": "pr.draft",
-      "description": "Convert a pull request to draft",
+      "description": "Convert an open pull request to draft. already_applied when the open PR is already a draft; a closed or merged PR fails with PR_NOT_OPEN (no mutation)",
       "category": "pr",
       "permission": "sensitive-write",
       "requires_auth": true,
@@ -1849,7 +1849,7 @@
     },
     {
       "name": "pr.ready",
-      "description": "Mark a draft pull request as ready for review",
+      "description": "Mark an open draft pull request as ready for review. already_applied when the open PR is already ready; a closed or merged PR fails with PR_NOT_OPEN (no mutation)",
       "category": "pr",
       "permission": "sensitive-write",
       "requires_auth": true,
