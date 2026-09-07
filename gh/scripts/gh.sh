@@ -33,9 +33,9 @@ EOF
   exit 2
 }
 
-# Shared request validation for both input paths (the string-input path
-# materializes its JSON into a request file first, so there is exactly one
-# validator). Field semantics:
+# Shared request validation for every action. main() materializes the
+# request JSON into a request file exactly once (whichever entry path the
+# input arrived on), so there is exactly one validator. Field semantics:
 # - required field: the key must be present with a non-null, non-empty value
 #   of the declared type. Missing key, explicit null, and empty string are
 #   all MISSING_REQUIRED_FIELD; a required number must never reach an
@@ -136,151 +136,99 @@ main() {
   local action_name="$1"
   shift
 
-  if [[ "$action_name" == comments.* ]] || [[ "$action_name" == review-comments.* ]] || [[ "$action_name" == reviews.* ]] || [[ "$action_name" == review-threads.* ]]; then
-    local request_file
-    request_file="$(gh_make_temp "request-json")"
-    if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
-      cp "$1" "$request_file"
-    elif [ ! -t 0 ]; then
-      cat > "$request_file"
-    fi
+  # One input acquisition for every action: an explicit input file argument
+  # wins, piped stdin comes next, and without either there is no input. The
+  # request JSON is materialized into a scratch request file once, so both
+  # the shared validator and the actions see one identical request; the
+  # string-input and request-file entry paths can no longer diverge.
+  local request_file
+  request_file="$(gh_make_temp "request-json")"
 
-    if ! jq empty "$request_file" 2>/dev/null; then
-      envelope_fail "$action_name" "INVALID_JSON" "Input is not valid JSON" false
-      exit 1
-    fi
-
-    local action_def
-    action_def="$(jq -c --arg name "$action_name" '
-      .actions[] | select(.name == $name)
-    ' "$ACTIONS_JSON")"
-
-    if [ -z "$action_def" ]; then
-      envelope_fail "$action_name" "UNKNOWN_ACTION" "Unknown action: $action_name" false
-      exit 1
-    fi
-
-    validate_input_file "$action_name" "$request_file" "$action_def" || {
-      local rc=$?
-      [ "$rc" -gt 0 ] && exit "$rc"
-    }
-
-    # jq's // treats false as empty, so only a missing or null key may be
-    # defaulted to true; an explicit catalog requires_auth:false must keep
-    # the action auth-free.
-    local requires_auth
-    requires_auth="$(jq -r 'if (.requires_auth == null) then "true" else (.requires_auth | tostring) end' <<< "$action_def")"
-
-    if [ "$requires_auth" = "true" ]; then
-      if ! check_auth 2>/dev/null; then
-        envelope_fail "$action_name" "AUTH_ERROR" "gh is not authenticated or host is not github.com" false
-        exit 1
-      fi
-    fi
-
-    local permission
-    permission="$(jq -r '.permission // "read"' <<< "$action_def")"
-    local grant
-    grant="$(jq -r '.grant // "read"' "$request_file")"
-
-    if [ "$(permission_level "$grant")" -lt "$(permission_level "$permission")" ]; then
-      envelope_fail "$action_name" "GRANT_INSUFFICIENT" "Action requires '$permission' but grant is '$grant'" false
-      exit 1
-    fi
-
-    local action_file="$ACTIONS_DIR/${action_name}.sh"
-    if [ ! -f "$action_file" ]; then
-      envelope_fail "$action_name" "NOT_IMPLEMENTED" "Action not yet implemented: $action_name" false
-      exit 1
-    fi
-
-    if [ ! -x "$action_file" ]; then
-      chmod +x "$action_file"
-    fi
-
-    "$action_file" "$request_file" || {
-      local rc=$?
-      exit "${rc:-1}"
-    }
-  else
-    local input_json="{}"
-    if [ "$#" -ge 1 ]; then
-      input_json="$(<"$1")"
-    elif [ ! -t 0 ]; then
-      input_json="$(cat)"
-    fi
-
-    if ! echo "$input_json" | jq empty 2>/dev/null; then
-      envelope_fail "$action_name" "INVALID_JSON" "Input is not valid JSON" false
-      exit 1
-    fi
-
-    # An empty or whitespace-only input means "no input": normalize it to {}
-    # so the shared file validator and the action always see a JSON object.
-    if [ -z "$(printf '%s' "$input_json" | tr -d '[:space:]')" ]; then
-      input_json="{}"
-    fi
-
-    local action_def
-    action_def="$(jq -c --arg name "$action_name" '
-      .actions[] | select(.name == $name)
-    ' "$ACTIONS_JSON")"
-
-    if [ -z "$action_def" ]; then
-      envelope_fail "$action_name" "UNKNOWN_ACTION" "Unknown action: $action_name" false
-      exit 1
-    fi
-
-    # The string-input path validates through the same shared validator as
-    # the file-input path: materialize the JSON into a request file so both
-    # entry points share one set of field semantics.
-    local request_file
-    request_file="$(gh_make_temp "request-json")"
-    printf '%s\n' "$input_json" > "$request_file"
-
-    validate_input_file "$action_name" "$request_file" "$action_def" || {
-      local rc=$?
-      [ "$rc" -gt 0 ] && exit "$rc"
-    }
-
-    # jq's // treats false as empty, so only a missing or null key may be
-    # defaulted to true; an explicit catalog requires_auth:false must keep
-    # the action auth-free.
-    local requires_auth
-    requires_auth="$(echo "$action_def" | jq -r 'if (.requires_auth == null) then "true" else (.requires_auth | tostring) end')"
-
-    if [ "$requires_auth" = "true" ]; then
-      if ! check_auth 2>/dev/null; then
-        envelope_fail "$action_name" "AUTH_ERROR" "gh is not authenticated or host is not github.com" false
-        exit 1
-      fi
-    fi
-
-    local permission
-    permission="$(echo "$action_def" | jq -r '.permission // "read"')"
-    local grant
-    grant="$(echo "$input_json" | jq -r '.grant // "read"')"
-
-    if [ "$(permission_level "$grant")" -lt "$(permission_level "$permission")" ]; then
-      envelope_fail "$action_name" "GRANT_INSUFFICIENT" "Action requires '$permission' but grant is '$grant'" false
-      exit 1
-    fi
-
-    local action_file="$ACTIONS_DIR/${action_name}.sh"
-    if [ ! -f "$action_file" ]; then
-      envelope_fail "$action_name" "NOT_IMPLEMENTED" "Action not yet implemented: $action_name" false
-      exit 1
-    fi
-
-    if [ ! -x "$action_file" ]; then
-      chmod +x "$action_file"
-    fi
-
-    "$action_file" "$input_json" || {
-      local rc=$?
-      exit "${rc:-1}"
-    }
+  if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
+    cp "$1" "$request_file"
+  elif [ ! -t 0 ]; then
+    cat > "$request_file"
   fi
+
+  # An empty or whitespace-only input means "no input" on both entry paths:
+  # normalize it to {} so the shared file validator and the action always
+  # see a JSON object. Without this normalization an empty request file is
+  # zero JSON inputs for jq and would slip past the INVALID_JSON check into
+  # per-field validation (MISSING_REQUIRED_FIELD instead of MISSING_INPUT).
+  if [ -z "$(tr -d '[:space:]' < "$request_file")" ]; then
+    printf '%s\n' '{}' > "$request_file"
+  fi
+
+  if ! jq empty "$request_file" 2>/dev/null; then
+    envelope_fail "$action_name" "INVALID_JSON" "Input is not valid JSON" false
+    exit 1
+  fi
+
+  local action_def
+  action_def="$(jq -c --arg name "$action_name" '
+    .actions[] | select(.name == $name)
+  ' "$ACTIONS_JSON")"
+
+  if [ -z "$action_def" ]; then
+    envelope_fail "$action_name" "UNKNOWN_ACTION" "Unknown action: $action_name" false
+    exit 1
+  fi
+
+  validate_input_file "$action_name" "$request_file" "$action_def" || {
+    local rc=$?
+    [ "$rc" -gt 0 ] && exit "$rc"
+  }
+
+  # jq's // treats false as empty, so only a missing or null key may be
+  # defaulted to true; an explicit catalog requires_auth:false must keep
+  # the action auth-free.
+  local requires_auth
+  requires_auth="$(jq -r 'if (.requires_auth == null) then "true" else (.requires_auth | tostring) end' <<< "$action_def")"
+
+  if [ "$requires_auth" = "true" ]; then
+    if ! check_auth 2>/dev/null; then
+      envelope_fail "$action_name" "AUTH_ERROR" "gh is not authenticated or host is not github.com" false
+      exit 1
+    fi
+  fi
+
+  local permission
+  permission="$(jq -r '.permission // "read"' <<< "$action_def")"
+  local grant
+  grant="$(jq -r '.grant // "read"' "$request_file")"
+
+  if [ "$(permission_level "$grant")" -lt "$(permission_level "$permission")" ]; then
+    envelope_fail "$action_name" "GRANT_INSUFFICIENT" "Action requires '$permission' but grant is '$grant'" false
+    exit 1
+  fi
+
+  local action_file="$ACTIONS_DIR/${action_name}.sh"
+  if [ ! -f "$action_file" ]; then
+    envelope_fail "$action_name" "NOT_IMPLEMENTED" "Action not yet implemented: $action_name" false
+    exit 1
+  fi
+
+  # Launch contract: every action script runs under the dispatcher's own
+  # bash, and the dispatcher never chmods action files. Action scripts are
+  # read-only dependencies of the dispatcher, so dispatch works from a
+  # read-only checkout and leaves the checkout untouched (git status stays
+  # clean) even when an executable bit is missing. The first argument is
+  # the request JSON: the comments/review family reads it from the request
+  # file path, every other action receives the inline JSON text.
+  local request_arg
+  case "$action_name" in
+    comments.* | review-comments.* | reviews.* | review-threads.*)
+      request_arg="$request_file"
+      ;;
+    *)
+      request_arg="$(cat "$request_file")"
+      ;;
+  esac
+
+  "$BASH" "$action_file" "$request_arg" || {
+    local rc=$?
+    exit "${rc:-1}"
+  }
 }
 
 main "$@"
