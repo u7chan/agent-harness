@@ -13,19 +13,22 @@ set -euo pipefail
 #     issue/PR number (e.g. /pull/12/files, /pull/12/commits) are URL
 #     decorations for the same resource: they are normalized away and the
 #     envelope target.url is the canonical, decoration-free URL.
-#   - Any other host, and any path that is not one of the accepted forms,
-#     fails resolution (no API call). The owner/repo spelling given in the
-#     reference is kept in target.repository.
+#   - Any other host, any path that is not one of the accepted forms, and
+#     owner-only URLs (https://github.com/<owner> with no repository, e.g.
+#     https://github.com/octocat) fail resolution (no API call). The
+#     owner/repo spelling given in the reference is kept in
+#     target.repository.
 
 # GitHub owner/repo segments are ASCII letters and digits plus '.', '-',
-# '_'. Empty segments and '.', '..' or '..'-containing names would change
-# which API path the resolved repository points at and are rejected, as are
-# any other characters.
+# '_'. Empty segments and segments that are exactly '.' or '..' would
+# change which API path the resolved repository points at and are
+# rejected; dots inside a name (e.g. release..notes) do not affect path
+# joining and stay accepted, matching the pre-#180 behavior.
 valid_repo_segment() {
   local segment="$1"
 
   case "$segment" in
-    "" | "." | ".." | *..* | *[!A-Za-z0-9._-]*)
+    "" | "." | ".." | *[!A-Za-z0-9._-]*)
       return 1
       ;;
   esac
@@ -59,6 +62,14 @@ resolve_target() {
       while [[ "$path" == */ ]]; do
         path="${path%/}"
       done
+
+      # A URL must carry the repository: an owner-only path would otherwise
+      # reuse the owner as the repo (octocat -> octocat/octocat) and could
+      # reach API paths of a repository that was never named.
+      if [[ "$path" != */* ]]; then
+        echo "Invalid reference URL: $reference. Expected https://github.com/<owner>/<repo>[/pull/<n>|/issues/<n>]; an owner alone cannot identify a repository." >&2
+        return 1
+      fi
 
       owner="${path%%/*}"
       path="${path#*/}"

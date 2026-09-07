@@ -57,9 +57,10 @@ Actions address an issue/PR by `number`, and may take a `reference` in one of th
 
 Target resolution (`gh/scripts/common/target.sh`) enforces a positive-integer contract:
 
-- Issue/PR numbers must be positive integers. `0`, negatives, decimals, and non-numeric values fail with `TARGET_ERROR` before any API call — in URL number segments and in the `number` input.
+- Issue/PR numbers must be positive integers. `0`, negatives, decimals, and non-numeric values fail with `TARGET_ERROR` before any API call — in URL number segments and in the numbers target resolution consumes (PR actions and owner/repo + number references). Number inputs that actions put straight into an API path without target resolution (e.g. `issue.*` number-only inputs) are not covered by this contract and fail at the API instead.
 - URL fragments (`#...`), query strings (`?...`), trailing slashes, and any path after the number (e.g. `/pull/12/files`, `/pull/12/commits`) address the same issue/PR: they are normalized away, and the envelope `target.url` is the canonical, decoration-free URL. `target.repository` keeps the reference's spelling.
-- Only `https://github.com` URLs are accepted. Other hosts, non-URL input, missing number segments, and paths that are not `/<owner>/<repo>` plus optional `pull/<n>` / `issues/<n>` fail with `TARGET_ERROR`; so does a reference whose type does not match the action (e.g. an `/issues/...` URL for a PR action). No API call happens for a rejected reference.
+- Only `https://github.com` URLs are accepted, and every URL must name the repository: an owner-only URL (`https://github.com/<owner>` with optional query/fragment/trailing slash) fails with `TARGET_ERROR` instead of reusing the owner as the repo. Other hosts, non-URL input, missing number segments, and paths that are not `/<owner>/<repo>` plus optional `pull/<n>` / `issues/<n>` fail the same way; so does a reference whose type does not match the action (e.g. an `/issues/...` URL for a PR action). No API call happens for a rejected reference.
+- Owner/repo segments must be GitHub-name characters (ASCII letters/digits plus `-`, `_`, `.`); only a segment that is exactly `.` or `..` is rejected — dots inside a name (e.g. `release..notes`) stay accepted.
 
 ## Attachments
 

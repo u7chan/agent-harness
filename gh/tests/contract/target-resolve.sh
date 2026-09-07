@@ -424,6 +424,8 @@ test_draft_invalid_references_fail_before_any_gh_call() (
 {"reference":"https://github.com/u7chan/agent-harness/tree/main","grant":"sensitive-write"}
 {"reference":"https://github.com/u7chan/agent-harness/issues/200","grant":"sensitive-write"}
 {"reference":"https://github.com/u7chan/agent-harness","grant":"sensitive-write"}
+{"reference":"https://github.com/octocat","grant":"sensitive-write"}
+{"reference":"https://github.com/octocat?tab=repos","grant":"sensitive-write"}
 {"reference":"https://ghe.example.com/u7chan/agent-harness/pull/200","grant":"sensitive-write"}
 {"reference":"http://github.com/u7chan/agent-harness/pull/200","grant":"sensitive-write"}
 {"reference":"u7chan/agent-harness","number":0,"grant":"sensitive-write"}
@@ -435,6 +437,102 @@ test_draft_invalid_references_fail_before_any_gh_call() (
 PAYLOADS
 )
 
+# Issue #180 acceptance FB1: a GitHub URL without a repository (owner-only)
+# must not resolve to a guessed repository (octocat -> octocat/octocat): it
+# fails before any API call. Query/fragment/trailing-slash decoration on the
+# full owner/repo form stays accepted.
+test_target_owner_only_url_rejected() (
+  local reference expected actual
+
+  while IFS= read -r reference; do
+    [ -z "$reference" ] && continue
+    run_target_fn resolve_target "$reference"
+    assert_eq "$target_rc" "1" || {
+      echo "  unexpectedly accepted owner-only URL: $reference"
+      printf '%s\n' "$target_out"
+      return 1
+    }
+  done <<'CASES'
+https://github.com/octocat
+https://github.com/octocat/
+https://github.com/octocat?tab=repos
+https://github.com/octocat#top
+https://github.com/octocat?tab=repos#top
+CASES
+
+  # Controls: the same decoration forms on the full owner/repo URL keep
+  # resolving to the repository.
+  while IFS= read -r reference; do
+    [ -z "$reference" ] && continue
+    run_target_fn resolve_target "$reference"
+    if [ "$target_rc" -ne 0 ]; then
+      echo "resolve_target failed for full repo URL: $reference"
+      return 1
+    fi
+    expected="$(jq -nc -S \
+      '{type: "repository", repository: "octocat/Hello-World", number: null,
+        url: "https://github.com/octocat/Hello-World"}')"
+    actual="$(printf '%s\n' "$target_out" | jq -S -c)"
+    assert_eq "$actual" "$expected" || {
+      echo "  reference: $reference"
+      return 1
+    }
+  done <<'CASES'
+https://github.com/octocat/Hello-World
+https://github.com/octocat/Hello-World/
+https://github.com/octocat/Hello-World?tab=readme
+https://github.com/octocat/Hello-World#readme
+CASES
+)
+
+# Issue #180 acceptance FB2: only a segment that is exactly '.' or '..' is
+# rejected; dots inside a name (release..notes) stay accepted in both the
+# owner/repo and the URL form, matching the pre-#180 behavior.
+test_target_double_dot_repo_names() (
+  local expected actual
+
+  # Text form: repo names with interior double dots are accepted.
+  run_target_fn resolve_pr_target "octocat/release..notes" "12"
+  if [ "$target_rc" -ne 0 ]; then
+    echo "resolve_pr_target failed for owner/repo with interior dots"
+    return 1
+  fi
+  expected="$(jq -nc -S \
+    '{type: "pull_request", repository: "octocat/release..notes", number: 12,
+      url: "https://github.com/octocat/release..notes/pull/12"}')"
+  actual="$(printf '%s\n' "$target_out" | jq -S -c)"
+  assert_eq "$actual" "$expected" || return 1
+
+  # URL forms with interior dots are accepted (repository and PR targets).
+  run_target_fn resolve_target "https://github.com/octocat/release..notes/"
+  if [ "$target_rc" -ne 0 ]; then
+    echo "resolve_target failed for a repo URL with interior dots"
+    return 1
+  fi
+  expected="$(jq -nc -S \
+    '{type: "repository", repository: "octocat/release..notes", number: null,
+      url: "https://github.com/octocat/release..notes"}')"
+  actual="$(printf '%s\n' "$target_out" | jq -S -c)"
+  assert_eq "$actual" "$expected" || return 1
+
+  run_target_fn resolve_pr_target "https://github.com/octocat/release..notes/pull/12"
+  assert_eq "$target_rc" "0" || return 1
+
+  # A segment that is exactly '.' or '..' is rejected in both forms.
+  run_target_fn resolve_pr_target "octocat/.." "12"
+  assert_eq "$target_rc" "1" || return 1
+  run_target_fn resolve_pr_target "octocat/." "12"
+  assert_eq "$target_rc" "1" || return 1
+  run_target_fn resolve_pr_target "../octocat" "12"
+  assert_eq "$target_rc" "1" || return 1
+  run_target_fn resolve_target "https://github.com/octocat/.."
+  assert_eq "$target_rc" "1" || return 1
+  run_target_fn resolve_target "https://github.com/octocat/."
+  assert_eq "$target_rc" "1" || return 1
+  run_target_fn resolve_target "https://github.com/./octocat"
+  assert_eq "$target_rc" "1" || return 1
+)
+
 main() {
   echo "=== target resolution contract tests ==="
 
@@ -442,6 +540,8 @@ main() {
   run_test test_target_issue_and_repository_forms
   run_test test_target_owner_repo_text_forms
   run_test test_target_invalid_references_rejected
+  run_test test_target_owner_only_url_rejected
+  run_test test_target_double_dot_repo_names
   run_test test_draft_decorated_references_write_canonical_target
   run_test test_draft_invalid_references_fail_before_any_gh_call
 
