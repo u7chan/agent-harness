@@ -26,10 +26,21 @@ Pi clones the repository and loads the skills declared in `package.json`. Revisi
 
 ## Uninstall
 
-Remove the package and any links created for other harnesses:
+Remove the pi package:
 
 ```bash
 pi remove git:github.com/u7chan/agent-harness
-unlink ~/.codex/skills
-unlink ~/.claude/skills
 ```
+
+If you linked this repository into other harnesses' skill directories (see the per-harness links in [_docs/skill-distribution.md](_docs/skill-distribution.md)), remove only those `agent-harness` links. Keep `~/.agents/skills`, `~/.codex/skills`, and `~/.claude/skills` themselves and every other entry in them: the parent skill directories and parent symlinks may serve other skills and are not owned by this package.
+
+```bash
+# Remove only this package's own links; links that are already absent are skipped.
+for link in ~/.agents/skills/agent-harness ~/.claude/skills/agent-harness; do
+  if [ -L "$link" ]; then
+    unlink "$link"
+  fi
+done
+```
+
+The `-L` guard limits removal to symlinks: a real skill directory is never unlinked. If one of the paths exists as a real directory instead (for example a plain clone from before the pi-package install), inspect it and remove it by hand. Extend the link list if you created links in other harness skill directories.

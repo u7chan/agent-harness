@@ -131,7 +131,7 @@ Order matters: the symlink shadows the package, so it must be removed before any
 3. Remove the symlink: `unlink ~/.agents/skills/agent-harness`.
 4. `/reload` (or restart) every running session. A reload before this step would re-read the old symlink path, not the package.
 5. Run the smoke test.
-6. Other harnesses that read `~/.agents/skills` can link the pinned clone read-only instead, for example `ln -s ~/.pi/agent/git/github.com/u7chan/agent-harness ~/.claude/skills/agent-harness`; they then follow the same pin without a second distribution path.
+6. Other harnesses that read `~/.agents/skills` can link the pinned clone read-only instead, for example `ln -s ~/.pi/agent/git/github.com/u7chan/agent-harness ~/.claude/skills/agent-harness`; they then follow the same pin without a second distribution path. These `agent-harness` links are per-harness additions, not part of the pi install: uninstalling removes only those links and keeps the shared skill directories and their parent symlinks (see the Uninstall section of the README).
 
 ## Non-goals
 
