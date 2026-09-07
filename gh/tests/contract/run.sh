@@ -1005,6 +1005,10 @@ test_reviews_read_contracts() {
   "$SCRIPT_DIR/reviews-read.sh" >/dev/null
 }
 
+test_target_resolve_contracts() {
+  "$SCRIPT_DIR/target-resolve.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1066,6 +1070,7 @@ main() {
   run_test test_http_retry_contracts
   run_test test_pr_existing_search_contracts
   run_test test_reviews_read_contracts
+  run_test test_target_resolve_contracts
 
   teardown_fixture
   trap - EXIT

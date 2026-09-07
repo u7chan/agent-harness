@@ -47,6 +47,21 @@ Select the smallest matching category set.
 - Read actions with potentially large responses (currently `pr.files.read`) bound what enters the conversation. Within the inline boundary (`GH_INLINE_MAX_BYTES`, default 20000 bytes) `data` is returned inline unchanged. Beyond it, `data` becomes `{items, truncated: true, total_count, inline_count, omitted, output_file, size_bytes}`: `items` is the lightened view with the fields named in `omitted` left out, capped at `GH_INLINE_MAX_ITEMS` (default 100) items and at `GH_INLINE_MAX_BYTES` bytes of encoded items; `output_file` holds the complete data including the omitted fields and items beyond `inline_count`. Nothing is discarded silently: read `output_file` for the parts left out and delete it when done. If the artifact cannot be saved, the action fails with `ARTIFACT_ERROR` instead of returning a truncated result.
 - Do not modify API arguments or endpoints on retry.
 
+## Targets
+
+Actions address an issue/PR by `number`, and may take a `reference` in one of these forms:
+
+- `owner/repo` — pins the repository (pair with `number` when the action targets one issue/PR).
+- `https://github.com/<owner>/<repo>` — repository URL.
+- `https://github.com/<owner>/<repo>/pull/<number>` and `.../issues/<number>` — issue/PR URL.
+
+Target resolution (`gh/scripts/common/target.sh`) enforces a positive-integer contract:
+
+- Issue/PR numbers must be positive integers. `0`, negatives, decimals, and non-numeric values fail with `TARGET_ERROR` before any API call — in URL number segments and in the numbers target resolution consumes (PR actions and owner/repo + number references). Number inputs that actions put straight into an API path without target resolution (e.g. `issue.*` number-only inputs) are not covered by this contract and fail at the API instead.
+- URL fragments (`#...`), query strings (`?...`), trailing slashes, and any path after the number (e.g. `/pull/12/files`, `/pull/12/commits`) address the same issue/PR: they are normalized away, and the envelope `target.url` is the canonical, decoration-free URL. `target.repository` keeps the reference's spelling.
+- Only `https://github.com` URLs are accepted, and every URL must name the repository: an owner-only URL (`https://github.com/<owner>` with optional query/fragment/trailing slash) fails with `TARGET_ERROR` instead of reusing the owner as the repo. Other hosts, non-URL input, missing number segments, and paths that are not `/<owner>/<repo>` plus optional `pull/<n>` / `issues/<n>` fail the same way; so does a reference whose type does not match the action (e.g. an `/issues/...` URL for a PR action). No API call happens for a rejected reference.
+- Owner/repo segments must be GitHub-name characters (ASCII letters/digits plus `-`, `_`, `.`); only a segment that is exactly `.` or `..` is rejected — dots inside a name (e.g. `release..notes`) stay accepted.
+
 ## Attachments
 
 `issue.create`, `issue.update`, `pr.create`, `pr.update`, and `comments.create` accept an `attachments` input: an array of local file references in `'path#alt'` form (alt text is images-only). Attachments route the write through the gh CLI subcommand (`--attach`; gh >= 2.99.0) instead of `gh api`.
