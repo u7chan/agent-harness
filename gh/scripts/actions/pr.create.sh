@@ -65,8 +65,26 @@ main() {
     head_owner="${head_repository%%/*}"
   fi
 
+  # The existing-open-PR search fails closed: a failed or non-array
+  # response means "unknown", not "no existing PR", so no create path may
+  # run on a broken check (set -e must not abort mid-script without an
+  # envelope either). The search fields ride the same -f mechanism as the
+  # paginated helpers, so gh api percent-encodes values (RFC 3986): branch
+  # names containing +, &, # etc. would corrupt a hand-built
+  # pulls?head=...&base=...&state=open query.
   local existing
-  existing="$(call_gh_api "repos/$owner_repo/pulls?head=${head_owner}:${head_branch}&base=${base}&state=open" 2>/dev/null)" || existing="[]"
+  existing="$(call_gh_api "repos/$owner_repo/pulls" "GET" \
+    -f "head=${head_owner}:${head_branch}" \
+    -f "base=${base}" \
+    -f "state=open" 2>/dev/null)" || {
+    envelope_fail "pr.create" "API_ERROR" "Failed to check for an existing open PR" false
+    exit 1
+  }
+
+  if ! echo "$existing" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    envelope_fail "pr.create" "API_ERROR" "Existing-PR search returned a non-array response" false
+    exit 1
+  fi
 
   local existing_count
   existing_count="$(echo "$existing" | jq 'length')"

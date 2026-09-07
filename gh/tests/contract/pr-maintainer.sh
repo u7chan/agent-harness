@@ -102,6 +102,30 @@ def parse_flags(args):
     return flags
 
 
+def go_query_escape(s):
+    # gh api GET query values use Go url.QueryEscape: RFC 3986 unreserved
+    # characters stay literal, space becomes '+', everything else is
+    # percent-encoded with uppercase hex.
+    out = []
+    for b in s.encode("utf-8"):
+        if 48 <= b <= 57 or 65 <= b <= 90 or 97 <= b <= 122 or b in (45, 46, 95, 126):
+            out.append(chr(b))
+        elif b == 32:
+            out.append("+")
+        else:
+            out.append("%%%02X" % b)
+    return "".join(out)
+
+
+def build_query(fields):
+    # Mirrors gh api: -f fields of a GET become the query string built with
+    # url.Values (keys sorted, values percent-encoded).
+    return "&".join(
+        "%s=%s" % (go_query_escape(k), go_query_escape(v))
+        for k, v in sorted(fields.items())
+    )
+
+
 def one(flags, name, default=""):
     vals = flags.get(name, [])
     return vals[0] if vals else default
@@ -135,6 +159,19 @@ if args[0] == "api":
     if "--input" in args:
         with open(args[args.index("--input") + 1], encoding="utf-8") as f:
             payload = json.load(f)
+    # A GET search now arrives as -f fields (pr.create #177): reconstruct
+    # the endpoint with the query exactly as the real gh api would send it.
+    search_fields = {}
+    idx = 0
+    while idx < len(args):
+        if args[idx] in ("-f", "--field") and idx + 1 < len(args):
+            key, _, value = args[idx + 1].partition("=")
+            search_fields[key] = value
+            idx += 2
+        else:
+            idx += 1
+    if search_fields:
+        endpoint = endpoint + "?" + build_query(search_fields)
     record(method, endpoint, payload)
 
     if method == "GET" and "/git/ref/heads/" in endpoint:
