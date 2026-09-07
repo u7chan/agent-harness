@@ -977,6 +977,10 @@ test_pr_draft_ready_contracts() {
   "$SCRIPT_DIR/pr-draft-ready.sh" >/dev/null
 }
 
+test_subissues_reorder_contracts() {
+  "$SCRIPT_DIR/subissues-reorder.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1031,6 +1035,7 @@ main() {
   run_test test_workflow_runs_contracts
   run_test test_attach_contracts
   run_test test_pr_draft_ready_contracts
+  run_test test_subissues_reorder_contracts
 
   teardown_fixture
   trap - EXIT
