@@ -197,7 +197,7 @@
         "per_page": {
           "type": "number",
           "required": false,
-          "description": "Results per page (default: 30)"
+          "description": "Results per page (1-100, default: 30)"
         }
       },
       "output_schema": {
@@ -905,7 +905,7 @@
         "per_page": {
           "type": "number",
           "required": false,
-          "description": "Results per page (default: 30)"
+          "description": "Results per page (1-100, default: 30)"
         }
       },
       "output_schema": {
@@ -972,7 +972,7 @@
         "per_page": {
           "type": "number",
           "required": false,
-          "description": "Results per page (default: 30)"
+          "description": "Results per page (1-100, default: 30)"
         }
       },
       "output_schema": {

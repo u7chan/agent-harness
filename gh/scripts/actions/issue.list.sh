@@ -9,11 +9,32 @@ source "$SCRIPT_DIR/../common/http.sh"
 main() {
   local input="$1"
 
-  local state labels assignee milestone
+  local state labels assignee milestone per_page
   state="$(echo "$input" | jq -r '.state // "open"')"
   labels="$(echo "$input" | jq -r '.labels // empty')"
   assignee="$(echo "$input" | jq -r '.assignee // empty')"
   milestone="$(echo "$input" | jq -r '.milestone // empty')"
+  per_page="$(echo "$input" | jq -r '.per_page // 30')"
+
+  # Reject values outside the integer range 1..100 before any gh call. An
+  # absent or explicit-null per_page keeps the default (existing null
+  # contract: the dispatcher lets an optional null through and the action
+  # applies its default).
+  local per_page_valid
+  per_page_valid="$(echo "$input" | jq -r '
+    (has("per_page") | not) or
+    (.per_page == null) or
+    (
+      (.per_page | type == "number") and
+      (.per_page == (.per_page | floor)) and
+      (.per_page >= 1) and
+      (.per_page <= 100)
+    )
+  ')"
+  if [ "$per_page_valid" != "true" ]; then
+    envelope_fail "issue.list" "INVALID_PARAMETER" "per_page must be an integer between 1 and 100" false
+    exit 1
+  fi
 
   local target
   target="$(resolve_target)" || {
@@ -23,9 +44,6 @@ main() {
 
   local owner_repo
   owner_repo="$(echo "$target" | jq -r '.repository')"
-
-  local per_page
-  per_page="$(echo "$input" | jq -r '.per_page // 30')"
 
   local filter_args=()
   filter_args+=(-f "state=$state")
