@@ -42,7 +42,12 @@ main() {
   fi
 
   local _res
-  _res="$(call_gh_api "repos/$owner_repo/issues/$number/labels/$name" "DELETE" 2>"$GH_TEMP_DIR/gh-stderr")" || {
+  local name_encoded
+  # The label name is a single path element of the DELETE endpoint; encode it
+  # so /, space, Japanese, %, # and ? inside the name cannot break or
+  # redirect the request (RFC 3986 percent-encoding via jq @uri).
+  name_encoded="$(jq -rn --arg name "$name" '$name | @uri')"
+  _res="$(call_gh_api "repos/$owner_repo/issues/$number/labels/$name_encoded" "DELETE" 2>"$GH_TEMP_DIR/gh-stderr")" || {
     envelope_fail "labels.remove" "API_ERROR" "Failed to remove label" false
     exit 1
   }
