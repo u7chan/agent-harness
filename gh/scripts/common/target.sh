@@ -1,6 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# --- target resolution -------------------------------------------------------
+# Reference contract (documented for the agent in gh/SKILL.md "Targets" and
+# pinned by gh/tests/contract/target-resolve.sh):
+#   - Accepted forms: 'owner/repo', and the GitHub URL forms
+#     https://github.com/<owner>/<repo>[/pull/<n>|/issues/<n>].
+#   - Issue/PR numbers must be positive integers. 0, negatives, decimals
+#     and non-numeric values fail with TARGET_ERROR at the action before any
+#     API call - both in URL number segments and in the number input.
+#   - A query string, a fragment, trailing slashes, and any path after the
+#     issue/PR number (e.g. /pull/12/files, /pull/12/commits) are URL
+#     decorations for the same resource: they are normalized away and the
+#     envelope target.url is the canonical, decoration-free URL.
+#   - Any other host, and any path that is not one of the accepted forms,
+#     fails resolution (no API call). The owner/repo spelling given in the
+#     reference is kept in target.repository.
+
+# GitHub owner/repo segments are ASCII letters and digits plus '.', '-',
+# '_'. Empty segments and '.', '..' or '..'-containing names would change
+# which API path the resolved repository points at and are rejected, as are
+# any other characters.
+valid_repo_segment() {
+  local segment="$1"
+
+  case "$segment" in
+    "" | "." | ".." | *..* | *[!A-Za-z0-9._-]*)
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+# Issue/PR numbers are [1-9][0-9]*: no sign, no decimal point, no leading
+# zeros.
+valid_positive_number() {
+  local value="$1"
+
+  [[ "$value" =~ ^[1-9][0-9]*$ ]]
+}
+
 resolve_target() {
   local reference="${1:-}"
   local number="${2:-}"
@@ -10,33 +49,82 @@ resolve_target() {
 
   if [ -n "$reference" ]; then
     if [[ "$reference" == https://github.com/* ]]; then
+      # A fragment or a query string never addresses a different resource,
+      # so both are stripped before parsing; trailing slashes are path
+      # decoration with the same property.
       local path
       path="${reference#https://github.com/}"
+      path="${path%%#*}"
+      path="${path%%\?*}"
+      while [[ "$path" == */ ]]; do
+        path="${path%/}"
+      done
+
       owner="${path%%/*}"
       path="${path#*/}"
       repo="${path%%/*}"
+      # Everything after the repo segment (if any) is the resource path.
+      if [[ "$path" == */* ]]; then
+        path="${path#*/}"
+      else
+        path=""
+      fi
+
+      if ! valid_repo_segment "$owner" || ! valid_repo_segment "$repo"; then
+        echo "Invalid reference URL: $reference. Expected https://github.com/<owner>/<repo>[/pull/<n>|/issues/<n>] with a valid GitHub owner/repo." >&2
+        return 1
+      fi
 
       case "$path" in
-        */issues/*)
-          type_str="issue"
-          num="${path##*/}"
+        "")
+          type_str="repository"
           ;;
-        */pull/*)
-          type_str="pull_request"
-          num="${path##*/}"
+        pull/* | issues/*)
+          local kind num_tail
+          kind="${path%%/*}"
+          num_tail="${path#*/}"
+          num="${num_tail%%/*}"
+          # Any path beyond the number (e.g. /files, /commits) is GitHub UI
+          # navigation for the same issue/PR; it cannot change the target,
+          # so it is dropped and the envelope url stays canonical.
+          if ! valid_positive_number "$num"; then
+            echo "Invalid reference URL: $reference. Issue/PR numbers must be positive integers." >&2
+            return 1
+          fi
+          if [ "$kind" = "pull" ]; then
+            type_str="pull_request"
+          else
+            type_str="issue"
+          fi
           ;;
         *)
-          type_str="repository"
-          num=""
+          echo "Invalid reference URL: $reference. Expected https://github.com/<owner>/<repo> or https://github.com/<owner>/<repo>/pull/<n> (or /issues/<n>)." >&2
+          return 1
           ;;
       esac
 
-      url="$reference"
+      url="https://github.com/$owner/$repo"
+      if [ "$type_str" = "pull_request" ]; then
+        url="$url/pull/$num"
+      elif [ "$type_str" = "issue" ]; then
+        url="$url/issues/$num"
+      fi
     elif [[ "$reference" =~ ^[^/]+/[^/]+$ ]]; then
       owner="${reference%%/*}"
       repo="${reference##*/}"
 
+      if ! valid_repo_segment "$owner" || ! valid_repo_segment "$repo"; then
+        echo "Invalid reference: $reference. Expected 'owner/repo' with a valid GitHub owner/repo." >&2
+        return 1
+      fi
+
       if [ -n "$number" ]; then
+        if ! valid_positive_number "$number"; then
+          echo "Invalid number: $number. Issue/PR numbers must be positive integers." >&2
+          return 1
+        fi
+        num="$number"
+
         if [ "$expected_type" = "issue" ]; then
           type_str="issue"
           url="https://github.com/$owner/$repo/issues/$number"
@@ -47,13 +135,12 @@ resolve_target() {
           echo "Cannot determine target type: expected_type is required when providing owner/repo and number." >&2
           return 1
         fi
-        num="$number"
       else
         type_str="repository"
         url="https://github.com/$owner/$repo"
       fi
     else
-      echo "Invalid reference: $reference. Provide a GitHub URL or 'owner/repo'." >&2
+      echo "Invalid reference: $reference. Provide a GitHub URL (https://github.com/<owner>/<repo>[/pull/<n>|/issues/<n>]) or 'owner/repo'." >&2
       return 1
     fi
   else
@@ -94,6 +181,14 @@ resolve_pr_target() {
     if [ -n "$reference" ]; then
       resolve_target "$reference" "$number" "pull_request" || return 1
     else
+      # Number-only references are validated before any gh call (the
+      # repository discovery included): an invalid number must never reach
+      # an API path or trigger a write.
+      if ! valid_positive_number "$number"; then
+        echo "Invalid PR number: $number. PR numbers must be positive integers." >&2
+        return 1
+      fi
+
       local repo_target
       repo_target="$(resolve_target)" || return 1
       local owner_repo
