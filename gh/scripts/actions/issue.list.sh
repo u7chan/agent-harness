@@ -27,6 +27,26 @@ main() {
   local per_page
   per_page="$(echo "$input" | jq -r '.per_page // 30')"
 
+  # Reject values outside the integer range 1..100 before any gh call. An
+  # absent or explicit-null per_page keeps the default (existing null
+  # contract: the dispatcher lets an optional null through and the action
+  # applies its default).
+  local per_page_valid
+  per_page_valid="$(echo "$input" | jq -r '
+    (has("per_page") | not) or
+    (.per_page == null) or
+    (
+      (.per_page | type == "number") and
+      (.per_page == (.per_page | floor)) and
+      (.per_page >= 1) and
+      (.per_page <= 100)
+    )
+  ')"
+  if [ "$per_page_valid" != "true" ]; then
+    envelope_fail "issue.list" "INVALID_PARAMETER" "per_page must be an integer between 1 and 100" false
+    exit 1
+  fi
+
   local filter_args=()
   filter_args+=(-f "state=$state")
   [ -n "$labels" ] && filter_args+=(-f "labels=$labels")

@@ -989,6 +989,10 @@ test_labels_remove_contracts() {
   "$SCRIPT_DIR/labels-remove.sh" >/dev/null
 }
 
+test_per_page_limit_contracts() {
+  "$SCRIPT_DIR/per-page-limit.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1046,6 +1050,7 @@ main() {
   run_test test_subissues_reorder_contracts
   run_test test_pr_maintainer_contracts
   run_test test_labels_remove_contracts
+  run_test test_per_page_limit_contracts
 
   teardown_fixture
   trap - EXIT
