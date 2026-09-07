@@ -981,6 +981,10 @@ test_subissues_reorder_contracts() {
   "$SCRIPT_DIR/subissues-reorder.sh" >/dev/null
 }
 
+test_pr_maintainer_contracts() {
+  "$SCRIPT_DIR/pr-maintainer.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1036,6 +1040,7 @@ main() {
   run_test test_attach_contracts
   run_test test_pr_draft_ready_contracts
   run_test test_subissues_reorder_contracts
+  run_test test_pr_maintainer_contracts
 
   teardown_fixture
   trap - EXIT

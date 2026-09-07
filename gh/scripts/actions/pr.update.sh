@@ -24,7 +24,10 @@ main() {
   title="$(echo "$input" | jq -r '.title // empty')"
   body="$(echo "$input" | jq -r '.body // empty')"
   base="$(echo "$input" | jq -r '.base // empty')"
-  maintainer_can_modify="$(echo "$input" | jq -c '.maintainer_can_modify // null')"
+  # jq's // treats false as empty, so it must not default this boolean: an
+  # explicit false must stay distinguishable from null/absent for the diff,
+  # the PATCH payload and the read-back verification.
+  maintainer_can_modify="$(echo "$input" | jq -c '.maintainer_can_modify')"
   attachments_json="$(echo "$input" | jq -c '.attachments // []')"
 
   local pr_target
@@ -47,7 +50,9 @@ main() {
   current_title="$(echo "$before_state" | jq -r '.title // ""')"
   current_body="$(echo "$before_state" | jq -r '.body // ""')"
   current_base="$(echo "$before_state" | jq -r '.base.ref // ""')"
-  current_maintainer_can_modify="$(echo "$before_state" | jq -c '.maintainer_can_modify // null')"
+  # Raw read: a re-fetched false must stay false, and a value the API cannot
+  # represent stays null - the two are never equated.
+  current_maintainer_can_modify="$(echo "$before_state" | jq -c '.maintainer_can_modify')"
 
   local eff_title eff_body eff_base eff_maintainer_can_modify
   if [ "$_has_title" = "true" ]; then
@@ -174,7 +179,7 @@ main() {
   after_title="$(echo "$after_state" | jq -r '.title // ""')"
   after_body="$(echo "$after_state" | jq -r '.body // ""')"
   after_base="$(echo "$after_state" | jq -r '.base.ref // ""')"
-  after_maintainer_can_modify="$(echo "$after_state" | jq -c '.maintainer_can_modify // null')"
+  after_maintainer_can_modify="$(echo "$after_state" | jq -c '.maintainer_can_modify')"
 
   local body_matches=false
   if [ "$attachments_json" = "[]" ]; then
