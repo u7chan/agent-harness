@@ -1009,6 +1009,10 @@ test_target_resolve_contracts() {
   "$SCRIPT_DIR/target-resolve.sh" >/dev/null
 }
 
+test_dispatcher_input_contracts() {
+  "$SCRIPT_DIR/dispatcher-input.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1071,6 +1075,7 @@ main() {
   run_test test_pr_existing_search_contracts
   run_test test_reviews_read_contracts
   run_test test_target_resolve_contracts
+  run_test test_dispatcher_input_contracts
 
   teardown_fixture
   trap - EXIT
