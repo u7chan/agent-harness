@@ -7,8 +7,9 @@ source "$SCRIPT_DIR/helpers.sh"
 source "$SCRIPT_DIR/fixture.sh"
 
 # Issue #179: issue.list / prs.list / prs.search must reject per_page values
-# outside the integer range 1..100 before any gh invocation, keep the default
-# 30 when per_page is absent or null, and pass 1 / 100 through to the API.
+# outside the integer range 1..100 before any gh invocation (repo view
+# included), keep the default 30 when per_page is absent or null, and pass
+# 1 / 100 through to the API.
 
 write_per_page_mock_gh() {
   mkdir -p "$FIXTURE_DIR/bin"
@@ -38,6 +39,9 @@ if not args:
     sys.exit(1)
 
 if args[0] == "repo" and len(args) > 1 and args[1] == "view":
+    if calls_file:
+        with open(calls_file, "a", encoding="utf-8") as f:
+            f.write("repo view\n")
     print(os.environ.get("MOCK_REPO", "u7chan/agent-harness"))
     sys.exit(0)
 

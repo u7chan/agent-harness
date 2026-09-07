@@ -9,22 +9,11 @@ source "$SCRIPT_DIR/../common/http.sh"
 main() {
   local input="$1"
 
-  local state labels assignee milestone
+  local state labels assignee milestone per_page
   state="$(echo "$input" | jq -r '.state // "open"')"
   labels="$(echo "$input" | jq -r '.labels // empty')"
   assignee="$(echo "$input" | jq -r '.assignee // empty')"
   milestone="$(echo "$input" | jq -r '.milestone // empty')"
-
-  local target
-  target="$(resolve_target)" || {
-    envelope_fail "issue.list" "TARGET_ERROR" "Failed to resolve target" false
-    exit 1
-  }
-
-  local owner_repo
-  owner_repo="$(echo "$target" | jq -r '.repository')"
-
-  local per_page
   per_page="$(echo "$input" | jq -r '.per_page // 30')"
 
   # Reject values outside the integer range 1..100 before any gh call. An
@@ -46,6 +35,15 @@ main() {
     envelope_fail "issue.list" "INVALID_PARAMETER" "per_page must be an integer between 1 and 100" false
     exit 1
   fi
+
+  local target
+  target="$(resolve_target)" || {
+    envelope_fail "issue.list" "TARGET_ERROR" "Failed to resolve target" false
+    exit 1
+  }
+
+  local owner_repo
+  owner_repo="$(echo "$target" | jq -r '.repository')"
 
   local filter_args=()
   filter_args+=(-f "state=$state")
