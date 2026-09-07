@@ -65,7 +65,7 @@ main() {
       }')"
 
     local formatted
-    formatted="$(echo "$result" | jq '{id, state, body, html_url, user: {login: .user.login}, submitted_at, commit_id, comments_count: (.body_text // "" | length)}')"
+    formatted="$(echo "$result" | jq '{id, state, body, html_url, user: {login: .user.login}, submitted_at, commit_id}')"
 
     local wrapper
     wrapper="$(jq -n --argjson item "$formatted" '{item: $item}')"
@@ -91,7 +91,7 @@ main() {
     }
 
     local formatted
-    formatted="$(echo "$raw_data" | jq '[.[] | {id, state, body, html_url, user: {login: .user.login}, submitted_at, commit_id, comments_count: (.body_text // "" | length)}]')"
+    formatted="$(echo "$raw_data" | jq '[.[] | {id, state, body, html_url, user: {login: .user.login}, submitted_at, commit_id}]')"
 
     local wrapper
     wrapper="$(jq -n --argjson items "$formatted" '{items: $items}')"
