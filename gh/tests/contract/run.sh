@@ -973,6 +973,10 @@ test_attach_contracts() {
   "$SCRIPT_DIR/attach.sh" >/dev/null
 }
 
+test_pr_draft_ready_contracts() {
+  "$SCRIPT_DIR/pr-draft-ready.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1026,6 +1030,7 @@ main() {
   run_test test_recheck_action_contracts
   run_test test_workflow_runs_contracts
   run_test test_attach_contracts
+  run_test test_pr_draft_ready_contracts
 
   teardown_fixture
   trap - EXIT

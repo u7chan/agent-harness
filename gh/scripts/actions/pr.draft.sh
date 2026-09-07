@@ -34,15 +34,14 @@ main() {
   current_draft="$(echo "$before_state" | jq -r '.draft')"
   current_state="$(echo "$before_state" | jq -r '.state')"
 
+  # Issue #171: only an open PR can be converted to draft. A closed or
+  # merged PR is not in the desired state and cannot be mutated, so it must
+  # fail with an explicit state error instead of reporting already_applied.
   if [ "$current_state" != "open" ]; then
-    local formatted_before
-    formatted_before="$(echo "$before_state" | jq '{
-      id, number, title, state, html_url, draft,
-      head: {ref: .head.ref, sha: .head.sha, repo: {full_name: .head.repo.full_name}},
-      base: {ref: .base.ref, sha: .base.sha, repo: {full_name: .base.repo.full_name}}
-    }')"
-    envelope_already_applied "pr.draft" "$pr_target" "$formatted_before"
-    exit 0
+    local state_label
+    state_label="$(echo "$before_state" | jq -r 'if .merged == true then "merged" else .state end')"
+    envelope_fail "pr.draft" "PR_NOT_OPEN" "PR $owner_repo#$pr_number is $state_label (draft=$current_draft); only an open PR can be converted to draft" false
+    exit 1
   fi
 
   if [ "$current_draft" = "true" ]; then
