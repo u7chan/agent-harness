@@ -72,6 +72,17 @@ if args[1] == "graphql":
             fingerprint = "other"
         with open(gql_calls_file, "a", encoding="utf-8") as f:
             f.write("graphql " + fingerprint + "\n")
+    args_file = os.environ.get("MOCK_GH_GQL_ARGS")
+    if args_file:
+        # Record how each graphql invocation passed its -f/-F fields so
+        # tests can pin the exact flag usage (Issue #170 / N4: string
+        # variables must use -f, which never type-converts or expands @).
+        pairs = []
+        for i in range(2, len(args)):
+            if args[i] in ("-f", "-F") and i + 1 < len(args):
+                pairs.append(args[i] + " " + args[i + 1])
+        with open(args_file, "a", encoding="utf-8") as f:
+            f.write("graphql " + fingerprint + " " + " ".join(pairs) + "\n")
     if os.environ.get("MOCK_GQL_MODE") != "1":
         output({"errors": [{"message": "graphql mode disabled"}]})
         sys.exit(0)
@@ -153,6 +164,19 @@ if args[1] == "graphql":
         if thread is None:
             output({"errors": [{"message": "thread not found"}]})
             sys.exit(0)
+        mutation_body = os.environ.get("MOCK_GQL_MUTATION_BODY")
+        if mutation_body is not None:
+            # Failure injection for the mutation response itself (errors or a
+            # malformed body on a zero exit): the action must not treat it as
+            # a verified write.
+            print(mutation_body)
+            sys.exit(int(os.environ.get("MOCK_GQL_MUTATION_RC", "0")))
+        after_body = os.environ.get("MOCK_GQL_NODE_AFTER")
+        if after_body is not None:
+            # Post-write node-response injection: the re-read after the
+            # mutation returns this raw body instead of the real thread, so
+            # tests can pin the post-verification contract.
+            state["node_override"] = after_body
         if isinstance(thread, dict):
             thread["isResolved"] = False
             resolved_id = thread.get("node_id", thread["id"])
@@ -166,6 +190,13 @@ if args[1] == "graphql":
         if thread is None:
             output({"errors": [{"message": "thread not found"}]})
             sys.exit(0)
+        mutation_body = os.environ.get("MOCK_GQL_MUTATION_BODY")
+        if mutation_body is not None:
+            print(mutation_body)
+            sys.exit(int(os.environ.get("MOCK_GQL_MUTATION_RC", "0")))
+        after_body = os.environ.get("MOCK_GQL_NODE_AFTER")
+        if after_body is not None:
+            state["node_override"] = after_body
         if isinstance(thread, dict):
             thread["isResolved"] = True
             resolved_id = thread.get("node_id", thread["id"])
@@ -184,6 +215,13 @@ if args[1] == "graphql":
             print(node_fail)
             print("gh: mock injected failure", file=sys.stderr)
             sys.exit(int(os.environ.get("MOCK_GQL_NODE_FAIL_RC", "1")))
+        node_override = state.get("node_override")
+        if node_override is not None:
+            # Set by the mutation branch (MOCK_GQL_NODE_AFTER): the re-read
+            # after a write returns this raw body at MOCK_GQL_NODE_AFTER_RC.
+            print(node_override)
+            print("gh: mock injected post-write node", file=sys.stderr)
+            sys.exit(int(os.environ.get("MOCK_GQL_NODE_AFTER_RC", "0")))
         thread = next((t for t in threads if (t.get("node_id", t["id"]) if isinstance(t, dict) else t) == thread_id), None)
         if thread is None:
             # Mirror the real gh behavior for an unresolvable node id: the
@@ -214,6 +252,7 @@ if args[1] == "graphql":
         }
         output({"data": {"node": {
             "id": thread.get("node_id", thread["id"]) if isinstance(thread, dict) else thread,
+            "__typename": "PullRequestReviewThread",
             "isResolved": thread["isResolved"],
             "pullRequest": pr_info,
             "comments": {
@@ -693,6 +732,251 @@ test_manual_mutation_reference_case_insensitive () (
   assert_json_eq "$output" '.data.resolved | tostring' false || return 1
 )
 
+# Issue #170 (M5 / N4): both mutation actions share one fixture with the
+# strict node(id:) verification in place.
+setup_mutation_fixture() {
+  setup_fixture_env
+  cp "$GH_ROOT/scripts/actions/review-threads.resolve.sh" "$FIXTURE_DIR/scripts/actions/review-threads.resolve.sh"
+  chmod +x "$FIXTURE_DIR/scripts/actions/review-threads.resolve.sh"
+  cp "$GH_ROOT/scripts/actions/review-threads.unresolve.sh" "$FIXTURE_DIR/scripts/actions/review-threads.unresolve.sh"
+  chmod +x "$FIXTURE_DIR/scripts/actions/review-threads.unresolve.sh"
+  write_mock_gh
+}
+
+# Reset the mock to one thread T1 in the given resolved state and truncate
+# the invocation logs so counts reflect only the dispatch under test.
+mutation_state() {
+  local resolved="$1"
+  echo "{\"gql_threads\": [{\"id\": \"T1\", \"isResolved\": $resolved}]}" > "$MOCK_GH_STATE"
+  : > "$MOCK_GH_GQL_CALLS"
+  : > "$MOCK_GH_CALLS"
+}
+
+# Issue #170 (M5): unresolve used to accept an empty-object node (a node id
+# of another GraphQL type resolves to {} under the PullRequestReviewThread
+# fragment), defaulted a missing isResolved to false, skipped the repository
+# membership check when ownership was absent, and answered already_applied
+# without touching anything. resolve fired its mutation on the same
+# unverifiable states. Both actions must now fail the pre-check on every
+# shape that cannot prove the requested review thread - wrong type, null,
+# id mismatch, missing/non-boolean isResolved, missing ownership, GraphQL
+# errors - with zero mutations and only the single pre-read call.
+test_mutation_precheck_fail_closed() (
+  setup_mutation_fixture
+  trap teardown_fixture EXIT
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{thread_id: "T1", grant: "sensitive-write"}' > "$request"
+
+  local action resolved body rc expected_code output
+  # action|resolved|injected node body|rc|expected code
+  while IFS='|' read -r action resolved body rc expected_code; do
+    [ -z "$action" ] && continue
+    mutation_state "$resolved"
+    if output="$(MOCK_GQL_NODE_FAIL="$body" MOCK_GQL_NODE_FAIL_RC="$rc" fixture_gh "review-threads.$action" "$request" 2>&1)"; then
+      echo "$action pre-check unexpectedly succeeded on: $body"
+      return 1
+    fi
+    assert_json_eq "$output" '.status' failed || return 1
+    assert_json_eq "$output" '.error.code' "$expected_code" || return 1
+    assert_eq "$(gql_call_count "${action}ReviewThread")" "0" || return 1
+    assert_eq "$(gql_call_count)" "1" || return 1
+  done <<'CASES'
+unresolve|true|{"data":{"node":null}}|0|NOT_FOUND
+unresolve|true|{"data":{"node":{}}}|0|NOT_FOUND
+unresolve|true|{"data":{"node":{"__typename":"Issue","id":"T1"}}}|0|NOT_FOUND
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T9","isResolved":false,"pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0|NOT_FOUND
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0|API_ERROR
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":null,"pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0|API_ERROR
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":"false","pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0|API_ERROR
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":true}}}|0|API_ERROR
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":true,"pullRequest":null}}}|0|API_ERROR
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":true,"pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{}}}}}|0|API_ERROR
+unresolve|true|{"errors":[{"message":"boom"}]}|0|API_ERROR
+resolve|false|{"data":{"node":null}}|0|NOT_FOUND
+resolve|false|{"data":{"node":{}}}|0|NOT_FOUND
+resolve|false|{"data":{"node":{"__typename":"PullRequest","id":"T1"}}}|0|NOT_FOUND
+resolve|false|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T9","isResolved":false,"pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0|NOT_FOUND
+resolve|false|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0|API_ERROR
+resolve|false|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":true,"pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{}}}}}|0|API_ERROR
+resolve|false|{"errors":[{"message":"boom"}]}|1|API_ERROR
+CASES
+
+  # Control: an id that resolves to nothing fails the pre-read (the gh CLI
+  # prints the NOT_FOUND error body and exits non-zero) without a mutation.
+  local action_missing
+  for action_missing in resolve unresolve; do
+    mutation_state false
+    jq -n '{thread_id: "Tmissing", grant: "sensitive-write"}' > "$request"
+    if output="$(fixture_gh "review-threads.$action_missing" "$request" 2>&1)"; then
+      echo "$action_missing unknown id unexpectedly succeeded"
+      return 1
+    fi
+    assert_json_eq "$output" '.status' failed || return 1
+    assert_json_eq "$output" '.error.code' API_ERROR || return 1
+    assert_eq "$(gql_call_count "${action_missing}ReviewThread")" "0" || return 1
+  done
+)
+
+# Issue #170 (M5): the mutation fires once, but success is only reported
+# when the post-write re-read proves the same thread now carries a real
+# boolean in the requested state. unresolve used to default a missing
+# isResolved (and an empty node) after the write to false and answer ok;
+# every unverifiable re-read shape must now report unknown_outcome even
+# though the mutation itself landed (the mock state flips).
+test_mutation_postcheck_unverifiable_unknown_outcome() (
+  setup_mutation_fixture
+  trap teardown_fixture EXIT
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{thread_id: "T1", grant: "sensitive-write"}' > "$request"
+
+  local action resolved after_body rc output expected_state
+  # action|resolved|injected after-write node body|rc
+  while IFS='|' read -r action resolved after_body rc; do
+    [ -z "$action" ] && continue
+    mutation_state "$resolved"
+    if output="$(MOCK_GQL_NODE_AFTER="$after_body" MOCK_GQL_NODE_AFTER_RC="$rc" fixture_gh "review-threads.$action" "$request" 2>&1)"; then
+      echo "$action post-check unexpectedly succeeded on after body: $after_body"
+      return 1
+    fi
+    assert_json_eq "$output" '.status' unknown_outcome || return 1
+    # Single-fire mutation: exactly one mutation call, one pre-read, and one
+    # (injected) post-write re-read.
+    assert_eq "$(gql_call_count "${action}ReviewThread")" "1" || return 1
+    assert_eq "$(gql_call_count)" "3" || return 1
+    # The mutation did land in the mock; the envelope still refuses success.
+    if [ "$action" = "resolve" ]; then
+      expected_state="true"
+    else
+      expected_state="false"
+    fi
+    assert_json_eq "$(cat "$MOCK_GH_STATE")" '.gql_threads[0].isResolved | tostring' "$expected_state" || return 1
+  done <<'CASES'
+unresolve|true|{"data":{"node":{}}}|0
+unresolve|true|{"data":{"node":null}}|0
+unresolve|true|{"data":{"node":{"__typename":"Issue","id":"T1"}}}|0
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T9","isResolved":false,"pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":"false","pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0
+unresolve|true|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":false,"pullRequest":null}}}|0
+unresolve|true|{"errors":[{"message":"boom"}]}|1
+resolve|false|{"data":{"node":{}}}|0
+resolve|false|{"data":{"node":null}}|0
+resolve|false|{"data":{"node":{"__typename":"Issue","id":"T1"}}}|0
+resolve|false|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T9","isResolved":true,"pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0
+resolve|false|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0
+resolve|false|{"data":{"node":{"__typename":"PullRequestReviewThread","id":"T1","isResolved":"true","pullRequest":{"url":"https://github.com/u7chan/agent-harness/pull/200","number":200,"repository":{"nameWithOwner":"u7chan/agent-harness"}}}}}|0
+resolve|false|{"errors":[{"message":"boom"}]}|0
+CASES
+)
+
+# Issue #170 (N4 / M5): the mutation response itself is not trusted. An
+# errors-carrying or malformed mutation response on a zero exit reports
+# unknown_outcome immediately - the same errors contract resolve already had
+# - and no post-write re-read follows a failed mutation call.
+test_mutation_response_fail_closed() (
+  setup_mutation_fixture
+  trap teardown_fixture EXIT
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{thread_id: "T1", grant: "sensitive-write"}' > "$request"
+
+  local action resolved mut_body rc output
+  # action|resolved|injected mutation response body|rc
+  while IFS='|' read -r action resolved mut_body rc; do
+    [ -z "$action" ] && continue
+    mutation_state "$resolved"
+    if output="$(MOCK_GQL_MUTATION_BODY="$mut_body" MOCK_GQL_MUTATION_RC="$rc" fixture_gh "review-threads.$action" "$request" 2>&1)"; then
+      echo "$action unexpectedly succeeded on mutation body: $mut_body"
+      return 1
+    fi
+    assert_json_eq "$output" '.status' unknown_outcome || return 1
+    assert_eq "$(gql_call_count "${action}ReviewThread")" "1" || return 1
+    # The mutation response failed verification, so no post-write re-read:
+    # one pre-read + one mutation only.
+    assert_eq "$(gql_call_count)" "2" || return 1
+  done <<'CASES'
+unresolve|true|{"errors":[{"message":"boom"}]}|0
+unresolve|true|{"data":{}}|0
+unresolve|true|{"data":{"unresolveReviewThread":{}}}|0
+resolve|false|{"errors":[{"message":"boom"}]}|0
+resolve|false|{"data":{}}|0
+resolve|false|{"data":{"resolveReviewThread":{"thread":{"id":"T9","isResolved":true}}}}|0
+resolve|false|{"data":{"resolveReviewThread":{"thread":{"id":"T1"}}}}|0
+CASES
+)
+
+# Issue #170 acceptance: success is reported only for verified states with
+# a normal boolean - never from a defaulted or missing field - and the
+# mutation stays single-fire. Full happy paths and re-runs keep the existing
+# already_applied contract.
+test_mutation_success_only_verified_boolean() (
+  setup_mutation_fixture
+  trap teardown_fixture EXIT
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{thread_id: "T1", grant: "sensitive-write"}' > "$request"
+
+  # unresolve: resolved true -> mutation once -> ok with verified false.
+  mutation_state true
+  output="$(fixture_gh review-threads.unresolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.resolved | tostring' false || return 1
+  assert_eq "$(gql_call_count unresolveReviewThread)" "1" || return 1
+  assert_eq "$(gql_call_count node)" "2" || return 1
+
+  # Re-run: already unresolved answers already_applied, no second mutation.
+  output="$(fixture_gh review-threads.unresolve "$request")" || return 1
+  assert_json_eq "$output" '.status' already_applied || return 1
+  assert_json_eq "$output" '.data.resolved | tostring' false || return 1
+  assert_eq "$(gql_call_count unresolveReviewThread)" "1" || return 1
+
+  # resolve: unresolved -> mutation once -> ok with verified true.
+  mutation_state false
+  output="$(fixture_gh review-threads.resolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.resolved' true || return 1
+  assert_json_eq "$output" '.data.outcome' resolved_by_run || return 1
+  assert_eq "$(gql_call_count resolveReviewThread)" "1" || return 1
+  assert_eq "$(gql_call_count node)" "2" || return 1
+
+  # Re-run: already resolved answers already_applied, no second mutation.
+  output="$(fixture_gh review-threads.resolve "$request")" || return 1
+  assert_json_eq "$output" '.status' already_applied || return 1
+  assert_json_eq "$output" '.data.outcome' already_resolved_external || return 1
+  assert_eq "$(gql_call_count resolveReviewThread)" "1" || return 1
+)
+
+# Issue #170 (N4): the thread id is a string variable, so it must be passed
+# with -f, not -F: gh -F type-converts values that parse as JSON (null, true,
+# numbers) and expands a leading @ as a file read, while -f always sends an
+# escaped string. The recorded invocation log must also show the node query
+# carrying __typename, the field that makes a different-type node detectable.
+test_mutation_uses_string_field_and_typename() (
+  setup_mutation_fixture
+  trap teardown_fixture EXIT
+  export MOCK_GH_GQL_ARGS="$FIXTURE_DIR/gql-args.log"
+  : > "$MOCK_GH_GQL_ARGS"
+  request="$FIXTURE_DIR/request.json"
+  jq -n '{thread_id: "T1", grant: "sensitive-write"}' > "$request"
+
+  mutation_state true
+  output="$(fixture_gh review-threads.unresolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+
+  mutation_state false
+  output="$(fixture_gh review-threads.resolve "$request")" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+
+  if grep -q -- '-F ' "$MOCK_GH_GQL_ARGS"; then
+    echo "graphql variable passed with -F instead of -f:"
+    cat "$MOCK_GH_GQL_ARGS"
+    return 1
+  fi
+  # Six graphql calls (pre-read + mutation + re-read per action), every one
+  # passing threadId as a -f string field.
+  assert_eq "$(grep -c -- '-f threadId=T1' "$MOCK_GH_GQL_ARGS" || true)" "6" || return 1
+  # The two node queries per action request __typename.
+  assert_eq "$(grep -c '__typename' "$MOCK_GH_GQL_ARGS" || true)" "4" || return 1
+)
+
 test_threads_read_pagination() (
   setup_threads_read_fixture
   trap teardown_fixture EXIT
@@ -1074,6 +1358,11 @@ main() {
   run_test test_manual_resolve_cwd_compat
   run_test test_manual_unresolve_reference_contract
   run_test test_manual_mutation_reference_case_insensitive
+  run_test test_mutation_precheck_fail_closed
+  run_test test_mutation_postcheck_unverifiable_unknown_outcome
+  run_test test_mutation_response_fail_closed
+  run_test test_mutation_success_only_verified_boolean
+  run_test test_mutation_uses_string_field_and_typename
   run_test test_threads_read_pagination
   run_test test_threads_read_scoped_avoids_collection
   run_test test_threads_read_scoped_comment_pagination
