@@ -1001,6 +1001,10 @@ test_pr_existing_search_contracts() {
   "$SCRIPT_DIR/pr-existing-search.sh" >/dev/null
 }
 
+test_reviews_read_contracts() {
+  "$SCRIPT_DIR/reviews-read.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1061,6 +1065,7 @@ main() {
   run_test test_per_page_limit_contracts
   run_test test_http_retry_contracts
   run_test test_pr_existing_search_contracts
+  run_test test_reviews_read_contracts
 
   teardown_fixture
   trap - EXIT
