@@ -14,6 +14,25 @@ A skill may consist only of instructions or include a small, purpose-built harne
 
 Each top-level skill directory contains a `SKILL.md` file that describes when and how to use that skill.
 
+## Prerequisites
+
+Verified scope: Linux. The measurements in [_docs/skill-distribution.md](_docs/skill-distribution.md) were taken on the reference machine (Linux), and the repository's CI workflow ([contract-tests](.github/workflows/contract-tests.yml)) runs on `ubuntu-latest`. macOS and other operating systems are not verified and are not supported: the harnesses assume GNU Bash and GNU command-line tools, so BSD and other toolchains are out of scope.
+
+Commands used by the harnesses and by this repository's documented procedures:
+
+| Command | Used for | Required by |
+| --- | --- | --- |
+| GNU Bash | running every harness script (`#!/usr/bin/env bash` with `set -euo pipefail`) | every scripted harness (gh, herdr, review) |
+| git | the rollout gate, revision confirmation, rollback, and smoke procedures; pi clones git packages with it | the distribution procedures in `_docs/skill-distribution.md` |
+| jq | JSON parsing and validation | the gh and review harness scripts and the smoke test's manifest check |
+| gh CLI | GitHub API access (`gh api`, `gh auth status`) | the gh skill dispatcher; version 2.99.0 or later for attachments |
+| pi | agent runtime and package management (`pi install`, `pi remove`, `pi list`) | every skill and procedure in this repository |
+| herdr | delegating prompts to other panes (`herdr agent prompt`) | the herdr skill scripts |
+| python3 | the review skill's recheck harness (`review/scripts/recheck-state.sh`); optional for the herdr delegation scripts, which use it only for a cosmetic pane label and fall back gracefully without it | the review skill; optional for the herdr skill |
+| GNU coreutils and text tools (`sed`, `grep`, `head`, `cat`, `mktemp`, `sleep`, `unlink`, `ln`, ...) | shared plumbing across scripts; the Uninstall block below removes links with `unlink`, and Migration step 6 in `_docs/skill-distribution.md` creates them with `ln -s` | every scripted harness |
+
+`curl` is not a dependency: no script in this repository invokes it. The gh dispatcher talks to the GitHub API through the gh CLI, and the only `curl` occurrence in harness code is a retry-classification pattern in `gh/scripts/common/http.sh` that matches gh CLI error text.
+
 ## Install
 
 Install as a pi package pinned to a merged revision:
@@ -32,7 +51,7 @@ Remove the pi package:
 pi remove git:github.com/u7chan/agent-harness
 ```
 
-If you linked this repository into other harnesses' skill directories (see the per-harness links in [_docs/skill-distribution.md](_docs/skill-distribution.md)), remove only those `agent-harness` links. Keep `~/.agents/skills`, `~/.codex/skills`, and `~/.claude/skills` themselves and every other entry in them: the parent skill directories and parent symlinks may serve other skills and are not owned by this package.
+If you linked this repository into other harnesses' skill directories (see the per-harness links in [_docs/skill-distribution.md](_docs/skill-distribution.md)), remove only those `agent-harness` links. Keep `~/.agents/skills`, `~/.codex/skills`, and `~/.claude/skills` themselves and every other entry in them: these are the harnesses' standard per-user skill directories (conventions that read the same on every machine, not machine-specific paths), and the parent skill directories and parent symlinks may serve other skills and are not owned by this package.
 
 ```bash
 # Remove only this package's own links; links that are already absent are skipped.

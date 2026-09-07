@@ -6,17 +6,27 @@ How skills in this repository reach running agents, and how unmerged changes are
 
 Installing the repository by symlinking a working checkout into `~/.agents/skills/` makes every agent in every workspace read the checkout's working tree. Branch switches and uncommitted edits become visible immediately, so agents in different workspaces can end up with different revisions of the same skill, and unmerged changes can be mistaken for the operational set.
 
+## Notation
+
+Code blocks in this document contain no machine-specific paths: per the rule in [AGENTS.md](../AGENTS.md), the checkout and clone locations of the machine where a procedure runs appear as placeholders. Substitute the values of your own environment:
+
+- `<checkout>` — a local checkout or linked worktree of this repository used for development. Steps that need only the repository's files or history (the rollout gate, the `pi --skill` example under Development) run from it.
+- `<clone>` — the pi-managed clone that serves the installed skill set: created and pinned by `pi install git:github.com/u7chan/agent-harness@<commit-sha>`, one per user account, shared by all workspaces of that account; `pi list` prints its location. Commands that verify or act on the installed revision use it.
+- `<commit-sha>` (also written `<merged-sha>`, `<previous-verified-sha>`, and `<installed-or-rolled-back-sha>` where a step installs or verifies one specific revision) — a full commit SHA, chosen by the procedure step or taken from the rollout record.
+
+Per-user skill directories of the harnesses (`~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`, project `.pi/skills`, `.agents/skills`) are conventions with the same meaning on every machine using those harnesses and are written literally. Absolute paths of an individual machine's checkouts, clones, and worktrees never appear.
+
 ## Verified facts
 
-Measured on the reference machine (pi 0.84.4):
+Measured on the reference machine (pi 0.84.4, Linux) while the symlink install of the Problem section was in place. The record captures that machine's state at measurement time — the Design section has since replaced the symlink install with a pinned pi package — and keeps the measured behaviors, not the machine-specific path values.
 
-- `~/.agents/skills/agent-harness` resolves to the shared checkout `/home/u7dev/workspace/agent-harness`, which is a regular branch checkout, not a bare tree.
+- `~/.agents/skills/agent-harness` resolved to the shared checkout of this repository — a regular branch checkout, not a bare tree.
 - Pi loads skills from global `~/.pi/agent/skills/` and `~/.agents/skills/`, project `.pi/skills/` and `.agents/skills/`, packages, the settings `skills` array, and `--skill` paths. Names and descriptions are captured once at session startup; full `SKILL.md`, references, and scripts are read on demand.
 - Visibility experiment (uncommitted edit): a file written into the checkout was readable through `~/.agents/skills/agent-harness/...` immediately and disappeared when deleted.
 - Visibility experiment (branch position): with a linked worktree exposed through a symlink, an uncommitted edit and a commit on a side branch were both readable through the link; the readable content always followed the checkout's current working tree, not any fixed revision.
-- Sessions launched inside Herdr worktrees (`~/.herdr/worktrees/agent-harness/*`) have no project skill location, so they resolve every skill through the global symlink, that is, through the shared checkout.
-- No skill file in this repository references the `~/.agents/skills` path; only `README.md` documented the symlink install.
-- Pi settings declare npm packages only, no git packages, and no `skills` array. `~/.claude/skills` is symlinked to `~/.agents/skills`.
+- Sessions launched inside linked Herdr worktrees of this repository (the reference setup runs one worktree per task) have no project skill location, so they resolve every skill through the global symlink, that is, through the shared checkout.
+- No skill file in this repository references `~/.agents/skills` or any checkout or clone path; the symlink install was documented only in `README.md`.
+- Pi settings declared npm packages only — no git packages and no `skills` array. `~/.claude/skills` was symlinked to `~/.agents/skills`.
 
 Consequence: at startup listing time and at every on-demand read, the served content is "whatever the checkout holds right now". No gate exists between editing and distribution.
 
@@ -40,7 +50,7 @@ Use pi's package mechanism with a pinned git source instead of the symlink.
 
 - `package.json` in this repository declares `pi.skills` with the top-level skill directories; this list is the authoritative definition of the skill set.
 - Install and pin: `pi install git:github.com/u7chan/agent-harness@<commit-sha>`.
-- Pi clones the repository to `~/.pi/agent/git/github.com/u7chan/agent-harness` and loads the declared skills from the clone.
+- Pi clones the repository into `<clone>` — pi's per-user git package location (see the Notation section above) — and loads the declared skills from the clone.
 - Pin full commit SHAs. `pi update` does not move pinned refs; it reconciles the clone to the configured ref (reset and clean), so the clone always matches the configured revision.
 - Development happens in the checkout or in linked worktrees. Neither is a scan path after migration, so unmerged changes stay invisible to other workspaces.
 
@@ -62,17 +72,17 @@ Verifying unmerged skills is session-scoped; the canonical procedure lives in [s
 ### Merge → rollout
 
 1. Merge the PR to `main`.
-2. Choose the merged SHA and apply the rollout gate:
+2. Choose the merged SHA and apply the rollout gate from any local clone of this repository that carries an `origin` remote (`<checkout>` or `<clone>` both do):
 
 ```bash
 git fetch origin main
-git merge-base --is-ancestor <sha> origin/main && echo gate-ok
+git merge-base --is-ancestor <commit-sha> origin/main && echo gate-ok
 ```
 
-3. Install the pinned revision:
+3. Install the pinned revision (this creates or reconciles `<clone>`):
 
 ```bash
-pi install git:github.com/u7chan/agent-harness@<sha>
+pi install git:github.com/u7chan/agent-harness@<commit-sha>
 ```
 
 4. Apply between tasks: `/reload` (or restart) every running session. A session reloaded after this step serves the new revision; one that skips it keeps its pre-install listing until it reloads.
@@ -80,10 +90,10 @@ pi install git:github.com/u7chan/agent-harness@<sha>
 
 ### Revision confirmation
 
-All workspaces share one clone, so one command confirms the installed revision:
+All workspaces of one account share the same `<clone>`, so one command confirms the installed revision:
 
 ```bash
-git -C ~/.pi/agent/git/github.com/u7chan/agent-harness rev-parse HEAD
+git -C <clone> rev-parse HEAD
 pi list
 ```
 
@@ -99,7 +109,7 @@ Rollout and rollback make step 2 the normal state by reloading every running ses
 
 ```bash
 pi install git:github.com/u7chan/agent-harness@<previous-verified-sha>
-git -C ~/.pi/agent/git/github.com/u7chan/agent-harness rev-parse HEAD
+git -C <clone> rev-parse HEAD
 ```
 
 Apply between tasks and `/reload` (or restart) every running session, as in rollout. Because the install is account-global, running the confirmation from any workspace verifies the state for all of them.
@@ -110,7 +120,7 @@ After every rollout and rollback:
 
 ```bash
 set -e
-CLONE=~/.pi/agent/git/github.com/u7chan/agent-harness
+CLONE=<clone>   # your pi-managed clone path (Notation)
 EXPECTED=<installed-or-rolled-back-sha>
 test "$(git -C "$CLONE" rev-parse HEAD)" = "$EXPECTED"
 jq -r '.pi.skills[]' "$CLONE/package.json" | while read -r s; do
@@ -131,7 +141,7 @@ Order matters: the symlink shadows the package, so it must be removed before any
 3. Remove the symlink: `unlink ~/.agents/skills/agent-harness`.
 4. `/reload` (or restart) every running session. A reload before this step would re-read the old symlink path, not the package.
 5. Run the smoke test.
-6. Other harnesses that read `~/.agents/skills` can link the pinned clone read-only instead, for example `ln -s ~/.pi/agent/git/github.com/u7chan/agent-harness ~/.claude/skills/agent-harness`; they then follow the same pin without a second distribution path. These `agent-harness` links are per-harness additions, not part of the pi install: uninstalling removes only those links and keeps the shared skill directories and their parent symlinks (see the Uninstall section of the README).
+6. Other harnesses that read `~/.agents/skills` can link the pinned clone read-only instead, for example `ln -s <clone> ~/.claude/skills/agent-harness`; they then follow the same pin without a second distribution path. These `agent-harness` links are per-harness additions, not part of the pi install: uninstalling removes only those links and keeps the shared skill directories and their parent symlinks (see the Uninstall section of the README).
 
 ## Non-goals
 
