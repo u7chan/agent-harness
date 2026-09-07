@@ -25,7 +25,11 @@ main() {
   local body draft maintainer_can_modify head_repository
   body="$(echo "$input" | jq -r '.body // empty')"
   draft="$(echo "$input" | jq -c '.draft // null')"
-  maintainer_can_modify="$(echo "$input" | jq -c '.maintainer_can_modify // null')"
+  # jq's // treats false as empty, so it must not default this boolean: an
+  # explicit false has to reach the REST payload and the --no-maintainer-edit
+  # flag. A missing key reads as null; create has no "keep" semantics, so
+  # absent and explicit null both fall back to the route default.
+  maintainer_can_modify="$(echo "$input" | jq -c '.maintainer_can_modify')"
   head_repository="$(echo "$input" | jq -r '.head_repository // empty')"
 
   local target
