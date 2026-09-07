@@ -993,6 +993,10 @@ test_per_page_limit_contracts() {
   "$SCRIPT_DIR/per-page-limit.sh" >/dev/null
 }
 
+test_http_retry_contracts() {
+  "$SCRIPT_DIR/http-retry.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1051,6 +1055,7 @@ main() {
   run_test test_pr_maintainer_contracts
   run_test test_labels_remove_contracts
   run_test test_per_page_limit_contracts
+  run_test test_http_retry_contracts
 
   teardown_fixture
   trap - EXIT
