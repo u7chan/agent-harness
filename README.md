@@ -29,6 +29,7 @@ Commands used by the harnesses and by this repository's documented procedures:
 | pi | agent runtime and package management (`pi install`, `pi remove`, `pi list`) | every skill and procedure in this repository |
 | herdr | delegating prompts to other panes (`herdr agent prompt`) | the herdr skill scripts |
 | python3 | the review skill's recheck harness (`review/scripts/recheck-state.sh`); optional for the herdr delegation scripts, which use it only for a cosmetic pane label and fall back gracefully without it | the review skill; optional for the herdr skill |
+| playwright-cli | browser automation for the playwright skill through its `scripts/pw.sh` wrapper (installed separately, e.g. `npm install -g @playwright/cli`; `PW_BIN` can point at an equivalent binary such as `npx @playwright/cli`) | the playwright skill |
 | GNU coreutils and text tools (`sed`, `grep`, `head`, `cat`, `mktemp`, `sleep`, `unlink`, `ln`, ...) | shared plumbing across scripts; the Uninstall block below removes links with `unlink`, and Migration step 6 in `_docs/skill-distribution.md` creates them with `ln -s` | every scripted harness |
 
 `curl` is not a dependency: no script in this repository invokes it. The gh dispatcher talks to the GitHub API through the gh CLI, and the only `curl` occurrence in harness code is a retry-classification pattern in `gh/scripts/common/http.sh` that matches gh CLI error text.

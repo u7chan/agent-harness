@@ -1,9 +1,11 @@
 name: contract-tests
 
-# Runs the gh dispatcher contract suite and the action catalog consistency
-# check on every push and pull request. Both checks are hermetic: they run
-# unauthenticated with no credentials, no network access, and no real gh CLI
-# (the suite supplies a fixture gh.sh and a fake gh CLI where needed).
+# Runs the gh dispatcher contract suite, the action catalog consistency
+# check, and the playwright skill mock tests on every push and pull request.
+# All checks are hermetic: they run unauthenticated with no credentials, no
+# network access, no real gh CLI (the suite supplies a fixture gh.sh and a
+# fake gh CLI where needed), and no real browser (the playwright suite
+# supplies a fake playwright-cli shim).
 
 on:
   push:
@@ -15,7 +17,7 @@ permissions:
 
 jobs:
   contract-tests:
-    name: Contract tests and action consistency checks
+    name: Contract tests, consistency checks, and mock tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -28,3 +30,6 @@ jobs:
 
       - name: Run action catalog consistency check
         run: gh/scripts/check-actions.sh
+
+      - name: Run playwright skill mock tests
+        run: playwright/tests/run.sh
