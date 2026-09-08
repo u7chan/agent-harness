@@ -18,13 +18,19 @@ Resolve pane and workspace IDs from Herdr JSON responses. Do not guess IDs. Crea
 
 ## Caller pinning
 
-Delegation requires both `$HERDR_WORKSPACE_ID` and `$HERDR_PANE_ID`. If either is empty, or the `$HERDR_PANE_ID` workspace prefix does not match `$HERDR_WORKSPACE_ID`, fail closed: stop instead of falling back to argument-less commands. Take IDs only from Herdr JSON responses; never infer them from display order, labels, model names, or UI focus.
+Delegation requires both `$HERDR_WORKSPACE_ID` and `$HERDR_PANE_ID`. If either is empty, or the `$HERDR_PANE_ID` workspace prefix does not match `$HERDR_WORKSPACE_ID`, fail closed: stop instead of falling back to argument-less commands. Take IDs only from Herdr JSON responses; never infer them from display order, labels, model names, UI focus, or the TUI's selected machine.
 
 ## Resolve the delegation target
 
-This section is authoritative for candidate resolution, branching, and stop conditions. A request for "another pane" (別ペイン) means another pane in the current workspace, not a physical neighbor. These rules are an operational safeguard for skill-compliant agents; they do not add a technical enforcement boundary.
+This section is authoritative for candidate resolution, branching, and stop conditions. A request for "another pane" (別ペイン) means another pane in the current workspace of the current Herdr server, not a physical neighbor. These rules are an operational safeguard for skill-compliant agents; they do not add a technical enforcement boundary.
 
 The invariant and responsibility split required for a hard boundary are defined in [Technical delegation boundary](references/technical-delegation-boundary.md). Do not infer a stronger guarantee from this skill or from the wrappers.
+
+### Server scope
+
+Workspace IDs, pane IDs, and agent names are server-local: they are unique only within one Herdr server, and another server can expose the same `w1:p1`, workspace ID, or agent name. Normal delegation never crosses servers — its scope is the caller pane's inherited `herdr` context, and `$HERDR_WORKSPACE_ID` within that one server.
+
+The machine selected in the Herdr TUI does not switch the CLI's target server: an in-pane `herdr` command keeps using the session/socket context its pane inherited, whatever the UI shows as selected. Never resolve a delegation target from the selected machine. Cross-machine delegation is out of scope for normal delegation; when a request points outside the current server, stop and ask the user.
 
 ### Candidate set
 
@@ -34,7 +40,7 @@ Build candidates only from the response of:
 herdr pane list --workspace "$HERDR_WORKSPACE_ID"
 ```
 
-Exclude `$HERDR_PANE_ID` itself and every pane whose `workspace_id` differs from `$HERDR_WORKSPACE_ID`. Global `workspace list`, argument-less `pane list` and `agent list`, `pane layout`, and UI focus are read-only investigation aids; never select a delegation candidate from them.
+Exclude `$HERDR_PANE_ID` itself and every pane whose `workspace_id` differs from `$HERDR_WORKSPACE_ID`. Global `workspace list`, argument-less `pane list` and `agent list`, `pane layout`, `herdr machine list` and other cross-machine combined inventories, and UI focus are read-only investigation aids; never select a delegation candidate from them.
 
 Select a candidate only when exactly one pane satisfies the explicitly stated conditions. Zero or multiple matches, unknown pane metadata, and JSON or API errors branch the same way: do not infer an alternative candidate, and move on to [When the requested agent is absent](#when-the-requested-agent-is-absent) or ask the user.
 
@@ -75,7 +81,7 @@ herdr/scripts/parent-delegate-async.sh <child-pane> "<prompt>"
 herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<body>"
 ```
 
-The parent wrapper is the mandatory route for a new parent-to-child delegation and for any additional task that expects a result return. Resolve the target as defined in [Resolve the delegation target](#resolve-the-delegation-target) and pass the returned pane ID, never an agent name. Treat the wrapper as part of the candidate: if it is unavailable, was not executed, exits nonzero, or you can predict that it would reject a workspace mismatch, the candidate is invalid — re-resolve within `$HERDR_WORKSPACE_ID` or report blocked. Do not rebuild the wrapper prompt by hand and do not fall back to raw `herdr agent prompt`, another wrapper, or `pane send-text`. After a transport failure or an unknown result, do not resend without confirming state first, and keep a scope reject distinct from a transport failure. The child wrapper's own raw `herdr agent prompt` call is its fixed return transport, not a license for raw parent-to-child prompts. Even when the user explicitly names a pane in another workspace, direct-parent delegation is unsupported: stop there.
+The parent wrapper is the mandatory route for a new parent-to-child delegation and for any additional task that expects a result return. Resolve the target as defined in [Resolve the delegation target](#resolve-the-delegation-target) and pass the returned pane ID, never an agent name. Treat the wrapper as part of the candidate: if it is unavailable, was not executed, exits nonzero, or you can predict that it would reject a workspace mismatch, the candidate is invalid — re-resolve within `$HERDR_WORKSPACE_ID` or report blocked. Do not rebuild the wrapper prompt by hand and do not fall back to raw `herdr agent prompt`, another wrapper, or `pane send-text`. After a transport failure or an unknown result, do not resend without confirming state first, and keep a scope reject distinct from a transport failure. The child wrapper's own raw `herdr agent prompt` call is its fixed return transport, not a license for raw parent-to-child prompts. Even when the user explicitly names a pane in another workspace or on another Herdr server, direct-parent delegation is unsupported: stop there.
 
 The parent wrapper verifies that both panes belong to `$HERDR_WORKSPACE_ID` and adds the current `$HERDR_PANE_ID` with its resolved display name plus the absolute child-wrapper path to the prompt. The child wrapper returns one status and free-form body to that pane. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for the wrapper protocol, display names, failure handling, and worktree rules.
 
