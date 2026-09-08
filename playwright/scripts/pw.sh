@@ -164,9 +164,26 @@ maybe_add_headed() {
   fi
 }
 
+# maybe_add_browser open [args...] -> OPEN_ARGS (always non-empty, so no
+# empty-array expansion under `set -u` on bash 3.2).
+maybe_add_browser() {
+  local a has=0
+  OPEN_ARGS=()
+  for a in "$@"; do
+    case "$a" in
+      --browser|--browser=*) has=1 ;;
+    esac
+    OPEN_ARGS+=("$a")
+  done
+  if [ "$has" = 0 ]; then
+    OPEN_ARGS+=("--browser=chromium")
+  fi
+}
+
 cmd_open() {
   require_bin
   maybe_add_headed open "$@"
+  maybe_add_browser "${OPEN_ARGS[@]}"
   run_one 1 "${OPEN_ARGS[@]}"
 }
 
@@ -191,6 +208,7 @@ cmd_batch() {
     # `open` in a batch still gets the headed preflight.
     if [ "${TOKENS[0]}" = open ]; then
       maybe_add_headed "${TOKENS[@]}"
+      maybe_add_browser "${OPEN_ARGS[@]}"
       run_one 0 "${OPEN_ARGS[@]}" || rc=$?
     else
       run_one 0 "${TOKENS[@]}" || rc=$?
