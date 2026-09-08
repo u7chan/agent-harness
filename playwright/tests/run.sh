@@ -271,5 +271,21 @@ check_contains "16a default session is playwright" "$(cat "$SHIM_ARGV")" 'ARG[-s
 out="$(env -u PW_SESSION bash "$PW" --help 2>&1)"
 check_contains "16b usage text advertises the playwright default" "$out" 'PW_SESSION (default: playwright)'
 
+# --- 17. default browser preflight ----------------------------------------
+PW_HEADED=0 PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
+check_contains "17a open adds bundled Chromium by default" \
+  "$(cat "$SHIM_ARGV")" 'ARG[--browser=chromium]'
+
+PW_HEADED=0 PW_SESSION=t bash "$PW" open https://example.com/ --browser=firefox >/dev/null 2>&1
+argv="$(cat "$SHIM_ARGV")"
+check_contains "17b explicit browser is passed through" "$argv" 'ARG[--browser=firefox]'
+check_not_contains "17c explicit browser does not add Chromium" "$argv" 'ARG[--browser=chromium]'
+
+PW_HEADED=0 PW_SESSION=t bash "$PW" - >/dev/null 2>&1 <<'EOF'
+open https://example.com/
+EOF
+check_contains "17d batch open adds bundled Chromium by default" \
+  "$(cat "$SHIM_ARGV")" 'ARG[--browser=chromium]'
+
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" -eq 0 ]

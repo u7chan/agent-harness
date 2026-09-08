@@ -63,6 +63,8 @@ Only when `Session closed` / `EADDRINUSE` occurs, or `open` itself fails, run `p
 
 `PW_SESSION` (default `playwright`) / `PW_SNAPSHOT_MAX` (default 12000) / `PW_HEADED` (`1` visible, `0` headless; auto-detected by default) / `PW_BIN` (default `playwright-cli`).
 
+`open` uses the Playwright-bundled Chromium by default; pass `--browser=...` explicitly to select another browser.
+
 ## Topics
 
 * Command list, `open` parameters, session details [references/commands.md](references/commands.md)
