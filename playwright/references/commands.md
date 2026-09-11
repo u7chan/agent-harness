@@ -245,7 +245,7 @@ Action commands write a snapshot to a file after running, and the output returns
 
 `pw.sh` reads this path, inlines the content at the end of its output as `### Snapshot (path, N bytes)`, and drops the original `- [Snapshot](path)` link line (so nothing invites a follow-up Read). The `snapshot` / `find` commands return the yaml inline from the start. When the output is too large, cut it down at the source with `snapshot --depth=N` / `snapshot <ref>` / `find`.
 
-Without `--filename`, `pw.sh` creates a new timestamped snapshot file under its identifier-based temporary artifact directory (`${TMPDIR:-/tmp}/playwright-cli/<identifier>`), outside the current directory. `--filename=` accepts both relative (from the cwd) and absolute paths; use it only when the artifact is intentionally part of the workflow's result.
+Without `--filename`, `pw.sh` creates a new timestamped snapshot file under its private, identifier-based temporary artifact directory (`${TMPDIR:-/tmp}/playwright-cli/<identifier>`), outside the current directory. The identifier is derived from the canonical cwd and session name. `--filename=` accepts both relative (from the cwd) and absolute paths; use it only when the artifact is intentionally part of the workflow's result.
 
 ## Browser sessions
 

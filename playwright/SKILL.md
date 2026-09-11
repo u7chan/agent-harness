@@ -22,7 +22,7 @@ One command = one tool call. Decide the next step from the `ref` it returns. If 
 
 **Run from the same cwd as `open`.** A session is tied to the workspace of the cwd (the nearest ancestor directory that has `.playwright/`), and the `-s` name does not change that scope.
 
-Always finish with `pw.sh close`. Automatically generated snapshots and other artifacts are written outside the workspace under `${TMPDIR:-/tmp}/playwright-cli/<identifier>` and snapshots are inlined by the wrapper, so they do not create Git changes. Set `PW_ARTIFACT_DIR` when a different artifact location is required.
+Always finish with `pw.sh close`. Automatically generated snapshots and other artifacts are written to a private, identifier-based directory outside the workspace under `${TMPDIR:-/tmp}/playwright-cli/<identifier>` and snapshots are inlined by the wrapper, so they do not create Git changes. Set `PW_ARTIFACT_DIR` when a different artifact location is required.
 
 ## Batch (consecutive operations with no need to see the state in between)
 

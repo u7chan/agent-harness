@@ -122,6 +122,10 @@ artifact_dir() {
   printf '%s/playwright-cli/%s' "$TMPDIR" "$(artifact_id "$1")"
 }
 
+artifact_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
 # --- 1. snapshot inlining -------------------------------------------------
 out="$(PW_SESSION=t bash "$PW" click e2 2>/dev/null)"
 check_contains "1a snapshot file content is inlined" "$out" 'button "OK" [ref=e2]'
@@ -131,6 +135,8 @@ check_not_contains "1c banner stripped from stderr too" "$err" 'Update available
 check_contains "1d output directory is passed outside the workspace" "$(cat "$SHIM_ARGV")" "OUTPUT_DIR=$(artifact_dir t)"
 [ -f "$(artifact_dir t)/page-click.yml" ] && ok "1e snapshot is stored in the identified temp directory" || ng "1e snapshot is stored in the identified temp directory" "missing $(artifact_dir t)/page-click.yml"
 [ ! -e "$WORK/.playwright-cli" ] && ok "1f workspace has no .playwright-cli artifact" || ng "1f workspace has no .playwright-cli artifact" "$WORK/.playwright-cli exists"
+check_eq "1j artifact directory is private" "$(artifact_mode "$(artifact_dir t)")" "700"
+check_eq "1k artifact file is private" "$(artifact_mode "$(artifact_dir t)/page-click.yml")" "600"
 
 custom_artifact_dir="$WORK/custom-artifacts"
 PW_ARTIFACT_DIR="$custom_artifact_dir" PW_SESSION=custom bash "$PW" click e2 >/dev/null 2>&1
@@ -139,6 +145,30 @@ PW_ARTIFACT_DIR="$custom_artifact_dir" PW_SESSION=custom bash "$PW" click e2 >/d
 PW_SESSION=other bash "$PW" click e2 >/dev/null 2>&1
 [ "$(artifact_dir t)" != "$(artifact_dir other)" ] && ok "1h artifact identifier includes the session" || ng "1h artifact identifier includes the session" "identifiers collided"
 [ -f "$(artifact_dir other)/page-click.yml" ] && ok "1i distinct session uses a distinct temp directory" || ng "1i distinct session uses a distinct temp directory" "missing $(artifact_dir other)/page-click.yml"
+
+symlink_tmp="$WORK/symlink-tmp"
+symlink_target="$WORK/symlink-target"
+mkdir -p "$symlink_tmp" "$symlink_target"
+ln -s "$symlink_target" "$symlink_tmp/playwright-cli"
+out="$(TMPDIR="$symlink_tmp" PW_SESSION=symlink-root bash "$PW" click e2 2>&1)"
+rc=$?
+check_eq "1l symlinked artifact root is rejected" "$rc" "1"
+check_contains "1m symlink rejection explains the artifact path" "$out" 'artifact directory is a symlink'
+
+hash_fallback_bin="$WORK/hash-fallback-bin"
+mkdir -p "$hash_fallback_bin"
+for command_name in bash cat cut mktemp rm; do
+  ln -s "$(command -v "$command_name")" "$hash_fallback_bin/$command_name"
+done
+cat > "$hash_fallback_bin/shasum" <<'EOF'
+#!/bin/sh
+printf '%064d  -\n' 0
+EOF
+chmod +x "$hash_fallback_bin/shasum"
+out="$(PATH="$hash_fallback_bin" /bin/bash "$PW" --help 2>&1)"
+rc=$?
+check_eq "1n shasum fallback keeps the wrapper usable" "$rc" "2"
+check_not_contains "1o shasum fallback does not report a missing hash command" "$out" 'no SHA-256 command found'
 
 # --- 2. truncation --------------------------------------------------------
 out="$(SHIM_BIG=1 PW_SNAPSHOT_MAX=200 PW_SESSION=t bash "$PW" click e2 2>/dev/null)"
