@@ -4,11 +4,46 @@
 # file that playwright-cli only references by path.
 set -euo pipefail
 
+# Snapshots, storage state, and traces can contain sensitive page data. Keep
+# files created by this wrapper private, including files created by the
+# detached playwright-cli daemon.
+umask 077
+
 PW_BIN="${PW_BIN:-playwright-cli}"
 # PW_BIN may hold extra words (e.g. "npx @playwright/cli"); keep it as an array.
 read -r -a PW_CMD <<< "$PW_BIN"
 PW_SESSION="${PW_SESSION:-playwright}"
 PW_SNAPSHOT_MAX="${PW_SNAPSHOT_MAX:-12000}"
+
+hash_input() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 -r
+  else
+    return 1
+  fi
+}
+
+PW_ARTIFACT_DIR_AUTO=0
+# playwright-cli writes automatically generated snapshots and other artifacts
+# to PLAYWRIGHT_MCP_OUTPUT_DIR. Keep those artifacts out of the user's
+# workspace by default, while allowing an explicit wrapper-level override.
+if [ -n "${PW_ARTIFACT_DIR:-}" ]; then
+  : "${PW_ARTIFACT_DIR}"
+elif [ -n "${PLAYWRIGHT_MCP_OUTPUT_DIR:-}" ]; then
+  PW_ARTIFACT_DIR="$PLAYWRIGHT_MCP_OUTPUT_DIR"
+else
+  PW_ARTIFACT_DIR_AUTO=1
+  PW_ARTIFACT_ID="$(printf '%s\0%s' "$(pwd -P)" "$PW_SESSION" | hash_input | cut -c1-16)" || {
+    printf '[pw] ERROR: no SHA-256 command found (tried sha256sum, shasum, openssl)\n' >&2
+    exit 1
+  }
+  PW_ARTIFACT_ROOT="${TMPDIR:-/tmp}/playwright-cli"
+  PW_ARTIFACT_DIR="$PW_ARTIFACT_ROOT/$PW_ARTIFACT_ID"
+fi
 
 usage() {
   cat >&2 <<'EOF'
@@ -21,7 +56,7 @@ Usage:
   pw.sh open [url] [opts]       open with preflight (headed auto-detect)
   pw.sh recover                 close-all then kill-all (asks nothing; affects other sessions)
 
-Env: PW_SESSION (default: playwright), PW_SNAPSHOT_MAX (default: 12000), PW_HEADED (1|0), PW_BIN
+Env: PW_SESSION (default: playwright), PW_SNAPSHOT_MAX (default: 12000), PW_HEADED (1|0), PW_BIN, PW_ARTIFACT_DIR
 EOF
   exit 2
 }
@@ -32,6 +67,27 @@ fail() {
 }
 
 note() { printf '[pw] %s\n' "$1" >&2; }
+
+ensure_private_dir() {
+  local dir="$1" owner
+  if [ -L "$dir" ]; then
+    fail "artifact directory is a symlink: $dir"
+  fi
+  if [ ! -e "$dir" ]; then
+    mkdir -m 700 "$dir" || fail "could not create artifact directory: $dir"
+  fi
+  [ -d "$dir" ] || fail "artifact path is not a directory: $dir"
+  owner="$(stat -c '%u' "$dir" 2>/dev/null || stat -f '%u' "$dir" 2>/dev/null)" \
+    || fail "could not inspect artifact directory owner: $dir"
+  [ "$owner" = "$(id -u)" ] || fail "artifact directory is not owned by the current user: $dir"
+  chmod 700 "$dir" || fail "could not secure artifact directory: $dir"
+}
+
+prepare_artifact_dir() {
+  [ "$PW_ARTIFACT_DIR_AUTO" = 1 ] || return 0
+  ensure_private_dir "$PW_ARTIFACT_ROOT"
+  ensure_private_dir "$PW_ARTIFACT_DIR"
+}
 
 # One -e per glyph: BSD sed (macOS) has no \| alternation in BRE.
 strip_banner() {
@@ -106,8 +162,10 @@ run_one() {
   local inline="$1"; shift
   local out="$TMP_DIR/out.$RUN_SEQ" err="$TMP_DIR/err.$RUN_SEQ" rc=0
   RUN_SEQ=$((RUN_SEQ + 1))
+  prepare_artifact_dir
   set +e
-  "${PW_CMD[@]}" "-s=$PW_SESSION" "$@" >"$out" 2>"$err" </dev/null
+  PLAYWRIGHT_MCP_OUTPUT_DIR="$PW_ARTIFACT_DIR" \
+    "${PW_CMD[@]}" "-s=$PW_SESSION" "$@" >"$out" 2>"$err" </dev/null
   rc=$?
   set -e
   strip_banner <"$out" | drop_snapshot_link
