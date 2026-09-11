@@ -48,6 +48,7 @@ cat > "$WORK/bin/playwright-cli" <<'SHIM'
 : > "$SHIM_ARGV"
 for a in "$@"; do printf 'ARG[%s]\n' "$a" >> "$SHIM_ARGV"; done
 printf 'ARGC=%d\n' "$#" >> "$SHIM_ARGV"
+printf 'OUTPUT_DIR=%s\n' "${PLAYWRIGHT_MCP_OUTPUT_DIR:-}" >> "$SHIM_ARGV"
 
 cat >&2 <<'BANNER'
 ╔════════════════════════════════════════════════════════════════════╗
@@ -78,8 +79,9 @@ case " $* " in
   *" --raw "*) echo '"Example Domain"'; exit 0 ;;
 esac
 
-mkdir -p .playwright-cli
-snap=".playwright-cli/page-${cmd}.yml"
+output_dir="${PLAYWRIGHT_MCP_OUTPUT_DIR:-.playwright-cli}"
+mkdir -p "$output_dir"
+snap="$output_dir/page-${cmd}.yml"
 {
   echo "- generic [ref=e1]: snapshot-of-${cmd}"
   echo "  - button \"OK\" [ref=e2]"
@@ -91,7 +93,7 @@ snap=".playwright-cli/page-${cmd}.yml"
     done
   fi
 } > "$snap"
-[ -n "${SHIM_NOSNAP:-}" ] && snap=".playwright-cli/page-does-not-exist.yml"
+[ -n "${SHIM_NOSNAP:-}" ] && snap="$output_dir/page-does-not-exist.yml"
 
 case " $* " in
   *" --json "*)
@@ -109,6 +111,16 @@ export PATH="$WORK/bin:$PATH"
 export SHIM_ARGV="$WORK/argv.txt"
 
 cd "$WORK"
+export TMPDIR="$WORK/tmp"
+mkdir -p "$TMPDIR"
+
+artifact_id() {
+  printf '%s\0%s' "$WORK" "$1" | sha256sum | cut -c1-16
+}
+
+artifact_dir() {
+  printf '%s/playwright-cli/%s' "$TMPDIR" "$(artifact_id "$1")"
+}
 
 # --- 1. snapshot inlining -------------------------------------------------
 out="$(PW_SESSION=t bash "$PW" click e2 2>/dev/null)"
@@ -116,6 +128,17 @@ check_contains "1a snapshot file content is inlined" "$out" 'button "OK" [ref=e2
 check_not_contains "1b update banner is stripped" "$out" 'Update available'
 err="$(PW_SESSION=t bash "$PW" click e2 2>&1 >/dev/null)"
 check_not_contains "1c banner stripped from stderr too" "$err" 'Update available'
+check_contains "1d output directory is passed outside the workspace" "$(cat "$SHIM_ARGV")" "OUTPUT_DIR=$(artifact_dir t)"
+[ -f "$(artifact_dir t)/page-click.yml" ] && ok "1e snapshot is stored in the identified temp directory" || ng "1e snapshot is stored in the identified temp directory" "missing $(artifact_dir t)/page-click.yml"
+[ ! -e "$WORK/.playwright-cli" ] && ok "1f workspace has no .playwright-cli artifact" || ng "1f workspace has no .playwright-cli artifact" "$WORK/.playwright-cli exists"
+
+custom_artifact_dir="$WORK/custom-artifacts"
+PW_ARTIFACT_DIR="$custom_artifact_dir" PW_SESSION=custom bash "$PW" click e2 >/dev/null 2>&1
+[ -f "$custom_artifact_dir/page-click.yml" ] && ok "1g explicit PW_ARTIFACT_DIR is honored" || ng "1g explicit PW_ARTIFACT_DIR is honored" "missing $custom_artifact_dir/page-click.yml"
+
+PW_SESSION=other bash "$PW" click e2 >/dev/null 2>&1
+[ "$(artifact_dir t)" != "$(artifact_dir other)" ] && ok "1h artifact identifier includes the session" || ng "1h artifact identifier includes the session" "identifiers collided"
+[ -f "$(artifact_dir other)/page-click.yml" ] && ok "1i distinct session uses a distinct temp directory" || ng "1i distinct session uses a distinct temp directory" "missing $(artifact_dir other)/page-click.yml"
 
 # --- 2. truncation --------------------------------------------------------
 out="$(SHIM_BIG=1 PW_SNAPSHOT_MAX=200 PW_SESSION=t bash "$PW" click e2 2>/dev/null)"

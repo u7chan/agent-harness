@@ -10,6 +10,18 @@ read -r -a PW_CMD <<< "$PW_BIN"
 PW_SESSION="${PW_SESSION:-playwright}"
 PW_SNAPSHOT_MAX="${PW_SNAPSHOT_MAX:-12000}"
 
+# playwright-cli writes automatically generated snapshots and other artifacts
+# to PLAYWRIGHT_MCP_OUTPUT_DIR. Keep those artifacts out of the user's
+# workspace by default, while allowing an explicit wrapper-level override.
+if [ -n "${PW_ARTIFACT_DIR:-}" ]; then
+  : "${PW_ARTIFACT_DIR}"
+elif [ -n "${PLAYWRIGHT_MCP_OUTPUT_DIR:-}" ]; then
+  PW_ARTIFACT_DIR="$PLAYWRIGHT_MCP_OUTPUT_DIR"
+else
+  PW_ARTIFACT_ID="$(printf '%s\0%s' "$(pwd -P)" "$PW_SESSION" | sha256sum | cut -c1-16)"
+  PW_ARTIFACT_DIR="${TMPDIR:-/tmp}/playwright-cli/$PW_ARTIFACT_ID"
+fi
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -21,7 +33,7 @@ Usage:
   pw.sh open [url] [opts]       open with preflight (headed auto-detect)
   pw.sh recover                 close-all then kill-all (asks nothing; affects other sessions)
 
-Env: PW_SESSION (default: playwright), PW_SNAPSHOT_MAX (default: 12000), PW_HEADED (1|0), PW_BIN
+Env: PW_SESSION (default: playwright), PW_SNAPSHOT_MAX (default: 12000), PW_HEADED (1|0), PW_BIN, PW_ARTIFACT_DIR
 EOF
   exit 2
 }
@@ -107,7 +119,8 @@ run_one() {
   local out="$TMP_DIR/out.$RUN_SEQ" err="$TMP_DIR/err.$RUN_SEQ" rc=0
   RUN_SEQ=$((RUN_SEQ + 1))
   set +e
-  "${PW_CMD[@]}" "-s=$PW_SESSION" "$@" >"$out" 2>"$err" </dev/null
+  PLAYWRIGHT_MCP_OUTPUT_DIR="$PW_ARTIFACT_DIR" \
+    "${PW_CMD[@]}" "-s=$PW_SESSION" "$@" >"$out" 2>"$err" </dev/null
   rc=$?
   set -e
   strip_banner <"$out" | drop_snapshot_link

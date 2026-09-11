@@ -129,7 +129,7 @@ Traces can consume a lot of disk space:
 
 ```bash
 # Delete traces older than 7 days
-find .playwright-cli/traces -mtime +7 -delete
+find "${TMPDIR:-/tmp}/playwright-cli" -path '*/traces/*' -mtime +7 -delete
 ```
 
 ## Limitations

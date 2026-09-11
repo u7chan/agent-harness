@@ -22,7 +22,7 @@ One command = one tool call. Decide the next step from the `ref` it returns. If 
 
 **Run from the same cwd as `open`.** A session is tied to the workspace of the cwd (the nearest ancestor directory that has `.playwright/`), and the `-s` name does not change that scope.
 
-Always finish with `pw.sh close`. `.playwright-cli/page-*.yml` files are artifact output and belong in `.gitignore`.
+Always finish with `pw.sh close`. Automatically generated snapshots and other artifacts are written outside the workspace under `${TMPDIR:-/tmp}/playwright-cli/<identifier>` and snapshots are inlined by the wrapper, so they do not create Git changes. Set `PW_ARTIFACT_DIR` when a different artifact location is required.
 
 ## Batch (consecutive operations with no need to see the state in between)
 
@@ -61,7 +61,7 @@ Only when `Session closed` / `EADDRINUSE` occurs, or `open` itself fails, run `p
 
 ## Environment variables
 
-`PW_SESSION` (default `playwright`) / `PW_SNAPSHOT_MAX` (default 12000) / `PW_HEADED` (`1` visible, `0` headless; auto-detected by default) / `PW_BIN` (default `playwright-cli`).
+`PW_SESSION` (default `playwright`) / `PW_SNAPSHOT_MAX` (default 12000) / `PW_HEADED` (`1` visible, `0` headless; auto-detected by default) / `PW_BIN` (default `playwright-cli`) / `PW_ARTIFACT_DIR` (default: an identifier-based directory under `${TMPDIR:-/tmp}/playwright-cli`).
 
 `open` uses the Playwright-bundled Chromium by default; pass `--browser=...` explicitly to select another browser.
 
