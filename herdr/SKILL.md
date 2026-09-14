@@ -89,6 +89,12 @@ The wrappers validate their arguments and environment, call the existing `herdr 
 
 If a return to a working parent exposes an agent-kind-specific problem, stop and record the reproduction. Do not add waiting or queueing to the wrappers.
 
+## Worktree workspaces
+
+Normal delegation never crosses a workspace boundary. A Herdr worktree workspace is a different workspace with its own workspace ID, so the wrappers and their scope checks cannot reach a team placed there, and a conforming agent has no way to start or prompt one inside it. Read-only discovery (`herdr workspace list`, `herdr worktree list --cwd "$PWD"`, `herdr pane list --workspace <linked-workspace-id>`) stays allowed, and the worktree lifecycle commands stay available when the user explicitly requests them.
+
+When the user asks for a team to run self-contained in a worktree workspace, do not write across the boundary: hand the user the exact startup commands from [Worktree workspace teams](references/worktree-workspace-teams.md) and let the user start the team. The team's internal delegation then stays inside its own workspace.
+
 ## Pane operations
 
 Inspect the current workspace before any explicitly requested pane operation:
@@ -105,5 +111,5 @@ After starting the agent, set the pane label to the same responsibility-based na
 ## Rules
 
 - Keep shared work in the current workspace and worktree.
-- Use an explicit Herdr worktree workspace for independent branches.
+- Create a Herdr worktree workspace only when the user explicitly requests it; ordinary independent-branch work stays in the current workspace and worktree (see [Worktree workspaces](#worktree-workspaces)).
 - Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested.

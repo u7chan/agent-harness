@@ -160,6 +160,62 @@ Until these properties are provided by the enforcing runtime, this repository
 must describe its skill and wrappers as operational safeguards rather than a
 hard permission boundary.
 
+## Upstream dependency
+
+The enforcing runtime is upstream Herdr (github.com/herdrdev/herdr). Two
+runtime-side goals recorded in u7chan/agent-harness#208 — delegation from a
+parent workspace into a worktree workspace team, and enforcement of the
+workspace boundary by the runtime rather than by model compliance — cannot be
+satisfied in this repository until the runtime provides two capabilities:
+
+1. **An authorized delegation scope evaluated from trusted source context.**
+   The scope must come from server-side state, not from the caller's
+   environment: for example, worktree-creator ownership recorded server-side,
+   or a human-only `herdr scope grant` / `herdr scope revoke` that an agent
+   process cannot invoke or inherit. Scope rejection must also stay
+   distinguishable from transport failure (property 6 of [Minimal upstream
+   contract](#minimal-upstream-contract)). Both goals depend on it: with a
+   scope evaluated from trusted source context, the runtime can allow the
+   authorized parent-to-worktree-team edge and reject a raw bypass by the same
+   rule.
+2. **`herdr worktree remove --path <path>`.** A closed worktree workspace
+   currently has to be reopened before it can be removed, because removal
+   keys on a live workspace ID.
+
+Verified upstream state as of herdr 0.9.0 (measured 2026-09-14 against the
+installed `herdr` 0.9.0 binary, API protocol 22):
+
+- No server-side scope or authorization surface exists. `herdr --help` lists
+  no scope or authorization command, and the 0.9.0 API schema
+  (`herdr api schema --json`, protocol 22) defines no caller-identity or
+  delegation-scope parameter for the write-capable routes normal delegation
+  uses: `AgentPromptParams` carries only `target`, `text`, and `wait`, and
+  `AgentStartParams` only `args`, `kind`, `name`, `pane_id`, and `timeout_ms`.
+  Upstream `src/app/api/agents.rs` at tag `v0.9.0` resolves the prompt target
+  from the request alone and consults no caller or source workspace identity
+  (https://github.com/herdrdev/herdr/blob/v0.9.0/src/app/api/agents.rs).
+- `herdr agent start` rejects a multi-line AGENT_ARG with
+  `{"error":{"code":"invalid_agent_argument","message":"agent arguments cannot be encoded safely for the target shell"},"id":"cli:agent:start"}`.
+- `herdr agent prompt` accepts `<TARGET> <TEXT>` only; it has no file or stdin
+  input. The upstream request to add one (herdrdev/herdr#3367) was closed as
+  not planned on 2026-08-29, with the response that the required `<text>`
+  argument stays the accepted input and the proposal belongs in Ideas
+  discussions, so prompt text must travel as a shell argument
+  (https://github.com/herdrdev/herdr/issues/3367).
+- `herdr worktree remove` accepts `--workspace <ID>` but not `--path`
+  (`unknown option: --path`, exit status 2). Closing the linked workspace
+  makes `herdr worktree list` omit `open_workspace_id`, and removal by the old
+  workspace ID fails with `workspace_not_found`; `herdr worktree open` then
+  assigns a new workspace ID.
+
+Until those capabilities exist, this repository remains an operational
+safeguard, not a permission boundary: its wrapper checks stop a conforming
+agent only, and a raw cross-workspace write still succeeds. Worktree
+workspaces are therefore outside normal delegation, and the interim procedure
+in [worktree-workspace-teams.md](worktree-workspace-teams.md) starts and
+drives those teams through the user and GitHub comments instead of
+cross-workspace prompts.
+
 ## Compatibility and migration
 
 The repository-side wrappers do not need new delegation state, retries,

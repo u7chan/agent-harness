@@ -24,7 +24,7 @@ Measured on the reference machine (pi 0.84.4, Linux) while the symlink install o
 - Pi loads skills from global `~/.pi/agent/skills/` and `~/.agents/skills/`, project `.pi/skills/` and `.agents/skills/`, packages, the settings `skills` array, and `--skill` paths. Names and descriptions are captured once at session startup; full `SKILL.md`, references, and scripts are read on demand.
 - Visibility experiment (uncommitted edit): a file written into the checkout was readable through `~/.agents/skills/agent-harness/...` immediately and disappeared when deleted.
 - Visibility experiment (branch position): with a linked worktree exposed through a symlink, an uncommitted edit and a commit on a side branch were both readable through the link; the readable content always followed the checkout's current working tree, not any fixed revision.
-- Sessions launched inside linked Herdr worktrees of this repository (the reference setup runs one worktree per task) have no project skill location, so they resolve every skill through the global symlink, that is, through the shared checkout.
+- Sessions launched inside linked Herdr worktrees of this repository (the reference setup runs one worktree per task) have no project skill location, so they resolve every skill through the global symlink, that is, through the shared checkout. The Herdr-side procedure for that topology is in [herdr/references/worktree-workspace-teams.md](../herdr/references/worktree-workspace-teams.md).
 - No skill file in this repository references `~/.agents/skills` or any checkout or clone path; the symlink install was documented only in `README.md`.
 - Pi settings declared npm packages only — no git packages and no `skills` array. `~/.claude/skills` was symlinked to `~/.agents/skills`.
 

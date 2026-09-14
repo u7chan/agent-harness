@@ -191,13 +191,37 @@ wrappers_are_thin() {
   call_counts_are_exactly_once
 }
 
+markdown_links_resolve() {
+  local file link target dir checked=0
+  for file in "$HERDR_DIR"/*.md "$HERDR_DIR"/references/*.md; do
+    dir="$(dirname "$file")"
+    while IFS= read -r link; do
+      case "$link" in
+        http://*|https://*|mailto:*|'#'*) continue ;;
+      esac
+      target="${link%%#*}"
+      target="${target%%[[:space:]]*}"
+      target="${target#<}"
+      target="${target%>}"
+      [ -n "$target" ] || continue
+      if [ ! -f "$dir/$target" ]; then
+        printf 'FAIL: %s: relative link does not resolve: %s\n' "$file" "$link" >&2
+        return 1
+      fi
+      checked=$((checked + 1))
+    done < <(grep -oE '\]\([^)]*\)' "$file" | sed -e 's/^](//' -e 's/)$//')
+  done
+  # Guard against a parser that silently matches nothing.
+  [ "$checked" -gt 0 ]
+}
+
 run_test() {
   local test_name="$1"
   "$test_name"
   pass "$test_name"
 }
 
-expected_count=10
+expected_count=11
 
 run_test parent_success
 run_test child_success
@@ -209,6 +233,7 @@ run_test cli_failure_is_propagated
 run_test parent_display_name_fallbacks
 run_test python3_isolation
 run_test wrappers_are_thin
+run_test markdown_links_resolve
 
 [ "$pass_count" -eq "$expected_count" ] || {
   printf 'FAIL: expected %s tests, got %s\n' "$expected_count" "$pass_count" >&2
