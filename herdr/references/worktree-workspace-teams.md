@@ -46,14 +46,44 @@ operations, and normal delegation has no cross-workspace exception. When the
 user asks for this topology, hand the user the commands below and let the user
 run them.
 
-Start each role in a pane of the linked workspace. `herdr agent start` rejects
-a multi-line AGENT_ARG, so the agent flags go in the start call and the task
-body goes in a separate prompt call:
+The user prepares the task body and one pane per role before starting any
+agent.
 
-```bash
-herdr agent start <name> --kind pi --pane <pane-id> -- --provider <provider> --model <model> --thinking <level>
-herdr agent prompt <target> "$(cat <task-file>)"
-```
+1. Write the task body to a file. `herdr agent prompt` rejects empty text with
+   `empty_agent_prompt` (`agent prompt must not be empty`), and `$(cat
+   <task-file>)` on a missing file expands to exactly that empty string, so
+   create the file first and confirm it is non-empty:
+
+   ```bash
+   cat > <task-file> <<'TASK'
+   Goal: <what this role must deliver>
+   Acceptance: <how the result is verified>
+   Reporting: comment on the pull request or issue with the template below
+   TASK
+   test -s <task-file>
+   ```
+
+2. Take the role panes from the linked workspace. `herdr worktree create`
+   returns exactly one pane, its root pane (`result.root_pane.pane_id`), so
+   split that pane for every additional role and read the new pane ID from the
+   split response:
+
+   ```bash
+   herdr pane split --pane <root-pane-id> --direction right --cwd <worktree-path> --no-focus
+   ```
+
+   The root pane and every split pane are interactive shells in the worktree
+   checkout. Confirm the target pane is at its shell prompt before starting an
+   agent in it (`herdr pane get <pane-id>`).
+
+3. Start each role and prompt it. `herdr agent start` rejects a multi-line
+   AGENT_ARG, so the agent flags go in the start call and the task body goes
+   in a separate prompt call:
+
+   ```bash
+   herdr agent start <name> --kind pi --pane <pane-id> -- --provider <provider> --model <model> --thinking <level>
+   herdr agent prompt <target> "$(cat <task-file>)"
+   ```
 
 Measured on herdr 0.9.0, a multi-line AGENT_ARG fails before anything starts:
 
@@ -108,6 +138,30 @@ workspace ID from the open response, which is a new ID:
 herdr worktree open --cwd "$PWD" --path <worktree-path>
 herdr worktree remove --workspace <reopened-workspace-id>
 ```
+
+The linked workspace is not the only workspace involved. When the repository
+has no open workspace yet, `herdr worktree create` (and `worktree open`) also
+opens one for the source checkout: a single shell pane at the checkout path.
+The creation response names only the linked workspace, and `worktree remove`
+does not close the source workspace. If the source workspace was opened for
+this task and the user no longer needs it, close it after the linked workspace
+has been removed:
+
+```bash
+herdr workspace list
+herdr workspace close <source-workspace-id>
+```
+
+Identify it in `herdr workspace list` as the entry whose
+`worktree.is_linked_worktree` is `false` and whose `worktree.checkout_path` is
+the source checkout. If the repository already had an open workspace, `create`
+reuses it, so there is nothing to close and an existing workspace in the same
+repository is not this task's to close. Closing the source workspace while a
+linked worktree workspace is still open fails with
+`workspace_group_close_required`; `herdr workspace close
+<source-workspace-id> --group` closes the source and its linked worktree
+workspaces together but leaves their Git worktree checkouts on disk, so use
+the two-step order above.
 
 Removing by path is an upstream dependency: herdr 0.9.0 accepts only
 `--workspace` on `herdr worktree remove`, and `--path` fails with

@@ -111,5 +111,5 @@ After starting the agent, set the pane label to the same responsibility-based na
 ## Rules
 
 - Keep shared work in the current workspace and worktree.
-- Use an explicit Herdr worktree workspace for independent branches; starting a team inside one is a user action (see [Worktree workspaces](#worktree-workspaces)).
+- Create a Herdr worktree workspace only when the user explicitly requests it; ordinary independent-branch work stays in the current workspace and worktree (see [Worktree workspaces](#worktree-workspaces)).
 - Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested.

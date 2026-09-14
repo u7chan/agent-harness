@@ -162,11 +162,11 @@ hard permission boundary.
 
 ## Upstream dependency
 
-The enforcing runtime is upstream Herdr (github.com/herdrdev/herdr). Items 1
-and 3 of u7chan/agent-harness#208 — delegation from a parent workspace into a
-worktree workspace team, and enforcement of the workspace boundary by the
-runtime rather than by model compliance — cannot be satisfied in this
-repository until the runtime provides two capabilities:
+The enforcing runtime is upstream Herdr (github.com/herdrdev/herdr). Two
+runtime-side goals recorded in u7chan/agent-harness#208 — delegation from a
+parent workspace into a worktree workspace team, and enforcement of the
+workspace boundary by the runtime rather than by model compliance — cannot be
+satisfied in this repository until the runtime provides two capabilities:
 
 1. **An authorized delegation scope evaluated from trusted source context.**
    The scope must come from server-side state, not from the caller's
@@ -174,10 +174,10 @@ repository until the runtime provides two capabilities:
    or a human-only `herdr scope grant` / `herdr scope revoke` that an agent
    process cannot invoke or inherit. Scope rejection must also stay
    distinguishable from transport failure (property 6 of [Minimal upstream
-   contract](#minimal-upstream-contract)). This is what items 1 and 3 of #208
-   require together: with a scope evaluated from trusted source context, the
-   runtime can allow the authorized parent-to-worktree-team edge and reject a
-   raw bypass by the same rule.
+   contract](#minimal-upstream-contract)). Both goals depend on it: with a
+   scope evaluated from trusted source context, the runtime can allow the
+   authorized parent-to-worktree-team edge and reject a raw bypass by the same
+   rule.
 2. **`herdr worktree remove --path <path>`.** A closed worktree workspace
    currently has to be reopened before it can be removed, because removal
    keys on a live workspace ID.
