@@ -118,6 +118,20 @@ preflight_failures() {
     "$CHILD_SCRIPT" wG:p1 completed body
 }
 
+child_rejects_cross_workspace() {
+  : > "$HERDR_TEST_CALLS"
+  rm -f "$HERDR_TEST_TARGET"
+  # Direct parent pane outside HERDR_WORKSPACE_ID.
+  expect_rc 1 "$CHILD_SCRIPT" wJ:p1 completed 'body'
+  # Own pane outside HERDR_WORKSPACE_ID.
+  expect_rc 1 env HERDR_PANE_ID=wJ:p1 "$CHILD_SCRIPT" wG:p1 completed 'body'
+  # No workspace pin to check against.
+  expect_rc 1 env -u HERDR_WORKSPACE_ID "$CHILD_SCRIPT" wG:p1 completed 'body'
+  # Every rejection happens before the herdr prompt call: zero target write.
+  [ ! -e "$HERDR_TEST_TARGET" ]
+  [ ! -s "$HERDR_TEST_CALLS" ]
+}
+
 cli_failure_is_propagated() {
   expect_rc 17 env HERDR_TEST_RC=17 "$PARENT_SCRIPT" wG:p2 prompt
   expect_rc 17 env HERDR_TEST_RC=17 "$CHILD_SCRIPT" wG:p1 completed body
@@ -183,13 +197,14 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=9
+expected_count=10
 
 run_test parent_success
 run_test child_success
 run_test child_blocked
 run_test invalid_arguments
 run_test preflight_failures
+run_test child_rejects_cross_workspace
 run_test cli_failure_is_propagated
 run_test parent_display_name_fallbacks
 run_test python3_isolation
