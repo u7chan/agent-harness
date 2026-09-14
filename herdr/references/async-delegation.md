@@ -86,7 +86,11 @@ An unknown outcome is distinct from an observed nonzero exit. Do not infer eithe
 
 ## Workspace and worktree ownership
 
-Agents that edit the same deliverable share the current Herdr workspace and worktree. A subtree that needs an independent branch must first be placed in an explicitly created Herdr worktree workspace:
+Agents that edit the same deliverable share the current Herdr workspace and worktree. Normal delegation is same-workspace only in both directions: the parent-to-child wrapper and the child-to-parent return both reject any pane outside `$HERDR_WORKSPACE_ID`. A Herdr worktree workspace is a different workspace with its own workspace ID, and the wrappers never reach into it, so a conforming agent has no way to place or prompt a team there. When a task needs its own branch and the user wants a self-contained team for it, the user establishes that topology as described in [Worktree workspace teams](worktree-workspace-teams.md); the agent must not do it by writing across the boundary.
+
+Do not work around the workspace check with a raw cross-workspace `herdr agent prompt` or `herdr agent start`. That bypass is the model-compliance dependence rejected by [Technical delegation boundary](technical-delegation-boundary.md): a non-conforming model would succeed where a conforming one stops. Read-only discovery of worktree workspaces stays allowed.
+
+The worktree lifecycle commands remain available, and they never delegate:
 
 ```bash
 herdr workspace list
@@ -99,7 +103,8 @@ Resolve the real workspace ID from the creation response. Remove only a linked w
 
 ```bash
 herdr worktree list --cwd "$PWD"
+herdr worktree open --cwd "$PWD" --path <worktree-path>
 herdr worktree remove --workspace <linked-workspace-id>
 ```
 
-The helper scripts never create, share, or remove workspaces, worktrees, tabs, or panes. A caller must explicitly establish the workspace topology before delegation.
+The helper scripts never create, share, or remove workspaces, worktrees, tabs, or panes, and they never write across a workspace boundary. A caller must explicitly establish the workspace topology before delegation; a worktree workspace is outside that topology because a conforming agent cannot delegate into it.
