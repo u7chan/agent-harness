@@ -38,6 +38,8 @@ body:
 
 The child does not discover or infer a parent. It uses only the pane ID included in its delegation prompt. The parent wrapper does not accept a caller-supplied return destination. The child helper sends the return to that direct parent pane with one raw `herdr agent prompt` call.
 
+The return path is workspace-scoped like the delegation path. The child helper rejects the call before that prompt when `$HERDR_PANE_ID` or the direct parent pane does not belong to `$HERDR_WORKSPACE_ID`, so a return that would cross a workspace boundary writes nothing to the target pane.
+
 ## Display names
 
 The name shown on a pane border resolves as `label ?? agent kind`:
@@ -76,7 +78,7 @@ herdr agent read <agent-or-pane> --source recent-unwrapped --lines 200
 
 An idle or working parent can receive a return through the same existing `agent prompt` operation. The wrappers do not claim that delivery means task completion, and they do not implement a retry or queue when a parent is busy. If a particular agent kind cannot accept a return while working, stop with the reproduction and track that behavior separately.
 
-The wrappers expose distinct failure observations. For `parent-delegate-async.sh`, invalid arguments, a missing `HERDR_ENV=1`, a missing `herdr` executable, or a workspace check that rejects the child or parent pane occurs before the prompt call, so nothing is delivered to the child. For `child-return-result.sh`, invalid arguments, a missing `HERDR_ENV=1`, or a missing `herdr` executable occurs before its prompt call, so nothing is delivered to the direct parent.
+The wrappers expose distinct failure observations. For `parent-delegate-async.sh`, invalid arguments, a missing `HERDR_ENV=1`, a missing `herdr` executable, or a workspace check that rejects the child or parent pane occurs before the prompt call, so nothing is delivered to the child. For `child-return-result.sh`, invalid arguments, a missing `HERDR_ENV=1`, a missing `herdr` executable, or a workspace check that rejects `$HERDR_PANE_ID` or the direct parent pane occurs before its prompt call, so nothing is delivered to the direct parent.
 
 An observed nonzero exit from a wrapper's `herdr agent prompt` call is a transport failure. The parent helper propagates that observed nonzero exit, and delivery to the child is unconfirmed. The child helper likewise propagates an observed nonzero exit, and delivery to the direct parent is unconfirmed.
 
@@ -90,6 +92,8 @@ Agents that edit the same deliverable share the current Herdr workspace and work
 herdr workspace list
 herdr worktree create --cwd "$PWD" --branch <branch-name>
 ```
+
+Pin the source checkout with `--cwd` (or `--workspace`) on `worktree create`, `open`, and `list`. Without it the source follows the client's focused workspace rather than the caller's cwd or `$HERDR_WORKSPACE_ID`, so an unpinned call can act on another repository. When that focused workspace is itself a linked worktree, `worktree create` and `worktree open` fail with `linked_worktree_source`, while `worktree list` resolves the source to that worktree's parent repository instead.
 
 Resolve the real workspace ID from the creation response. Remove only a linked worktree workspace, using the corresponding Herdr command:
 
