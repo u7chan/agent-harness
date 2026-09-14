@@ -14,7 +14,7 @@ test "${HERDR_ENV:-}" = 1 || exit 1
 command -v herdr >/dev/null || exit 1
 ```
 
-Resolve pane and workspace IDs from Herdr JSON responses. Do not guess IDs. Create or remove a worktree workspace only when the user explicitly requests it; use `herdr worktree create` and `herdr worktree remove`.
+Resolve pane and workspace IDs from Herdr JSON responses. Do not guess IDs. Create or remove a worktree workspace only when the user explicitly requests it; use `herdr worktree create` and `herdr worktree remove`, and pin the source checkout with `--cwd "$PWD"` (or `--workspace "$HERDR_WORKSPACE_ID"`) because an unpinned call follows the client's focused workspace instead of the caller's cwd.
 
 ## Caller pinning
 

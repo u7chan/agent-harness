@@ -93,6 +93,8 @@ herdr workspace list
 herdr worktree create --cwd "$PWD" --branch <branch-name>
 ```
 
+Pin the source checkout with `--cwd` (or `--workspace`) on `worktree create`, `open`, and `list`. Without it the source follows the client's focused workspace rather than the caller's cwd or `$HERDR_WORKSPACE_ID`: an unpinned call can act on another repository, and it fails with `linked_worktree_source` when the focused workspace is itself a linked worktree.
+
 Resolve the real workspace ID from the creation response. Remove only a linked worktree workspace, using the corresponding Herdr command:
 
 ```bash
