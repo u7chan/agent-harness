@@ -207,6 +207,11 @@ preflight_failures() {
     "$PARENT_SCRIPT" wG:p2 prompt
   expect_rc 1 env HERDR_WORKSPACE_ID=wG HERDR_PANE_ID=wJ:p1 \
     "$PARENT_SCRIPT" wG:p2 prompt
+  # The child wrapper pins its own pane the same way, in both directions.
+  expect_rc 1 env HERDR_ENV=1 HERDR_PANE_ID=wJ:p1 PATH="$PATH" \
+    "$CHILD_SCRIPT" wG:p2 completed body
+  expect_rc 1 env -u HERDR_WORKSPACE_ID HERDR_ENV=1 HERDR_PANE_ID=wG:p1 PATH="$PATH" \
+    "$CHILD_SCRIPT" wG:p2 completed body
   expect_rc 1 env HERDR_ENV=1 HERDR_PANE_ID=wG:p1 PATH="$TEST_TMP/empty:/usr/bin:/bin" \
     "$CHILD_SCRIPT" wG:p2 completed body
 }
@@ -481,6 +486,24 @@ worktree_team_start_flow() {
   expect_rc 1 env HERDR_TEST_WAIT_RC=1 "$START_SCRIPT" wB:p2 impl \
     --provider anthropic --model claude-sonnet-4-5 --thinking high "$task_file"
   [ -s "$HERDR_TEST_STARTS" ]
+  [ "$(wc -l < "$HERDR_TEST_WAITS")" -eq 1 ]
+  [ ! -e "$HERDR_TEST_TARGET" ]
+
+  # A failed start stops before the wait and the prompt.
+  reset_logs
+  expect_rc 1 env HERDR_TEST_START_RC=1 "$START_SCRIPT" wB:p2 impl \
+    --provider anthropic --model claude-sonnet-4-5 --thinking high "$task_file"
+  [ -s "$HERDR_TEST_STARTS" ]
+  [ ! -s "$HERDR_TEST_WAITS" ]
+  [ ! -s "$HERDR_TEST_RENAMES" ]
+  [ ! -e "$HERDR_TEST_TARGET" ]
+
+  # A failed rename stops before the prompt.
+  reset_logs
+  expect_rc 1 env HERDR_TEST_RENAME_RC=1 "$START_SCRIPT" wB:p2 impl \
+    --provider anthropic --model claude-sonnet-4-5 --thinking high "$task_file"
+  [ -s "$HERDR_TEST_STARTS" ]
+  grep -Fqx 'wB:p2 impl' "$HERDR_TEST_RENAMES"
   [ ! -e "$HERDR_TEST_TARGET" ]
 
   # Validation failures happen before any herdr write.

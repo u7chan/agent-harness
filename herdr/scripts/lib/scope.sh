@@ -21,6 +21,11 @@
 #
 # The rules are an operational safeguard, not a permission boundary; see
 # references/technical-delegation-boundary.md.
+#
+# Grants are matched by workspace ID only. Workspace IDs are server-local and
+# the scope file is shared per user, so a grant recorded for one Herdr server
+# also matches the same workspace-ID pair on another server of that user;
+# cross-server delegation is out of scope and the file is per-user state.
 
 # scope_reject <reason>
 #

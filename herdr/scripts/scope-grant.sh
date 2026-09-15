@@ -5,6 +5,11 @@
 # The grant file is a record of who allowed what for which task. It is not a
 # forgeable capability and not a permission boundary: an agent process can
 # read and write it directly. See references/technical-delegation-boundary.md.
+#
+# Grants are matched by workspace ID. Workspace IDs are server-local while the
+# file is shared per user, so a grant also covers a same-ID workspace pair on
+# another Herdr server of that user; cross-server delegation stays out of
+# scope, and the file is per-user state rather than per-server state.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
