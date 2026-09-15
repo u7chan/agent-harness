@@ -22,7 +22,7 @@ Delegation requires both `$HERDR_WORKSPACE_ID` and `$HERDR_PANE_ID`. If either i
 
 ## Resolve the delegation target
 
-This section is authoritative for candidate resolution, branching, and stop conditions. A request for "another pane" (別ペイン) means another pane in the current workspace of the current Herdr server, not a physical neighbor. These rules are an operational safeguard for skill-compliant agents; they do not add a technical enforcement boundary.
+This section is authoritative for candidate resolution, branching, and stop conditions. A request for "another pane" (別ペイン) means another pane in the current workspace of the current Herdr server, not a physical neighbor. A request that names a Herdr worktree workspace instead of a pane follows [Worktree workspaces](#worktree-workspaces). These rules are an operational safeguard for skill-compliant agents; they do not add a technical enforcement boundary.
 
 The invariant and responsibility split required for a hard boundary are defined in [Technical delegation boundary](references/technical-delegation-boundary.md). Do not infer a stronger guarantee from this skill or from the wrappers.
 
@@ -40,7 +40,7 @@ Build candidates only from the response of:
 herdr pane list --workspace "$HERDR_WORKSPACE_ID"
 ```
 
-Exclude `$HERDR_PANE_ID` itself and every pane whose `workspace_id` differs from `$HERDR_WORKSPACE_ID`. Global `workspace list`, argument-less `pane list` and `agent list`, `pane layout`, `herdr machine list` and other cross-machine combined inventories, and UI focus are read-only investigation aids; never select a delegation candidate from them.
+Exclude `$HERDR_PANE_ID` itself. A pane in another workspace is a candidate only when the edge is allowed by [Worktree workspaces](#worktree-workspaces), and then resolve it from `herdr pane list --workspace <that-workspace-id>` or from the `herdr worktree create` response, never from a mixed inventory. Global `workspace list`, argument-less `pane list` and `agent list`, `pane layout`, `herdr machine list` and other cross-machine combined inventories, and UI focus are read-only investigation aids; never select a delegation candidate from them.
 
 Select a candidate only when exactly one pane satisfies the explicitly stated conditions. Zero or multiple matches, unknown pane metadata, and JSON or API errors branch the same way: do not infer an alternative candidate, and move on to [When the requested agent is absent](#when-the-requested-agent-is-absent) or ask the user.
 
@@ -81,9 +81,9 @@ herdr/scripts/parent-delegate-async.sh <child-pane> "<prompt>"
 herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<body>"
 ```
 
-The parent wrapper is the mandatory route for a new parent-to-child delegation and for any additional task that expects a result return. Resolve the target as defined in [Resolve the delegation target](#resolve-the-delegation-target) and pass the returned pane ID, never an agent name. Treat the wrapper as part of the candidate: if it is unavailable, was not executed, exits nonzero, or you can predict that it would reject a workspace mismatch, the candidate is invalid — re-resolve within `$HERDR_WORKSPACE_ID` or report blocked. Do not rebuild the wrapper prompt by hand and do not fall back to raw `herdr agent prompt`, another wrapper, or `pane send-text`. After a transport failure or an unknown result, do not resend without confirming state first, and keep a scope reject distinct from a transport failure. The child wrapper's own raw `herdr agent prompt` call is its fixed return transport, not a license for raw parent-to-child prompts. Even when the user explicitly names a pane in another workspace or on another Herdr server, direct-parent delegation is unsupported: stop there.
+The parent wrapper is the mandatory route for a new parent-to-child delegation and for any additional task that expects a result return. Resolve the target as defined in [Resolve the delegation target](#resolve-the-delegation-target) and pass the returned pane ID, never an agent name. Treat the wrapper as part of the candidate: if it is unavailable, was not executed, exits nonzero, or you can predict that it would reject the edge, the candidate is invalid — re-resolve within an allowed edge or report blocked. Do not rebuild the wrapper prompt by hand and do not fall back to raw `herdr agent prompt`, another wrapper, or `pane send-text`. After a transport failure or an unknown result, do not resend without confirming state first, and keep a scope reject distinct from a transport failure. The child wrapper's own raw `herdr agent prompt` call is its fixed return transport, not a license for raw parent-to-child prompts. Cross-server delegation stays unsupported even when the user explicitly names a pane on another Herdr server: stop there.
 
-The parent wrapper verifies that both panes belong to `$HERDR_WORKSPACE_ID` and adds the current `$HERDR_PANE_ID` with its resolved display name plus the absolute child-wrapper path to the prompt. The child wrapper returns one status and free-form body to that pane, and applies the same scope check before it writes: its own pane and the direct parent pane must both belong to `$HERDR_WORKSPACE_ID`, or the return fails with no prompt call. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for the wrapper protocol, display names, failure handling, and worktree rules.
+The parent wrapper verifies the caller's own pane, classifies the edge to the child pane (see [Worktree workspaces](#worktree-workspaces)), and only then adds the current `$HERDR_PANE_ID` with its resolved display name plus the absolute child-wrapper path to the prompt. The child wrapper returns one status and free-form body to that pane and applies the same scope check in the reverse direction before it writes: a rejected edge exits 3 with `scope-reject: <reason>` on stderr and writes nothing to the target. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for the wrapper protocol, display names, failure handling, and worktree rules.
 
 The wrappers validate their arguments and environment, call the existing `herdr agent prompt` command, and propagate its result. The parent wrapper additionally calls read-only `herdr pane get` once to resolve the parent display name; if that lookup fails, the prompt keeps the bare pane ID. They do not wait, retry, queue, persist state, or create Herdr resources.
 
@@ -91,9 +91,17 @@ If a return to a working parent exposes an agent-kind-specific problem, stop and
 
 ## Worktree workspaces
 
-Normal delegation never crosses a workspace boundary. A Herdr worktree workspace is a different workspace with its own workspace ID, so the wrappers and their scope checks cannot reach a team placed there, and a conforming agent has no way to start or prompt one inside it. Read-only discovery (`herdr workspace list`, `herdr worktree list --cwd "$PWD"`, `herdr pane list --workspace <linked-workspace-id>`) stays allowed, and the worktree lifecycle commands stay available when the user explicitly requests them.
+Delegation crosses a workspace boundary only through an edge that server-side state or a recorded grant allows. There are three allowed edges:
 
-When the user asks for a team to run self-contained in a worktree workspace, do not write across the boundary: hand the user the exact startup commands from [Worktree workspace teams](references/worktree-workspace-teams.md) and let the user start the team. The team's internal delegation then stays inside its own workspace.
+- `same-workspace` — source and target are the same workspace, as before.
+- `worktree-team` — both workspaces report the same `worktree.repo_root` in `herdr workspace list`, and exactly one of them is a linked worktree (`worktree.is_linked_worktree`). The parent checkout may delegate into its linked worktree, and the linked worktree may return to the parent checkout. Two linked worktrees (siblings) and two checkouts of one repository carry the same `repo_root` but are not this edge.
+- `granted` — an unexpired record in the delegation-scope file covers the edge, in either direction. Use `herdr/scripts/scope-grant.sh` to record, list, and revoke grants when a human authorizes an edge the shape rules do not derive; `--target-repo` grants every workspace of that repository, not one workspace ID. Records are keyed by workspace ID, which is server-local, and the file is shared per user, so a grant also covers a same-ID workspace pair on another Herdr server of that user; cross-server delegation stays unsupported.
+
+The wrappers classify every edge with `herdr/scripts/lib/scope.sh` immediately before they write. A rejected edge exits 3 with `scope-reject: <reason>` on stderr and writes nothing to the target, so a scope reject stays distinct from a transport failure. Anything that cannot be decided is a reject: a failed or malformed `herdr workspace list`, a workspace the server does not report, a missing repository relation, and a self target (the caller's own pane). The grant file is a record of human intent, not a permission boundary; see [Technical delegation boundary](references/technical-delegation-boundary.md).
+
+Read-only discovery (`herdr workspace list`, `herdr worktree list --cwd "$PWD"`, `herdr pane list --workspace <linked-workspace-id>`) stays allowed, and the worktree lifecycle commands stay available when the user explicitly requests them.
+
+When the user asks for a team to run self-contained in a worktree workspace, start and coordinate it as described in [Worktree workspace teams](references/worktree-workspace-teams.md).
 
 ## Pane operations
 
@@ -113,3 +121,4 @@ After starting the agent, set the pane label to the same responsibility-based na
 - Keep shared work in the current workspace and worktree.
 - Create a Herdr worktree workspace only when the user explicitly requests it; ordinary independent-branch work stays in the current workspace and worktree (see [Worktree workspaces](#worktree-workspaces)).
 - Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested.
+- Never prompt or start an agent across a workspace boundary directly; use the wrappers or `herdr/scripts/worktree-team-start.sh`, which classify the edge first, and stop on `scope-reject` instead of retrying around it.

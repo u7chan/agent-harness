@@ -1,17 +1,20 @@
 # Worktree workspace teams
 
-Interim procedure for running a team self-contained in a Herdr worktree
-workspace while Herdr has no authorized delegation scope. Normal delegation is
-same-workspace only ([`async-delegation.md`](async-delegation.md)), so a team
-inside a worktree workspace is started and driven by the user, not by a
-delegating agent. This procedure keeps that boundary intact instead of
-bypassing it, and adds no runtime, state file, or queue.
+Procedure for running a team inside a Herdr worktree workspace. The parent
+workspace normally starts and coordinates that team itself: the
+`worktree-team` edge (parent checkout to its linked worktree, and back) is
+derived from `herdr workspace list` state and is allowed by the delegation
+scope rules. Starting the team by hand remains the fallback for the cases the
+rules do not cover and for users who want to drive the team directly.
+
+The scope rules are operational safeguards, not a permission boundary
+([`async-delegation.md`](async-delegation.md#workspace-and-worktree-ownership),
+[Technical delegation boundary](technical-delegation-boundary.md)).
 
 ## When to use it
 
-The user asks for a task-per-worktree topology whose team runs self-contained:
-one Herdr worktree workspace per task, its own branch, and its own roles that
-finish the task without prompts from the parent workspace.
+The user asks for a task-per-worktree topology with one Herdr worktree
+workspace per task, its own branch, and its own roles.
 
 Do not propose this topology for ordinary work on an independent branch.
 Shared work stays in the current workspace and worktree
@@ -38,75 +41,92 @@ result.root_pane.pane_id             root pane, at an interactive shell
 
 Do not guess these IDs from display order, labels, or a later `worktree list`.
 
-## Team startup
+## Starting and coordinating the team
 
-Startup is a user action. A delegating agent must not write into the worktree
-workspace: `herdr agent start` and `herdr agent prompt` are write-capable
-operations, and normal delegation has no cross-workspace exception. When the
-user asks for this topology, hand the user the commands below and let the user
-run them.
+The parent may start and prompt the team when the edge from the parent
+workspace to the worktree workspace is allowed:
 
-The user prepares the task body and one pane per role before starting any
-agent.
+- `worktree-team` — the parent workspace and the worktree workspace report the
+  same `worktree.repo_root` and exactly one of them is a linked worktree. This
+  is the normal case, because `herdr worktree create` links the new workspace
+  to the checkout it was pinned to. It covers both the delegation into the
+  worktree and the return to the parent.
+- `granted` — for a pair the shape rules do not derive, a human records the
+  edge first. `--target-repo` covers every workspace of that repository, so it
+  does not have to be repeated per worktree:
 
-1. Write the task body to a file. `herdr agent prompt` rejects empty text with
-   `empty_agent_prompt` (`agent prompt must not be empty`), and `$(cat
-   <task-file>)` on a missing file expands to exactly that empty string, so
-   create the file first and confirm it is non-empty:
+```bash
+herdr/scripts/scope-grant.sh grant --source <parent-workspace> --target-repo <repo-root> --by <name> --task <issue-or-pr> [--ttl <seconds>]
+```
 
-   ```bash
-   cat > <task-file> <<'TASK'
-   Goal: <what this role must deliver>
-   Acceptance: <how the result is verified>
-   Reporting: comment on the pull request or issue with the template below
-   TASK
-   test -s <task-file>
-   ```
+Sibling worktrees of one repository, a second checkout of the repository, and
+cross-server targets stay rejected. A rejected edge exits 3 with
+`scope-reject: <reason>` and writes nothing; report it instead of retrying
+around it.
 
-2. Take the role panes from the linked workspace. `herdr worktree create`
-   returns exactly one pane, its root pane (`result.root_pane.pane_id`), so
-   split that pane for every additional role and read the new pane ID from the
-   split response:
+Prepare one pane per role and one task file per role before starting anything.
+The worktree root pane comes from the creation response, so split it for every
+additional role and read the new pane ID from the split response:
 
-   ```bash
-   herdr pane split --pane <root-pane-id> --direction right --cwd <worktree-path> --no-focus
-   ```
+```bash
+herdr pane split --pane <root-pane-id> --direction right --cwd <worktree-path> --no-focus
+```
 
-   The root pane and every split pane are interactive shells in the worktree
-   checkout. Confirm the target pane is at its shell prompt before starting an
-   agent in it (`herdr pane get <pane-id>`).
+Write the task body to a file first and confirm it is non-empty. `herdr agent
+prompt` rejects empty text with `empty_agent_prompt`, and
+`$(cat <task-file>)` on a missing file expands to exactly that empty string:
 
-3. Start each role and prompt it. `herdr agent start` rejects a multi-line
-   AGENT_ARG, so the agent flags go in the start call and the task body goes
-   in a separate prompt call:
+```bash
+cat > <task-file> <<'TASK'
+Goal: <what this role must deliver>
+Acceptance: <how the result is verified>
+Reporting: return the final status and body to the direct parent pane; comment on the pull request or issue when one exists
+TASK
+test -s <task-file>
+```
 
-   ```bash
-   herdr agent start <name> --kind pi --pane <pane-id> -- --provider <provider> --model <model> --thinking <level>
-   herdr agent prompt <target> "$(cat <task-file>)"
-   ```
+Start the team member and delegate the task body in one command, from the
+parent workspace:
 
-Measured on herdr 0.9.0, a multi-line AGENT_ARG fails before anything starts:
+```bash
+herdr/scripts/worktree-team-start.sh <pane-id> <role> --provider <provider> --model <model> --thinking <level> <task-file>
+```
+
+The script classifies the edge before anything else, then runs the sequence
+that a manual start used to spell out: `herdr agent start <role> --kind pi
+--pane <pane-id> --timeout 60000 -- --provider <provider> --model <model>
+--thinking <level>`, a bounded wait of up to 60 seconds for the agent to
+become interactive, `herdr pane rename <pane-id> <role>`, and finally the task
+body through `parent-delegate-async.sh`, which appends the direct-parent
+return instruction. A failed start, readiness wait, or rename stops the
+command before the prompt, and the scope reject exits 3. A failed prompt is a
+transport failure: the agent stays started and renamed in its pane, so
+inspect that pane (`herdr agent get`, `herdr agent read`) instead of starting
+a second agent next to it. The agent flags are
+single-line tokens passed as discrete arguments: `herdr agent start` rejects a
+multi-line AGENT_ARG before anything starts:
 
 ```text
 {"error":{"code":"invalid_agent_argument","message":"agent arguments cannot be encoded safely for the target shell"},"id":"cli:agent:start"}
 ```
 
-The two-step form is canonical. Upstream declined file or stdin input for
-`herdr agent prompt` (herdrdev/herdr#3367, closed as not planned on
-2026-08-29), so the body must arrive as one shell argument; expanding it at
-the prompt call from a task file keeps quoting simple. Do not put the task body
-in the start arguments, and do not split it into several prompt calls.
+Upstream declined file or stdin input for `herdr agent prompt`
+(herdrdev/herdr#3367, closed as not planned on 2026-08-29), so the body must
+arrive as one shell argument; the script expands it from the task file at the
+prompt call and keeps the agent flags in the separate start call.
 
-After the user has started the team, its internal delegation is ordinary
-same-workspace delegation: the wrappers work between panes of the worktree
-workspace. Only the edge to the parent workspace is missing, and it stays
-missing by design.
+### Fallback: user-started teams
 
-## Self-containment contract
+When the edge is not allowed, when the user prefers to drive the team, or when
+the parent must not write into the worktree workspace, hand the user the
+commands above and let the user run them. The user then also owns progress:
+the parent collects results from the pull request or issue through the `gh`
+skill instead of receiving wrapper returns.
 
-Once started, the team does not depend on parent prompts. Report progress, a
-waiting decision, and completion with one fixed template, posted as a comment
-on the task's pull request, or on the issue while no pull request exists:
+For a self-contained team whose members do not return to the parent, report
+progress, a waiting decision, and completion with one fixed template, posted
+as a comment on the task's pull request, or on the issue while no pull request
+exists:
 
 ```text
 status: progress | decision-wait | completed
@@ -116,10 +136,13 @@ body: <what changed, or the question, in one to three lines>
 
 A `decision-wait` report is a question for the parent or the user; the answer
 arrives as a reply on the same comment thread, and the team continues when it
-reads that reply. The parent collects results by reading the pull request or
-issue through the `gh` skill, never by prompting across workspaces. The team
-owns its own progress; the parent does not send follow-up prompts, and the
-team does not wait on one.
+reads that reply. The parent does not send follow-up prompts to a fallback
+team. Do not mix the two modes in one team: either the parent starts and
+coordinates the team through the wrappers, or the user starts it and it
+reports through GitHub comments.
+
+Within the worktree workspace, the team's internal delegation is ordinary
+same-workspace delegation and the wrappers work between its panes.
 
 ## Cleanup
 
@@ -170,13 +193,13 @@ Removing by path is an upstream dependency: herdr 0.9.0 accepts only
 
 ## Prohibitions
 
-- Do not bypass the boundary with a raw cross-workspace `herdr agent prompt`
-  or `herdr agent start`. That is exactly the model-compliance dependence the
-  boundary document rejects: a non-conforming model would succeed where a
-  conforming one stops.
-- Do not start or prompt a team in a worktree workspace on your own
-  initiative, and do not answer a `decision-wait` by targeting the workspace
-  directly.
+- Do not bypass a rejected edge with a raw cross-workspace
+  `herdr agent prompt` or `herdr agent start`. That is exactly the
+  model-compliance dependence the boundary document rejects: a non-conforming
+  model would succeed where a conforming one stops.
+- Do not hand a user-started fallback team's work back to the wrapper path by
+  targeting its workspace directly, and do not prompt a fallback team from the
+  parent.
 - Do not close or remove the workspace while its team is working.
 - Read-only discovery stays allowed: `herdr workspace list`,
   `herdr worktree list --cwd "$PWD"`, and

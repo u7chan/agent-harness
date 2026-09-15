@@ -26,17 +26,26 @@ prompt="$2"
 parent_pane="${HERDR_PANE_ID:-}"
 workspace="${HERDR_WORKSPACE_ID:-}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/scope.sh
+source "$script_dir/lib/scope.sh"
 child_script="$script_dir/child-return-result.sh"
 
 valid_pane "$target" || usage
 valid_pane "$parent_pane" || fail 'HERDR_PANE_ID must be a valid pane ID'
 valid_workspace "$workspace" || fail 'HERDR_WORKSPACE_ID must be a valid workspace ID'
-[ "${target%%:*}" = "$workspace" ] || fail 'child pane must belong to HERDR_WORKSPACE_ID'
 [ "${parent_pane%%:*}" = "$workspace" ] || fail 'HERDR_PANE_ID must belong to HERDR_WORKSPACE_ID'
 [ -n "$prompt" ] || usage
 [ "${HERDR_ENV:-}" = 1 ] || fail 'HERDR_ENV must be 1'
 command -v herdr >/dev/null 2>&1 || fail 'herdr is required'
 [ -x "$child_script" ] || fail 'child-return-result.sh is required'
+
+# Scope check before any lookup or write. Same-workspace delegation stays as
+# it was; a cross-workspace edge is classified from server state and grants.
+target_workspace="${target%%:*}"
+[ "$target" != "$parent_pane" ] || scope_reject self-pane
+if [ "$target_workspace" != "$workspace" ]; then
+  scope_require "$workspace" "$target_workspace"
+fi
 
 # Best-effort display name for the parent pane, matching what Herdr shows on
 # the pane border: manual label first, then detected agent kind. Cosmetic only;

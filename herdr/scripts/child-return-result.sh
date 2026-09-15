@@ -26,6 +26,9 @@ status="$2"
 body="$3"
 child_pane="${HERDR_PANE_ID:-}"
 workspace="${HERDR_WORKSPACE_ID:-}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/scope.sh
+source "$script_dir/lib/scope.sh"
 
 valid_pane "$parent_pane" || usage
 case "$status" in
@@ -35,10 +38,17 @@ esac
 [ -n "$body" ] || usage
 valid_pane "$child_pane" || fail 'HERDR_PANE_ID must be a valid pane ID'
 valid_workspace "$workspace" || fail 'HERDR_WORKSPACE_ID must be a valid workspace ID'
-[ "${parent_pane%%:*}" = "$workspace" ] || fail 'parent pane must belong to HERDR_WORKSPACE_ID'
 [ "${child_pane%%:*}" = "$workspace" ] || fail 'HERDR_PANE_ID must belong to HERDR_WORKSPACE_ID'
 [ "${HERDR_ENV:-}" = 1 ] || fail 'HERDR_ENV must be 1'
 command -v herdr >/dev/null 2>&1 || fail 'herdr is required'
+
+# Scope check before the prompt call. The return uses the same rules as the
+# delegation that created the edge, in the reverse direction.
+target_workspace="${parent_pane%%:*}"
+[ "$parent_pane" != "$child_pane" ] || scope_reject self-pane
+if [ "$target_workspace" != "$workspace" ]; then
+  scope_require "$workspace" "$target_workspace"
+fi
 
 result_message="status: ${status}
 body:
