@@ -200,30 +200,36 @@ check_contains "4c session flag is injected" "$argv" 'ARG[-s=t]'
 
 # --- 5. headed is opt-in --------------------------------------------------
 env -u PW_HEADED DISPLAY=':0' PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
+rc_unset=$?
+cp "$SHIM_ARGV" "$WORK/argv.unset"
 check_not_contains "5a unset PW_HEADED + DISPLAY=:0 omits --headed" \
   "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
 
-hdr="$(env -u PW_HEADED DISPLAY=':0' PW_SESSION=t bash "$PW" open https://example.com/ 2>&1 >/dev/null)"
-check_contains "5b unset PW_HEADED reports headless on stderr" "$hdr" '[pw] headed=false'
-
 PW_HEADED=0 DISPLAY=':0' PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
-check_not_contains "5c PW_HEADED=0 omits --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+rc_zero=$?
+check_not_contains "5b PW_HEADED=0 omits --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+check_eq "5c PW_HEADED=0 passes the same argv as unset" \
+  "$(cmp -s "$WORK/argv.unset" "$SHIM_ARGV" && echo same || echo different)" "same"
+check_eq "5d PW_HEADED=0 exits like unset" "$rc_zero/$rc_unset" "0/0"
+
+hdr="$(env -u PW_HEADED DISPLAY=':0' PW_SESSION=t bash "$PW" open https://example.com/ 2>&1 >/dev/null)"
+check_contains "5e unset PW_HEADED reports headless on stderr" "$hdr" '[pw] headed=false'
 
 for v in '' auto true 2; do
   PW_HEADED="$v" PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
-  check_not_contains "5d PW_HEADED='$v' omits --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+  check_not_contains "5f PW_HEADED='$v' omits --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
 done
 
 PW_HEADED=1 DISPLAY='' PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
-check_contains "5e PW_HEADED=1 adds --headed even without DISPLAY" \
+check_contains "5g PW_HEADED=1 adds --headed even without DISPLAY" \
   "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
 
 PW_HEADED=0 PW_SESSION=t bash "$PW" open --headed https://example.com/ >/dev/null 2>&1
-check_eq "5f explicit --headed wins over PW_HEADED=0 without duplication" \
+check_eq "5h explicit --headed wins over PW_HEADED=0 without duplication" \
   "$(grep -c 'ARG\[--headed\]' "$SHIM_ARGV")" "1"
 
 PW_HEADED=1 PW_SESSION=t bash "$PW" open --headed https://example.com/ >/dev/null 2>&1
-check_eq "5g explicit --headed with PW_HEADED=1 is not duplicated" \
+check_eq "5i explicit --headed with PW_HEADED=1 is not duplicated" \
   "$(grep -c 'ARG\[--headed\]' "$SHIM_ARGV")" "1"
 
 # --- 6. missing binary ----------------------------------------------------

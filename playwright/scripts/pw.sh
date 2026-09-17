@@ -197,7 +197,7 @@ decide_headed() {
   case "${PW_HEADED:-}" in
     1) note "headed=true (PW_HEADED=1)"; echo 1 ;;
     0) note "headed=false (PW_HEADED=0)"; echo 0 ;;
-    '') note "headed=false (PW_HEADED unset)"; echo 0 ;;
+    '') note "headed=false (PW_HEADED unset or empty)"; echo 0 ;;
     *) note "headed=false (PW_HEADED=$PW_HEADED: only 1 turns headed on)"; echo 0 ;;
   esac
 }
