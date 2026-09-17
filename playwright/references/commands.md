@@ -224,11 +224,12 @@ playwright-cli close
 playwright-cli delete-data
 ```
 
-`--headed` (visible window) is auto-detected from the environment by `pw.sh open`. To be explicit, use `PW_HEADED=1` / `PW_HEADED=0`.
+`--headed` (visible window) is opt-in: `pw.sh open` adds it only for `PW_HEADED=1`, and an explicit `--headed` always wins over `PW_HEADED=0`. Unset, `0`, and any other value open headless regardless of `DISPLAY`.
 
 - macOS / Windows (native): a headed browser works as is
-- WSL2: showing a window requires WSLg (headed is possible when `$DISPLAY` is set and `/mnt/wslg` exists)
-- Headless environments (CI, SSH without a display, Linux without a GUI): launches headless
+- WSL2: showing a window requires WSLg
+- Headless environments (CI, SSH without a display, Linux without a GUI): the default headless mode is all that can work
+- The wrapper controls only its own flag: `browser.launchOptions.headless=false` in `--config` (or `.playwright/cli.config.json`) and `PLAYWRIGHT_MCP_HEADLESS=false` still launch a visible browser directly
 
 ## Snapshots
 

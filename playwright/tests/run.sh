@@ -10,11 +10,9 @@ trap 'rm -rf "$WORK"' EXIT
 
 PASS=0
 FAIL=0
-SKIP=0
 
 ok() { printf 'ok   %s\n' "$1"; PASS=$((PASS + 1)); }
 ng() { printf 'FAIL %s\n     %s\n' "$1" "$2"; FAIL=$((FAIL + 1)); }
-skip() { printf 'skip %s\n     %s\n' "$1" "$2"; SKIP=$((SKIP + 1)); }
 
 check_contains() {
   local name="$1" hay="$2" needle="$3"
@@ -200,29 +198,38 @@ check_contains "4a quoted arg arrives intact" "$argv" 'ARG[hello world]'
 check_contains "4b argc is 4 (-s=, fill, e1, text)" "$argv" 'ARGC=4'
 check_contains "4c session flag is injected" "$argv" 'ARG[-s=t]'
 
-# --- 5. headed auto-detection --------------------------------------------
-PW_HEADED=1 PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
-check_contains "5a PW_HEADED=1 adds --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+# --- 5. headed is opt-in --------------------------------------------------
+env -u PW_HEADED DISPLAY=':0' PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
+rc_unset=$?
+cp "$SHIM_ARGV" "$WORK/argv.unset"
+check_not_contains "5a unset PW_HEADED + DISPLAY=:0 omits --headed" \
+  "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
 
-PW_HEADED=0 PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
+PW_HEADED=0 DISPLAY=':0' PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
+rc_zero=$?
 check_not_contains "5b PW_HEADED=0 omits --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+check_eq "5c PW_HEADED=0 passes the same argv as unset" \
+  "$(cmp -s "$WORK/argv.unset" "$SHIM_ARGV" && echo same || echo different)" "same"
+check_eq "5d PW_HEADED=0 exits like unset" "$rc_zero/$rc_unset" "0/0"
 
-DISPLAY='' PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
-check_not_contains "5c empty DISPLAY omits --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+hdr="$(env -u PW_HEADED DISPLAY=':0' PW_SESSION=t bash "$PW" open https://example.com/ 2>&1 >/dev/null)"
+check_contains "5e unset PW_HEADED reports headless on stderr" "$hdr" '[pw] headed=false'
 
-hdr="$(DISPLAY='' PW_SESSION=t bash "$PW" open https://example.com/ 2>&1 >/dev/null)"
-check_contains "5d reports the decision on stderr" "$hdr" '[pw] headed=false (no DISPLAY)'
+for v in '' auto true 2; do
+  PW_HEADED="$v" PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
+  check_not_contains "5f PW_HEADED='$v' omits --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+done
 
-if [ -d /mnt/wslg ] && grep -qi microsoft /proc/version 2>/dev/null; then
-  hdr="$(DISPLAY=':0' PW_SESSION=t bash "$PW" open https://example.com/ 2>&1 >/dev/null)"
-  check_contains "5e WSLg + DISPLAY -> headed" "$hdr" '[pw] headed=true (DISPLAY=:0, WSLg)'
-  check_contains "5f WSLg + DISPLAY passes --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
-else
-  skip "5e/5f WSLg + DISPLAY -> headed" "not a WSL2 host with /mnt/wslg"
-fi
+PW_HEADED=1 DISPLAY='' PW_SESSION=t bash "$PW" open https://example.com/ >/dev/null 2>&1
+check_contains "5g PW_HEADED=1 adds --headed even without DISPLAY" \
+  "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
 
-PW_SESSION=t bash "$PW" open --headed https://example.com/ >/dev/null 2>&1
-check_eq "5g explicit --headed is not duplicated" \
+PW_HEADED=0 PW_SESSION=t bash "$PW" open --headed https://example.com/ >/dev/null 2>&1
+check_eq "5h explicit --headed wins over PW_HEADED=0 without duplication" \
+  "$(grep -c 'ARG\[--headed\]' "$SHIM_ARGV")" "1"
+
+PW_HEADED=1 PW_SESSION=t bash "$PW" open --headed https://example.com/ >/dev/null 2>&1
+check_eq "5i explicit --headed with PW_HEADED=1 is not duplicated" \
   "$(grep -c 'ARG\[--headed\]' "$SHIM_ARGV")" "1"
 
 # --- 6. missing binary ----------------------------------------------------
@@ -255,13 +262,31 @@ rc=$?
 check_contains "8f unterminated quote names the line" "$out" 'line 2: unterminated quote'
 check_contains "8g unterminated quote still inlines last good snapshot" "$out" 'snapshot-of-fill'
 
-# --- 9. batch `open` gets the headed preflight (S6) ------------------------
+# --- 9. batch `open` follows the same headed contract (S6) ----------------
+env -u PW_HEADED PW_SESSION=t bash "$PW" - >/dev/null 2>&1 <<'EOF'
+open https://example.com/
+EOF
+check_not_contains "9a batch open omits --headed when PW_HEADED is unset" \
+  "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+
+PW_HEADED=0 PW_SESSION=t bash "$PW" - >/dev/null 2>&1 <<'EOF'
+open https://example.com/
+EOF
+check_not_contains "9b batch open omits --headed with PW_HEADED=0" \
+  "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+
 out="$(PW_HEADED=1 PW_SESSION=t bash "$PW" - 2>&1 >/dev/null <<'EOF'
 open https://example.com/
 EOF
 )"
-check_contains "9a batch open adds --headed" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
-check_contains "9b batch open logs the decision" "$out" '[pw] headed=true (PW_HEADED=1)'
+check_contains "9c batch open adds --headed with PW_HEADED=1" "$(cat "$SHIM_ARGV")" 'ARG[--headed]'
+check_contains "9d batch open logs the decision" "$out" '[pw] headed=true (PW_HEADED=1)'
+
+PW_HEADED=0 PW_SESSION=t bash "$PW" - >/dev/null 2>&1 <<'EOF'
+open --headed https://example.com/
+EOF
+check_eq "9e batch explicit --headed wins without duplication" \
+  "$(grep -c 'ARG\[--headed\]' "$SHIM_ARGV")" "1"
 
 # --- 10. "is not installed" detection (N1) --------------------------------
 out="$(SHIM_BODY='- paragraph: Chromium is not installed on this machine' \
@@ -340,5 +365,5 @@ EOF
 check_contains "17d batch open adds bundled Chromium by default" \
   "$(cat "$SHIM_ARGV")" 'ARG[--browser=chromium]'
 
-printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
+printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
