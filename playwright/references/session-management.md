@@ -107,6 +107,8 @@ playwright-cli open https://example.com --persistent
 playwright-cli open https://example.com --profile=/path/to/profile
 ```
 
+`open` always stops the existing session and starts a new one, so re-opening drops everything the in-memory profile held (cookies, localStorage, page state). Use `--persistent` or `--profile` when state must survive, and choose `--headed` at the first `open` when a visible window may be needed later.
+
 ## The default browser session
 
 When `-s` is omitted, commands use the default browser session:

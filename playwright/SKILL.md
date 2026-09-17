@@ -24,6 +24,17 @@ One command = one tool call. Decide the next step from the `ref` it returns. If 
 
 Always finish with `pw.sh close`. Automatically generated snapshots and other artifacts are written to a private, identifier-based directory outside the workspace under `${TMPDIR:-/tmp}/playwright-cli/<identifier>` and snapshots are inlined by the wrapper, so they do not create Git changes. Set `PW_ARTIFACT_DIR` when a different artifact location is required.
 
+## Showing the browser
+
+`open` is headless by default. Start a visible window only when someone actually needs to look at it:
+
+- the user asks to see the browser or to confirm something on screen
+- the task itself needs the user's eyes or hands (visual layout review, manual login, walking the user through a flow)
+
+Pass `--headed` (or set `PW_HEADED=1`) only in those cases. When in doubt, stay headless and share a `screenshot` instead.
+
+Headed is decided at `open` time. `open` stops and relaunches the session, and the default profile is in-memory, so switching modes later drops cookies and page state. The setting applies to the next `open`; it never restarts a session that is already running.
+
 ## Batch (consecutive operations with no need to see the state in between)
 
 Bundle consecutive operations when you do not need the intermediate snapshots. **It stops at the first failure** and reports which line it stopped on. Only the last successful snapshot is inlined.
@@ -61,7 +72,7 @@ Only when `Session closed` / `EADDRINUSE` occurs, or `open` itself fails, run `p
 
 ## Environment variables
 
-`PW_SESSION` (default `playwright`) / `PW_SNAPSHOT_MAX` (default 12000) / `PW_HEADED` (`1` visible, `0` headless; auto-detected by default) / `PW_BIN` (default `playwright-cli`) / `PW_ARTIFACT_DIR` (default: an identifier-based directory under `${TMPDIR:-/tmp}/playwright-cli`).
+`PW_SESSION` (default `playwright`) / `PW_SNAPSHOT_MAX` (default 12000) / `PW_HEADED` (`1` shows a visible window; anything else, including unset, stays headless) / `PW_BIN` (default `playwright-cli`) / `PW_ARTIFACT_DIR` (default: an identifier-based directory under `${TMPDIR:-/tmp}/playwright-cli`).
 
 `open` uses the Playwright-bundled Chromium by default; pass `--browser=...` explicitly to select another browser.
 

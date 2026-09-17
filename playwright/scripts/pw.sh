@@ -53,10 +53,10 @@ Usage:
   fill e1 "user@example.com"
   click e3
   EOF
-  pw.sh open [url] [opts]       open with preflight (headed auto-detect)
+  pw.sh open [url] [opts]       open with preflight (--headed for a visible window)
   pw.sh recover                 close-all then kill-all (asks nothing; affects other sessions)
 
-Env: PW_SESSION (default: playwright), PW_SNAPSHOT_MAX (default: 12000), PW_HEADED (1|0), PW_BIN, PW_ARTIFACT_DIR
+Env: PW_SESSION (default: playwright), PW_SNAPSHOT_MAX (default: 12000), PW_HEADED (1 = visible window; anything else = headless), PW_BIN, PW_ARTIFACT_DIR
 EOF
   exit 2
 }
@@ -189,23 +189,17 @@ run_one() {
   return "$rc"
 }
 
+# Headed is opt-in: only PW_HEADED=1 turns on a visible window. Unset, 0, and
+# any other value stay headless, whatever the environment (DISPLAY, WSLg)
+# looks like. An explicit --headed on the command line is handled separately by
+# maybe_add_headed and wins over PW_HEADED=0.
 decide_headed() {
   case "${PW_HEADED:-}" in
-    1) note "headed=true (PW_HEADED=1)"; echo 1; return ;;
-    0) note "headed=false (PW_HEADED=0)"; echo 0; return ;;
+    1) note "headed=true (PW_HEADED=1)"; echo 1 ;;
+    0) note "headed=false (PW_HEADED=0)"; echo 0 ;;
+    '') note "headed=false (PW_HEADED unset)"; echo 0 ;;
+    *) note "headed=false (PW_HEADED=$PW_HEADED: only 1 turns headed on)"; echo 0 ;;
   esac
-  if [ -z "${DISPLAY:-}" ]; then
-    note "headed=false (no DISPLAY)"; echo 0; return
-  fi
-  if grep -qi microsoft /proc/version 2>/dev/null; then
-    if [ -d /mnt/wslg ]; then
-      note "headed=true (DISPLAY=$DISPLAY, WSLg)"; echo 1
-    else
-      note "headed=false (DISPLAY=$DISPLAY but no /mnt/wslg)"; echo 0
-    fi
-    return
-  fi
-  note "headed=true (DISPLAY=$DISPLAY)"; echo 1
 }
 
 # maybe_add_headed open [args...] -> OPEN_ARGS (always non-empty, so no
