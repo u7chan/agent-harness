@@ -87,6 +87,8 @@ The parent wrapper verifies the caller's own pane, classifies the edge to the ch
 
 The wrappers validate their arguments and environment, call the existing `herdr agent prompt` command, and propagate its result. The parent wrapper additionally calls read-only `herdr pane get` once to resolve the parent display name; if that lookup fails, the prompt keeps the bare pane ID. They do not wait, retry, queue, persist state, or create Herdr resources.
 
+Waiting for a return must not block the parent. A return is injected into the parent pane as a prompt, and Pi queues it as steering while the parent is executing tool calls, so it is processed only after the current assistant turn finishes them. Do not occupy the parent with long foreground commands such as `sleep`-based polling while awaiting a return: end the turn so the injected prompt starts the next one, or keep any foreground command short. Otherwise every queued return waits for that command to end, time out, or be aborted.
+
 If a return to a working parent exposes an agent-kind-specific problem, stop and record the reproduction. Do not add waiting or queueing to the wrappers.
 
 ## Worktree workspaces
