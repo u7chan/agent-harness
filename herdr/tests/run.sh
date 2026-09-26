@@ -7,6 +7,7 @@ PARENT_SCRIPT="$HERDR_DIR/scripts/parent-delegate-async.sh"
 CHILD_SCRIPT="$HERDR_DIR/scripts/child-return-result.sh"
 START_SCRIPT="$HERDR_DIR/scripts/worktree-team-start.sh"
 GRANT_SCRIPT="$HERDR_DIR/scripts/scope-grant.sh"
+LAYOUT_SCRIPT="$HERDR_DIR/scripts/pane-layout.sh"
 TEST_TMP="$(mktemp -d /tmp/herdr-async-test-XXXXXX)"
 TEST_TMP="$(cd "$TEST_TMP" && pwd -P)"
 MOCK_BIN="$TEST_TMP/bin"
@@ -40,6 +41,26 @@ cat > "$MOCK_BIN/herdr" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s %s %s\n' "${1:-}" "${2:-}" "${3:-}" >> "$HERDR_TEST_CALLS"
+# pane layout, pane split, and tab create are also recorded with their full
+# argument list, so a test can assert the exact creation sequence.
+case "${1:-} ${2:-}" in
+  'pane layout'|'pane split'|'tab create') printf '%s\n' "$*" >> "$HERDR_TEST_LAYOUT_CALLS" ;;
+esac
+pane_field() { # $1=pane id $2=field number
+  awk -F'|' -v pane="$1" -v field="$2" '$1 == pane { print $field; exit }' "$HERDR_TEST_STATE/panes"
+}
+pane_tab() { # $1=pane id
+  awk -F'|' -v pane="$1" '$1 == pane { print $2; exit }' "$HERDR_TEST_STATE/panes"
+}
+tab_area() { # $1=tab id, prints area_x|area_y|area_w|area_h
+  awk -F'|' -v tab="$1" '$1 == tab { print $3 "|" $4 "|" $5 "|" $6; exit }' "$HERDR_TEST_STATE/tabs"
+}
+next_id() {
+  local next
+  next="$(cat "$HERDR_TEST_STATE/next")"
+  printf '%s\n' "$((next + 1))" > "$HERDR_TEST_STATE/next"
+  printf '%s' "$next"
+}
 case "${1:-}" in
   pane)
     case "${2:-}" in
@@ -47,12 +68,108 @@ case "${1:-}" in
         [ "${3:-}" = "$HERDR_PANE_ID" ] || exit 95
         cat "$HERDR_TEST_PANE_JSON"
         ;;
+      layout)
+        [ "${3:-}" = --pane ] || exit 95
+        tab_id="$(pane_tab "${4:-}")"
+        [ -n "$tab_id" ] || exit 96
+        IFS='|' read -r area_x area_y area_w area_h <<< "$(tab_area "$tab_id")"
+        [ -n "$area_w" ] || exit 96
+        panes_json=''
+        separator=''
+        while IFS='|' read -r pane_id pane_tab_id x y w h; do
+          [ "$pane_tab_id" = "$tab_id" ] || continue
+          # Once panes have been split, the reported rectangles can disagree
+          # with the plan on purpose (HERDR_TEST_LAYOUT_SHIFT).
+          skew=0
+          [ ! -s "$HERDR_TEST_STATE/splits" ] || skew="${HERDR_TEST_LAYOUT_SHIFT:-0}"
+          panes_json="${panes_json}${separator}{\"pane_id\":\"${pane_id}\",\"rect\":{\"x\":$((x + skew)),\"y\":$((y + skew)),\"width\":$((w + skew)),\"height\":$((h + skew))}}"
+          separator=,
+        done < "$HERDR_TEST_STATE/panes"
+        printf '{"id":"cli:pane:layout","result":{"layout":{"area":{"x":%s,"y":%s,"width":%s,"height":%s},"panes":[%s],"tab_id":"%s","workspace_id":"%s","zoomed":false},"type":"pane_layout"}}\n' \
+          "$area_x" "$area_y" "$area_w" "$area_h" "$panes_json" "$tab_id" "$HERDR_WORKSPACE_ID"
+        ;;
+      split)
+        source_pane=''
+        direction=''
+        ratio=''
+        shift 2
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --pane) source_pane="${2:-}"; shift 2 ;;
+            --direction) direction="${2:-}"; shift 2 ;;
+            --ratio) ratio="${2:-}"; shift 2 ;;
+            --cwd) [ -d "${2:-}" ] || exit 97; shift 2 ;;
+            --no-focus) shift ;;
+            *) exit 92 ;;
+          esac
+        done
+        [ -n "$source_pane" ] || exit 95
+        [ "${HERDR_TEST_SPLIT_RC:-0}" = 0 ] || exit "${HERDR_TEST_SPLIT_RC}"
+        tab_id="$(pane_tab "$source_pane")"
+        [ -n "$tab_id" ] || exit 96
+        x="$(pane_field "$source_pane" 3)"
+        y="$(pane_field "$source_pane" 4)"
+        w="$(pane_field "$source_pane" 5)"
+        h="$(pane_field "$source_pane" 6)"
+        if [ "$direction" = right ]; then
+          keep="$(awk -v n="$w" -v r="$ratio" 'BEGIN { printf "%d", n * r + 0.5 }')"
+          new_x=$((x + keep))
+          new_y=$y
+          new_w=$((w - keep))
+          new_h=$h
+          source_w=$keep
+          source_h=$h
+        elif [ "$direction" = down ]; then
+          keep="$(awk -v n="$h" -v r="$ratio" 'BEGIN { printf "%d", n * r + 0.5 }')"
+          new_x=$x
+          new_y=$((y + keep))
+          new_w=$w
+          new_h=$((h - keep))
+          source_w=$w
+          source_h=$keep
+        else
+          exit 92
+        fi
+        awk -F'|' -v pane="$source_pane" -v x="$x" -v y="$y" -v w="$source_w" -v h="$source_h" \
+          'BEGIN { OFS="|" } { if ($1 == pane) { $3=x; $4=y; $5=w; $6=h } print }' \
+          "$HERDR_TEST_STATE/panes" > "$HERDR_TEST_STATE/panes.next"
+        mv "$HERDR_TEST_STATE/panes.next" "$HERDR_TEST_STATE/panes"
+        id="$(next_id)"
+        pane_id="$HERDR_WORKSPACE_ID:p$id"
+        printf '%s|%s|%s|%s|%s|%s\n' "$pane_id" "$tab_id" "$new_x" "$new_y" "$new_w" "$new_h" >> "$HERDR_TEST_STATE/panes"
+        printf '%s|%s|%s|%s|%s|%s|%s\n' "$tab_id" "$direction" "$ratio" "$x" "$y" "$w" "$h" >> "$HERDR_TEST_STATE/splits"
+        printf '{"id":"cli:pane:split","result":{"pane":{"pane_id":"%s","tab_id":"%s","workspace_id":"%s"},"type":"pane_split"}}\n' \
+          "$pane_id" "$tab_id" "$HERDR_WORKSPACE_ID"
+        ;;
       rename)
         printf '%s %s\n' "${3:-}" "${4:-}" >> "$HERDR_TEST_RENAMES"
         exit "${HERDR_TEST_RENAME_RC:-0}"
         ;;
       *) exit 94 ;;
     esac
+    ;;
+  tab)
+    [ "${2:-}" = create ] || exit 93
+    label=''
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --workspace) [ "${2:-}" = "$HERDR_WORKSPACE_ID" ] || exit 92; shift 2 ;;
+        --cwd) [ -d "${2:-}" ] || exit 97; shift 2 ;;
+        --label) label="${2:-}"; shift 2 ;;
+        --no-focus) shift ;;
+        *) exit 92 ;;
+      esac
+    done
+    IFS='x' read -r area_w area_h <<< "$HERDR_TEST_TAB_AREA"
+    [ -n "$area_h" ] || exit 96
+    id="$(next_id)"
+    tab_id="$HERDR_WORKSPACE_ID:t$id"
+    pane_id="$HERDR_WORKSPACE_ID:p$id"
+    printf '%s|%s|0|0|%s|%s\n' "$tab_id" "$label" "$area_w" "$area_h" >> "$HERDR_TEST_STATE/tabs"
+    printf '%s|%s|0|0|%s|%s\n' "$pane_id" "$tab_id" "$area_w" "$area_h" >> "$HERDR_TEST_STATE/panes"
+    printf '{"id":"cli:tab:create","result":{"tab":{"tab_id":"%s","label":"%s","workspace_id":"%s"},"root_pane":{"pane_id":"%s","tab_id":"%s","workspace_id":"%s"},"type":"tab_create"}}\n' \
+      "$tab_id" "$label" "$HERDR_WORKSPACE_ID" "$pane_id" "$tab_id" "$HERDR_WORKSPACE_ID"
     ;;
   agent)
     case "${2:-}" in
@@ -98,6 +215,10 @@ export HERDR_TEST_WAITS="$MOCK_LOG/waits"
 export HERDR_TEST_RENAMES="$MOCK_LOG/renames"
 export HERDR_TEST_WORKSPACES="$TEST_TMP/workspaces.json"
 export HERDR_SCOPE_FILE="$TEST_TMP/scope.json"
+# State behind the fake `herdr pane layout`, `pane split`, and `tab create`.
+export HERDR_TEST_STATE="$TEST_TMP/layout-state"
+export HERDR_TEST_LAYOUT_CALLS="$TEST_TMP/layout-calls"
+export HERDR_TEST_TAB_AREA='247x47'
 : > "$HERDR_TEST_CALLS"
 : > "$HERDR_TEST_STARTS"
 : > "$HERDR_TEST_WAITS"
@@ -159,6 +280,139 @@ reset_logs() {
   : > "$HERDR_TEST_WAITS"
   : > "$HERDR_TEST_RENAMES"
   rm -f "$HERDR_TEST_TARGET" "$HERDR_TEST_MESSAGE"
+}
+
+# ---------------------------------------------------------------------------
+# Pane layout: fixtures and projections for herdr/scripts/pane-layout.sh.
+# Every layout test runs against the mock herdr in $MOCK_BIN; the script never
+# reaches a real server.
+# ---------------------------------------------------------------------------
+
+# reset_layout_state <tab area WxH> <caller x> <caller y> <caller w> <caller h>
+reset_layout_state() {
+  rm -rf "$HERDR_TEST_STATE"
+  mkdir -p "$HERDR_TEST_STATE"
+  printf '%s|1|0|0|%s|%s\n' "$HERDR_WORKSPACE_ID:t1" "${1%x*}" "${1#*x}" \
+    > "$HERDR_TEST_STATE/tabs"
+  printf '%s|%s:t1|%s|%s|%s|%s\n' "$HERDR_PANE_ID" "$HERDR_WORKSPACE_ID" "$2" "$3" "$4" "$5" \
+    > "$HERDR_TEST_STATE/panes"
+  : > "$HERDR_TEST_STATE/splits"
+  printf '9\n' > "$HERDR_TEST_STATE/next"
+  : > "$HERDR_TEST_LAYOUT_CALLS"
+}
+
+plan_json() { # <area WxH> <count> [extra plan arguments]
+  local area="$1" count="$2"
+  shift 2
+  "$LAYOUT_SCRIPT" plan --area "$area" --count "$count" "$@"
+}
+
+# Projections of a plan or apply document, read from stdin.
+plan_grid_json() {
+  python3 -c '
+import json
+import sys
+
+plan = json.load(sys.stdin)
+print(json.dumps([plan["rows"], plan["cols"], len(plan["tabs"][0]["cells"])], separators=(",", ":")))
+'
+}
+
+plan_tabs_json() {
+  python3 -c '
+import json
+import sys
+
+plan = json.load(sys.stdin)
+print(json.dumps([[tab["rows"], tab["cols"], len(tab["cells"]), tab["label"]]
+                  for tab in plan["tabs"]], separators=(",", ":")))
+'
+}
+
+plan_cells_json() { # cells of the first (or only) tab
+  python3 -c '
+import json
+import sys
+
+tab = json.load(sys.stdin)["tabs"][0]
+print(json.dumps([[cell["index"], cell["row"], cell["col"], cell["x"], cell["y"],
+                   cell["width"], cell["height"], cell["source"]] for cell in tab["cells"]],
+                 separators=(",", ":")))
+'
+}
+
+plan_splits_json() {
+  python3 -c '
+import json
+import sys
+
+plan = json.load(sys.stdin)
+print(json.dumps([[split["tab"], split["source_cell"], split["target_cell"],
+                   split["direction"], split["ratio"]] for split in plan["splits"]],
+                 separators=(",", ":")))
+'
+}
+
+assert_json_field() { # <field path> <expected JSON value>; document on stdin
+  python3 -c '
+import json
+import sys
+
+value = json.load(sys.stdin)
+for key in sys.argv[1].split("."):
+    value = value[int(key)] if isinstance(value, list) else value[key]
+if value != json.loads(sys.argv[2]):
+    sys.stderr.write("expected %s = %s, got %s\n" % (sys.argv[1], sys.argv[2], json.dumps(value)))
+    sys.exit(1)
+' "$1" "$2"
+}
+
+# expect_plan <area> <count> <projection> <expected JSON> [extra plan arguments]
+# The grid for a cell count M is asserted through M = --count + 1: in the
+# current-tab policy the caller pane occupies cell 0.
+expect_plan() {
+  local area="$1" count="$2" projection="$3" expected="$4" actual
+  shift 4
+  actual="$(plan_json "$area" "$count" "$@" | "$projection")" || return 1
+  [ "$actual" = "$expected" ] || {
+    printf 'plan %s --count %s: expected %s, got %s\n' \
+      "$area" "$count" "$expected" "$actual" >&2
+    return 1
+  }
+}
+
+expect_plan_field() { # <area> <count> <path> <expected JSON> [extra plan arguments]
+  local area="$1" count="$2" path="$3" expected="$4"
+  shift 4
+  plan_json "$area" "$count" "$@" | assert_json_field "$path" "$expected"
+}
+
+expect_plan_error() { # <area> <count> <message substring>
+  local error status
+  set +e
+  error="$(plan_json "$1" "$2" 2>&1 >/dev/null)"
+  status=$?
+  set -e
+  if [ "$status" -eq 0 ]; then
+    printf 'expected plan %s --count %s to fail\n' "$1" "$2" >&2
+    return 1
+  fi
+  case "$error" in
+    *"$3"*) ;;
+    *)
+      printf 'expected a message containing "%s", got: %s\n' "$3" "$error" >&2
+      return 1
+      ;;
+  esac
+}
+
+assert_layout_calls() { # <expected full creation call sequence>
+  local actual
+  actual="$(<"$HERDR_TEST_LAYOUT_CALLS")"
+  [ "$actual" = "$1" ] || {
+    printf 'unexpected herdr creation calls:\n%s\nexpected:\n%s\n' "$actual" "$1" >&2
+    return 1
+  }
 }
 
 parent_success() {
@@ -588,6 +842,248 @@ wrappers_are_thin() {
   ! grep -q '^workspace ' "$HERDR_TEST_CALLS"
 }
 
+pane_layout_plan_grids() {
+  # Grids from the acceptance list of Issue #217, indexed by the cell count M
+  # of the planned layout: 3 -> 3 columns, 4 -> 2x2, 8 -> 4x2, 9 -> 3x3,
+  # 12 -> 4x3, 16 -> two tabs. In the current-tab policy the caller pane is
+  # cell 0, so M = --count + 1 and `apply` creates exactly `--count` panes.
+  expect_plan 247x47 2 plan_grid_json '[1,3,3]'
+  expect_plan 247x47 3 plan_grid_json '[2,2,4]'
+  expect_plan 247x47 7 plan_grid_json '[2,4,8]'
+  expect_plan 247x47 8 plan_grid_json '[3,3,9]'
+  expect_plan 247x47 11 plan_grid_json '[3,4,12]'
+  expect_plan_field 247x47 2 tab_policy '"current"'
+  expect_plan_field 247x47 2 capacity 12
+  expect_plan_field 247x47 2 region '{"width":247,"height":47}'
+  expect_plan_field 247x47 11 rows 3
+  expect_plan_field 247x47 11 cols 4
+  # M = 16 exceeds the 12-pane capacity of the tab, so the team goes to new
+  # tabs instead: 15 panes become 8 and 7, 16 panes become two tabs of 8.
+  expect_plan 247x47 15 plan_tabs_json '[[2,4,8,null],[2,4,7,null]]'
+  expect_plan_field 247x47 15 tab_policy '"new"'
+  expect_plan 247x47 16 plan_tabs_json '[[2,4,8,null],[2,4,8,null]]'
+  # A second region, derived with the same rules:
+  #   M=4  -> 2x2: the only grid of this area without an empty slot
+  #   M=5  -> 3x2: 2x3 and 3x2 both leave one slot; the wider cell of 2x3 wins
+  #           on fill (min(100/55, 20/14) > min(200/3/55, 30/14))
+  #   M=9  -> 3x3: four columns would need 220 cells of width
+  #   M=12 -> 3x4, the largest grid this area can hold
+  expect_plan 200x60 3 plan_grid_json '[2,2,4]'
+  expect_plan 200x60 4 plan_grid_json '[3,2,5]'
+  expect_plan 200x60 8 plan_grid_json '[3,3,9]'
+  expect_plan 200x60 11 plan_grid_json '[4,3,12]'
+  expect_plan_field 200x60 3 capacity 12
+  expect_plan 300x60 5 plan_grid_json '[2,3,6]'
+  expect_plan 300x60 19 plan_grid_json '[4,5,20]'
+  expect_plan_field 300x60 19 capacity 20
+}
+
+pane_layout_plan_new_tabs() {
+  # 120x40 holds 4 panes in one tab, so a 5-pane team is split over two tabs,
+  # as evenly as possible with the larger tab first, and labelled with the
+  # team label and its -2 suffix.
+  expect_plan 120x40 5 plan_tabs_json '[[2,2,3,"crew"],[1,2,2,"crew-2"]]' --label crew
+  expect_plan_field 120x40 5 tab_policy '"new"'
+  expect_plan_field 120x40 5 capacity 4
+  expect_plan_field 120x40 5 label '"crew"' --label crew
+  expect_plan_field 120x40 5 rows null
+  expect_plan_field 120x40 5 cols null
+  expect_plan 120x40 5 plan_tabs_json '[[2,2,3,null],[1,2,2,null]]'
+  # A team that fills a tab exactly still needs its own tab.
+  expect_plan 300x60 20 plan_tabs_json '[[4,5,20,null]]'
+  expect_plan_field 300x60 20 tab_policy '"new"'
+  # Three tabs, evenly sized and larger first, labelled with the -2 and -3
+  # suffixes after the first tab takes the plain team label.
+  expect_plan 300x60 42 plan_tabs_json \
+    '[[3,5,14,null],[3,5,14,null],[3,5,14,null]]'
+  expect_plan 300x60 60 plan_tabs_json \
+    '[[4,5,20,null],[4,5,20,null],[4,5,20,null]]'
+  expect_plan 300x60 42 plan_tabs_json \
+    '[[3,5,14,"squad"],[3,5,14,"squad-2"],[3,5,14,"squad-3"]]' --label squad
+}
+
+pane_layout_plan_geometry() {
+  # M = 3 in the current tab: one row of three 82/82/83 cell panes.
+  expect_plan 247x47 2 plan_cells_json \
+    '[[0,0,0,0,0,82,47,true],[1,0,1,82,0,82,47,false],[2,0,2,164,0,83,47,false]]'
+  expect_plan 247x47 2 plan_splits_json '[[0,0,1,"right",0.331984],[0,1,2,"right",0.49697]]'
+  # M = 7: the row cut runs first, then each row left to right, and the
+  # three-cell last row spreads its panes over the full width.
+  expect_plan 247x47 6 plan_cells_json \
+    '[[0,0,0,0,0,61,23,true],[1,0,1,61,0,62,23,false],[2,0,2,123,0,62,23,false],[3,0,3,185,0,62,23,false],[4,1,0,0,23,82,24,false],[5,1,1,82,23,82,24,false],[6,1,2,164,23,83,24,false]]'
+  expect_plan 247x47 6 plan_splits_json \
+    '[[0,0,4,"down",0.489362],[0,0,1,"right",0.246964],[0,1,2,"right",0.333333],[0,2,3,"right",0.5],[0,4,5,"right",0.331984],[0,5,6,"right",0.49697]]'
+  # A three-row grid with a partly filled last row: the row cut chain runs
+  # first, then each row, so every row pane spans the full width when cut.
+  expect_plan 200x60 4 plan_splits_json \
+    '[[0,0,2,"down",0.333333],[0,2,4,"down",0.5],[0,0,1,"right",0.5],[0,2,3,"right",0.5]]'
+  # Only the top-left cell is the pane the plan starts from.
+  expect_plan 200x60 4 plan_cells_json \
+    '[[0,0,0,0,0,100,20,true],[1,0,1,100,0,100,20,false],[2,1,0,0,20,100,20,false],[3,1,1,100,20,100,20,false],[4,2,0,0,40,200,20,false]]'
+}
+
+pane_layout_plan_is_pure() {
+  reset_layout_state 247x47 0 0 247 47
+  reset_logs
+  expect_plan 247x47 3 plan_grid_json '[2,2,4]'
+  # plan makes no herdr call at all, so it needs neither a server nor herdr.
+  [ ! -s "$HERDR_TEST_LAYOUT_CALLS" ]
+  [ ! -s "$HERDR_TEST_CALLS" ]
+  env -u HERDR_ENV PATH='/usr/bin:/bin' "$LAYOUT_SCRIPT" plan --count 2 --area 247x47 |
+    plan_grid_json | grep -Fqx '[1,3,3]'
+  env -u HERDR_ENV PATH='/usr/bin:/bin' "$LAYOUT_SCRIPT" plan --count 2 --area 247x47 |
+    assert_json_field mode '"plan"'
+}
+
+pane_layout_plan_rejects_bad_input() {
+  # Neither of these areas can hold one pane inside the aspect window.
+  expect_plan_error 40x10 3 'no feasible pane grid'
+  expect_plan_error 100x14 3 'no feasible pane grid'
+  # Usage errors.
+  expect_rc 2 "$LAYOUT_SCRIPT"
+  expect_rc 2 "$LAYOUT_SCRIPT" plan
+  expect_rc 2 "$LAYOUT_SCRIPT" plan --count 2
+  expect_rc 2 "$LAYOUT_SCRIPT" plan --area 247x47
+  expect_rc 2 "$LAYOUT_SCRIPT" plan --count two --area 247x47
+  expect_rc 2 "$LAYOUT_SCRIPT" plan --count 2 --area 247
+  expect_rc 2 "$LAYOUT_SCRIPT" plan --count 2 --area 247x47 --pane wG:p1
+  expect_rc 2 "$LAYOUT_SCRIPT" plan --count 2 --area 247x47 --cwd "$TEST_TMP"
+  expect_rc 2 "$LAYOUT_SCRIPT" plan --count 2 --area 247x47 extra
+  expect_rc 2 "$LAYOUT_SCRIPT" plan --count 2 --area 247x47 --unknown
+  expect_rc 2 "$LAYOUT_SCRIPT" apply --count 2 --area 247x47
+  expect_rc 2 "$LAYOUT_SCRIPT" unknown --count 2
+  # Value errors.
+  expect_rc 1 "$LAYOUT_SCRIPT" plan --count 1 --area 247x47
+  expect_rc 1 "$LAYOUT_SCRIPT" plan --count 2 --area 0x47
+  expect_rc 1 "$LAYOUT_SCRIPT" plan --count 2 --area 247x47 --label 'bad|label'
+  expect_rc 1 "$LAYOUT_SCRIPT" plan --count 2 --area 247x47 --label $'bad\nlabel'
+  # apply preflight.
+  expect_rc 1 env -u HERDR_ENV "$LAYOUT_SCRIPT" apply --count 2
+  expect_rc 1 env HERDR_ENV=0 HERDR_PANE_ID=wG:p1 "$LAYOUT_SCRIPT" apply --count 2
+  expect_rc 1 env HERDR_ENV=1 HERDR_PANE_ID=wG:p1 "$LAYOUT_SCRIPT" apply --count 2 --cwd relative
+  expect_rc 1 env HERDR_ENV=1 HERDR_PANE_ID=wG:p1 \
+    "$LAYOUT_SCRIPT" apply --count 2 --cwd "$TEST_TMP/missing"
+  expect_rc 1 env HERDR_ENV=1 HERDR_PANE_ID=wG:p1 \
+    "$LAYOUT_SCRIPT" apply --count 2 --cwd "$TEST_TMP" --pane nope
+}
+
+pane_layout_apply_current_tab() {
+  local result expected
+  reset_layout_state 247x47 0 0 247 47
+  result="$(HERDR_TEST_TAB_AREA=247x47 "$LAYOUT_SCRIPT" apply --count 3 --label team --cwd "$TEST_TMP")"
+  printf '%s' "$result" | assert_json_field tab_policy '"current"'
+  printf '%s' "$result" | assert_json_field rows 2
+  printf '%s' "$result" | assert_json_field cols 2
+  printf '%s' "$result" | assert_json_field count 3
+  printf '%s' "$result" | assert_json_field label '"team"'
+  printf '%s' "$result" | assert_json_field mode '"apply"'
+  # Created pane IDs are reported in cell (row-major) order, not in creation
+  # order: the row cut creates wG:p9 first, but that pane is cell 2.
+  printf '%s' "$result" | assert_json_field created_panes '["wG:p10","wG:p9","wG:p11"]'
+  printf '%s' "$result" | assert_json_field tabs.0.tab_id '"wG:t1"'
+  printf '%s' "$result" | assert_json_field tabs.0.cells.0.pane_id '"wG:p1"'
+  printf '%s' "$result" | assert_json_field tabs.0.cells.3.pane_id '"wG:p11"'
+  printf '%s' "$result" | assert_json_field tabs.0.cells.3.width 124
+  # No tab is created, and every creation keeps cwd and focus.
+  expected="$(cat <<EOF
+pane layout --pane wG:p1
+pane split --pane wG:p1 --direction down --ratio 0.489362 --cwd $TEST_TMP --no-focus
+pane split --pane wG:p1 --direction right --ratio 0.497976 --cwd $TEST_TMP --no-focus
+pane split --pane wG:p9 --direction right --ratio 0.497976 --cwd $TEST_TMP --no-focus
+pane layout --pane wG:p1
+EOF
+)"
+  assert_layout_calls "$expected"
+  ! grep -q '^tab create' "$HERDR_TEST_LAYOUT_CALLS"
+}
+
+pane_layout_apply_new_tabs() {
+  local result expected
+  # The caller's 60x20 pane cannot hold a four-cell grid, so the whole team
+  # goes to one new tab in the same workspace and the caller is untouched.
+  reset_layout_state 247x47 30 0 60 20
+  result="$(HERDR_TEST_TAB_AREA=247x47 "$LAYOUT_SCRIPT" apply --count 3 --label team --cwd "$TEST_TMP")"
+  printf '%s' "$result" | assert_json_field tab_policy '"new"'
+  printf '%s' "$result" | assert_json_field created_panes '["wG:p9","wG:p10","wG:p11"]'
+  printf '%s' "$result" | assert_json_field tabs.0.tab_id '"wG:t9"'
+  printf '%s' "$result" | assert_json_field tabs.0.label '"team"'
+  printf '%s' "$result" | assert_json_field tabs.0.rows 1
+  printf '%s' "$result" | assert_json_field tabs.0.cols 3
+  expected="$(cat <<EOF
+pane layout --pane wG:p1
+tab create --label team --workspace wG --cwd $TEST_TMP --no-focus
+pane split --pane wG:p9 --direction right --ratio 0.331984 --cwd $TEST_TMP --no-focus
+pane split --pane wG:p10 --direction right --ratio 0.496970 --cwd $TEST_TMP --no-focus
+pane layout --pane wG:p9
+EOF
+)"
+  assert_layout_calls "$expected"
+  # The caller pane is never split or resized.
+  ! grep -q 'wG:p1' "$HERDR_TEST_STATE/splits"
+
+  # A larger team uses two tabs, labelled with the -2 suffix, larger first.
+  reset_layout_state 300x60 0 0 300 60
+  result="$(HERDR_TEST_TAB_AREA=300x60 "$LAYOUT_SCRIPT" apply --count 21 --label squad --cwd "$TEST_TMP")"
+  printf '%s' "$result" | assert_json_field tab_policy '"new"'
+  printf '%s' "$result" | assert_json_field tabs.0.label '"squad"'
+  printf '%s' "$result" | assert_json_field tabs.1.label '"squad-2"'
+  printf '%s' "$result" | assert_json_field tabs.0.rows 3
+  printf '%s' "$result" | assert_json_field tabs.0.cols 4
+  printf '%s' "$result" | assert_json_field tabs.1.rows 2
+  printf '%s' "$result" | assert_json_field tabs.1.cols 5
+  [ "$(grep -c '^tab create ' "$HERDR_TEST_LAYOUT_CALLS")" -eq 2 ]
+  grep -Fqx "tab create --label squad --workspace wG --cwd $TEST_TMP --no-focus" \
+    "$HERDR_TEST_LAYOUT_CALLS"
+  grep -Fqx "tab create --label squad-2 --workspace wG --cwd $TEST_TMP --no-focus" \
+    "$HERDR_TEST_LAYOUT_CALLS"
+  # 21 created panes: 10 splits in the first tab, 9 in the second.
+  [ "$(grep -c '^pane split ' "$HERDR_TEST_LAYOUT_CALLS")" -eq 19 ]
+  [ "$(grep -c '^pane layout ' "$HERDR_TEST_LAYOUT_CALLS")" -eq 3 ]
+}
+
+pane_layout_apply_stops_on_mismatch() {
+  local error status
+  # The library reports rectangles that disagree with the plan by five cells.
+  reset_layout_state 247x47 0 0 247 47
+  set +e
+  error="$(HERDR_TEST_LAYOUT_SHIFT=5 "$LAYOUT_SCRIPT" apply --count 3 --cwd "$TEST_TMP" 2>&1 >/dev/null)"
+  status=$?
+  set -e
+  [ "$status" -ne 0 ] || {
+    printf 'expected a non-zero exit for a mismatching layout\n' >&2
+    return 1
+  }
+  case "$error" in
+    *'does not match the plan'*) ;;
+    *)
+      printf 'expected a mismatch report, got: %s\n' "$error" >&2
+      return 1
+      ;;
+  esac
+  # It stops after building the tab once: no repair, resize, or retry.
+  [ "$(grep -c '^pane split ' "$HERDR_TEST_LAYOUT_CALLS")" -eq 3 ]
+  [ "$(grep -c '^pane layout ' "$HERDR_TEST_LAYOUT_CALLS")" -eq 2 ]
+
+  # A rejected split stops the run immediately and names the operation.
+  reset_layout_state 247x47 0 0 247 47
+  set +e
+  error="$(HERDR_TEST_SPLIT_RC=9 "$LAYOUT_SCRIPT" apply --count 3 --cwd "$TEST_TMP" 2>&1 >/dev/null)"
+  status=$?
+  set -e
+  [ "$status" -ne 0 ] || {
+    printf 'expected a non-zero exit for a rejected split\n' >&2
+    return 1
+  }
+  case "$error" in
+    *'pane split failed'*) ;;
+    *)
+      printf 'expected a split failure report, got: %s\n' "$error" >&2
+      return 1
+      ;;
+  esac
+  [ "$(grep -c '^pane split ' "$HERDR_TEST_LAYOUT_CALLS")" -eq 1 ]
+}
+
 markdown_links_resolve() {
   local file link target dir checked=0
   for file in "$HERDR_DIR"/*.md "$HERDR_DIR"/references/*.md; do
@@ -618,7 +1114,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=18
+expected_count=26
 
 run_test parent_success
 run_test child_success
@@ -637,6 +1133,14 @@ run_test cli_failure_is_propagated
 run_test parent_display_name_fallbacks
 run_test python3_isolation
 run_test wrappers_are_thin
+run_test pane_layout_plan_grids
+run_test pane_layout_plan_new_tabs
+run_test pane_layout_plan_geometry
+run_test pane_layout_plan_is_pure
+run_test pane_layout_plan_rejects_bad_input
+run_test pane_layout_apply_current_tab
+run_test pane_layout_apply_new_tabs
+run_test pane_layout_apply_stops_on_mismatch
 run_test markdown_links_resolve
 
 [ "$pass_count" -eq "$expected_count" ] || {

@@ -62,7 +62,11 @@ After the team is settled:
 
 1. Determine the base branch from the current repository context and its instructions.
 2. Create the dedicated work branch required by those instructions. Use an existing work branch only when the user explicitly selected it. Do not push directly to a protected base branch.
-3. Follow the Herdr skill to inspect the current workspace and obtain one shell pane for each physical agent.
+3. Obtain one shell pane for each physical agent with the Herdr layout planner, which keeps the team in one planned grid and returns the created pane IDs in cell order:
+
+   ```bash
+   herdr/scripts/pane-layout.sh apply --count <physical agents> --label <team label>
+   ```
 4. Start every selected agent with the validated values:
 
    ```bash

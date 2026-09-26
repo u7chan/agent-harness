@@ -70,6 +70,29 @@ Branch without widening the search beyond the current workspace:
 
 Read every split and agent-start ID from the JSON responses. After starting, verify interactive readiness plus the user-specified provider, model, and thinking settings before delegating; an unknown value is not a match. Start the agent as described in [Pane operations](#pane-operations). Do not equate "requested agent absent" with "no available pane": splitting is not the default response to a missing agent.
 
+## Multi-pane layout
+
+When one round needs several sibling agent panes, plan the whole layout
+instead of splitting ad hoc:
+
+```bash
+herdr/scripts/pane-layout.sh apply --count <panes> --label <team>
+```
+
+`plan --count <n> --area <WxH>` previews the same grid without touching Herdr.
+`apply` creates exactly `--count` panes and returns their IDs in cell order.
+Constants, grid selection, tab policy, and failure behavior are in
+[Pane layout](references/pane-layout.md).
+
+Two exceptions apply to a planned layout, and only there:
+
+- it does not adopt an unrelated empty shell pane, because the planner cannot
+  move an existing pane into a planned cell. Single-pane delegation keeps the
+  reuse rule of [When the requested agent is absent](#when-the-requested-agent-is-absent).
+- it may create a tab without asking when the planner reports that the current
+  tab cannot hold the team. Creating a workspace or worktree still requires an
+  explicit user request.
+
 ## Async delegation
 
 Normal delegation is fire-and-forget. Do not use `--wait`. Send the task to an existing agent, then inspect its state and terminal output on a later turn with `herdr agent get` and `herdr agent read`.
