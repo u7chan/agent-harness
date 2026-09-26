@@ -864,14 +864,16 @@ pane_layout_plan_grids() {
   expect_plan 247x47 16 plan_tabs_json '[[2,4,8,null],[2,4,8,null]]'
   # A second region, derived with the same rules:
   #   M=4  -> 2x2: the only grid of this area without an empty slot
-  #   M=5  -> 3x2: 2x3 and 3x2 both leave one slot; the wider cell of 2x3 wins
-  #           on fill (min(100/55, 20/14) > min(200/3/55, 30/14))
+  #   M=5  -> 3x2: 2x3 and 3x2 both leave one slot, but the single-pane
+  #           remainder row of 2x3 is a 200x20 pane (aspect 4.8), so only 3x2
+  #           keeps every planned pane inside the window
   #   M=9  -> 3x3: four columns would need 220 cells of width
   #   M=12 -> 3x4, the largest grid this area can hold
   expect_plan 200x60 3 plan_grid_json '[2,2,4]'
-  expect_plan 200x60 4 plan_grid_json '[3,2,5]'
+  expect_plan 200x60 4 plan_grid_json '[2,3,5]'
   expect_plan 200x60 8 plan_grid_json '[3,3,9]'
   expect_plan 200x60 11 plan_grid_json '[4,3,12]'
+  expect_plan_field 200x60 4 aspect_window '"ok"'
   expect_plan_field 200x60 3 capacity 12
   expect_plan 300x60 5 plan_grid_json '[2,3,6]'
   expect_plan 300x60 19 plan_grid_json '[4,5,20]'
@@ -880,7 +882,9 @@ pane_layout_plan_grids() {
   # two slots and fill the minimum cell exactly), so rule 4 decides: 4x3 has
   # an aspect distance of 0.014 against 1.114 for 3x4.
   expect_plan 220x56 9 plan_grid_json '[3,4,10]'
-  expect_plan_field 220x56 9 aspect_window '"ok"'
+  # Rule 4 still decides the shape on the uniform-cell basis, while the flag
+  # reports the planned rectangles: the two-pane remainder row is 110x19.
+  expect_plan_field 220x56 9 aspect_window '"relaxed"'
 }
 
 pane_layout_plan_new_tabs() {
@@ -918,13 +922,13 @@ pane_layout_plan_geometry() {
     '[[0,0,0,0,0,61,23,true],[1,0,1,61,0,62,23,false],[2,0,2,123,0,62,23,false],[3,0,3,185,0,62,23,false],[4,1,0,0,23,82,24,false],[5,1,1,82,23,82,24,false],[6,1,2,164,23,83,24,false]]'
   expect_plan 247x47 6 plan_splits_json \
     '[[0,0,4,"down",0.489362],[0,0,1,"right",0.246964],[0,1,2,"right",0.333333],[0,2,3,"right",0.5],[0,4,5,"right",0.331984],[0,5,6,"right",0.49697]]'
-  # A three-row grid with a partly filled last row: the row cut chain runs
-  # first, then each row, so every row pane spans the full width when cut.
+  # A grid whose last row holds fewer panes: the row cut chain runs first,
+  # then each row, so every row pane spans the full width when it is cut.
   expect_plan 200x60 4 plan_splits_json \
-    '[[0,0,2,"down",0.333333],[0,2,4,"down",0.5],[0,0,1,"right",0.5],[0,2,3,"right",0.5]]'
+    '[[0,0,3,"down",0.5],[0,0,1,"right",0.33],[0,1,2,"right",0.5],[0,3,4,"right",0.5]]'
   # Only the top-left cell is the pane the plan starts from.
   expect_plan 200x60 4 plan_cells_json \
-    '[[0,0,0,0,0,100,20,true],[1,0,1,100,0,100,20,false],[2,1,0,0,20,100,20,false],[3,1,1,100,20,100,20,false],[4,2,0,0,40,200,20,false]]'
+    '[[0,0,0,0,0,66,30,true],[1,0,1,66,0,67,30,false],[2,0,2,133,0,67,30,false],[3,1,0,0,30,100,30,false],[4,1,1,100,30,100,30,false]]'
 }
 
 pane_layout_plan_relaxes_the_aspect_window() {
@@ -938,12 +942,14 @@ pane_layout_plan_relaxes_the_aspect_window() {
   expect_plan_field 110x40 5 tab_policy '"new"'
   expect_plan_field 110x40 5 capacity 4
   expect_plan_field 110x40 5 aspect_window '"relaxed"'
-  expect_plan_field 110x40 5 tabs.0.aspect_window '"ok"'
+  # Both tabs are relaxed: the three-pane tab's remainder row is a single
+  # 110x20 pane, aspect 2.64, and the two-pane tab is 110x20 twice.
+  expect_plan_field 110x40 5 tabs.0.aspect_window '"relaxed"'
   expect_plan_field 110x40 5 tabs.1.aspect_window '"relaxed"'
-  # A size with a window-satisfying grid keeps using it.
+  # A size with a window-satisfying full grid keeps using it.
   expect_plan 110x40 2 plan_grid_json '[2,2,3]'
   expect_plan_field 110x40 2 tab_policy '"current"'
-  expect_plan_field 110x40 2 aspect_window '"ok"'
+  expect_plan_field 110x40 2 aspect_window '"relaxed"'
   # 100x14 can hold exactly one pane: every requested tab is relaxed, and the
   # plan still succeeds because the hard minimum is met.
   expect_plan 100x14 3 plan_tabs_json '[[1,1,1,null],[1,1,1,null],[1,1,1,null]]'
@@ -951,6 +957,28 @@ pane_layout_plan_relaxes_the_aspect_window() {
   expect_plan_field 100x14 3 capacity 1
   expect_plan_field 100x14 3 aspect_window '"relaxed"'
   expect_plan_field 100x14 3 tabs.0.aspect_window '"relaxed"'
+}
+
+pane_layout_plan_checks_the_actual_rectangles() {
+  # The tier gate and the flag run on the planned rectangles, not on a uniform
+  # cell: a partially filled last row spreads its panes over the full width.
+  # 247x50 with M=10 keeps a 3x4 grid, but that last row holds two 123x17 and
+  # 124x17 panes (aspect 3.47 / 3.50), so the plan reports relaxed.
+  expect_plan_field 247x50 9 aspect_window '"relaxed"'
+  expect_plan 247x50 9 plan_grid_json '[3,4,10]'
+  printf '%s' "$(plan_json 247x50 9)" | assert_json_field tabs.0.aspect_window '"relaxed"'
+  printf '%s' "$(plan_json 247x50 9)" | assert_json_field tabs.0.cells.8.width 123
+  printf '%s' "$(plan_json 247x50 9)" | assert_json_field tabs.0.cells.8.height 17
+  printf '%s' "$(plan_json 247x50 9)" | assert_json_field tabs.0.cells.9.width 124
+  # A fully filled grid stays ok (M=4 at 247x47), and so does a partially
+  # filled last row whose panes all remain inside the window (M=7).
+  expect_plan_field 247x47 3 aspect_window '"ok"'
+  expect_plan_field 247x47 6 aspect_window '"ok"'
+  expect_plan_field 247x47 6 tabs.0.aspect_window '"ok"'
+  # The same remainder problem in a narrow region: the M=3 layout at 110x40
+  # leaves one 110x20 pane (aspect 2.64) in its last row.
+  expect_plan_field 110x40 2 aspect_window '"relaxed"'
+  expect_plan_field 110x40 2 tabs.0.aspect_window '"relaxed"'
 }
 
 pane_layout_plan_is_pure() {
@@ -1176,7 +1204,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=27
+expected_count=28
 
 run_test parent_success
 run_test child_success
@@ -1198,6 +1226,7 @@ run_test wrappers_are_thin
 run_test pane_layout_plan_grids
 run_test pane_layout_plan_new_tabs
 run_test pane_layout_plan_geometry
+run_test pane_layout_plan_checks_the_actual_rectangles
 run_test pane_layout_plan_relaxes_the_aspect_window
 run_test pane_layout_plan_is_pure
 run_test pane_layout_plan_rejects_bad_input

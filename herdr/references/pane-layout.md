@@ -33,7 +33,7 @@ herdr/scripts/pane-layout.sh apply --count <n> [--label <label>] [--pane <pane-i
 | --- | --- | --- |
 | hard minimum | 55 x 14 cells | Smallest pane this skill treats as usable. Always required. |
 | cell ratio | 0.48 | Cell width divided by cell height. |
-| aspect window | 0.7 – 2.6 | Preferred pixel aspect of one pane. Relaxed only when no grid of the requested size fits it. |
+| aspect window | 0.7 – 2.6 | Preferred pixel aspect of one planned pane. A plan reports `"relaxed"` when no candidate grid keeps every one of its panes inside it. |
 | target aspect | 1.4 | Preferred pixel aspect within the window. |
 
 A cell's pixel aspect is `0.48 * (region_width / cols) / (region_height / rows)`,
@@ -45,10 +45,17 @@ For one region and a required cell count, the planner enumerates every column
 count from 1 to `floor(width / 55)` with `rows = ceil(cells / cols)` and picks
 the grid in two tiers:
 
-- **tier A** — every pane meets the hard minimum (55 x 14 cells) **and** the
-  pixel aspect is inside the window;
-- **tier B** — used only when tier A has no candidate for this size: every pane
-  meets the hard minimum, whatever its aspect.
+- **tier A** — the planned rectangles all meet the hard minimum (55 x 14
+  cells) **and** their pixel aspect is inside the window;
+- **tier B** — used only when tier A has no candidate for this size: every
+  pane meets the hard minimum, whatever its aspect.
+
+A tier is decided on the pane rectangles the plan would create, including the
+remainder pane of a partially filled last row, because that pane spans the
+rest of the row instead of one uniform cell. `plan --count 9 --area 247x50`
+keeps a 3 x 4 grid, but its last row is two 123 x 17 and 124 x 17 panes (aspect
+3.47 and 3.50), so it reports `"relaxed"` even though the uniform 61.75 x
+16.67 cell of that grid would be inside the window.
 
 Within the best tier that has candidates, the grids are ranked in this order:
 
@@ -57,11 +64,17 @@ Within the best tier that has candidates, the grids are ranked in this order:
 3. aspect closest to the target 1.4;
 4. fewest rows, then fewest columns (the widest grid).
 
+Ranking uses the uniform cell, `width/cols` x `height/rows`, as a shape proxy:
+the tier decides which sizes are acceptable, and the ranking only orders the
+candidates inside that tier. Both numbers are therefore documented apart —
+ranks never inspect the remainder pane, and the `aspect_window` field never
+uses the uniform cell.
+
 The window is a preference and the minimum is hard, so a plan only fails when
 the minimum cannot be met. The plan reports the tier it used as
-`aspect_window`: `"ok"` when every tab stayed in tier A, `"relaxed"` when at
-least one tab fell back to tier B. Each tab carries the same field for its own
-grid.
+`aspect_window`: `"ok"` when every planned pane of every tab stayed in tier A,
+`"relaxed"` when any tab fell back to tier B. Each tab carries the same field
+for its own grid.
 
 For a 247 x 47 region, `cells` maps to a grid as follows:
 
@@ -109,9 +122,10 @@ within one cell per dimension; the actual panes are not resized afterwards.
 
 `capacity` is the largest pane count a full grid of the tab area can hold at
 the hard minimum, so every size up to it is placeable. For a 247 x 47 tab that
-is 12 panes (3 rows x 4 columns). A tab whose size only fits tier B is
-reported as `"relaxed"`, for example 110 x 40 split into 3 and 2 panes: the
-three-pane tab is `"ok"` and the two-pane tab is `"relaxed"`.
+is 12 panes (3 rows x 4 columns). Each tab reports its own `aspect_window`:
+splitting 247 x 47 into 8 and 7 panes keeps both tabs `"ok"`, while 110 x 40
+split into 3 and 2 panes reports `"relaxed"` for both, because each of their
+last rows is a single 110 x 20 pane.
 
 - **current** — a grid for `count + 1` cells exists in the caller rectangle
   (tier A or tier B). The caller pane is cell 0 (top-left) and the plan covers

@@ -92,19 +92,51 @@ if region_w < 1 or region_h < 1 or area_w < 1 or area_h < 1 or count < 2:
 
 
 def fits_minimum(width, height, cols, rows):
-    """Can every pane in a cols x rows grid meet the hard minimum size?"""
+    """Can every pane in a cols x rows grid meet the hard minimum size?
+
+    Floor boundaries give every pane at least `width // cols` cells of width
+    and `height // rows` cells of height, so this is exact for the planned
+    rectangles too.
+    """
     if cols < 1 or rows < 1:
         return False
     return cols * min_x <= width and rows * min_y <= height
 
 
-def in_window(width, height, cols, rows):
-    """Is the grid's pixel aspect inside the preferred window?"""
-    # Pixel aspect = ratio_pct/100 * (width/cols) / (height/rows). Compared
-    # without floats: aspect_min <= 100 * aspect <= aspect_max.
-    scaled = ratio_pct * width * rows
-    bound = 100 * height * cols
-    return aspect_min * bound <= 100 * scaled <= aspect_max * bound
+def row_bounds(width, height, cells, cols, rows):
+    """Cell boundaries of every row, relative to the region origin.
+
+    Rows other than the last hold `cols` panes; the last row holds the
+    remaining cells, and its panes share the full width.
+    """
+    y_bounds = [(row * height) // rows for row in range(rows + 1)]
+    x_bounds = []
+    for row in range(rows):
+        in_row = min(cols, cells - row * cols)
+        x_bounds.append([(col * width) // in_row for col in range(in_row + 1)])
+    return y_bounds, x_bounds
+
+
+def pane_rects(width, height, cells, cols, rows):
+    """Actual planned pane rectangles (x, y, width, height), row-major."""
+    y_bounds, x_bounds = row_bounds(width, height, cells, cols, rows)
+    return [(bounds[col], y_bounds[row],
+             bounds[col + 1] - bounds[col], y_bounds[row + 1] - y_bounds[row])
+            for row, bounds in enumerate(x_bounds) for col in range(len(bounds) - 1)]
+
+
+def panes_in_window(width, height, cells, cols, rows):
+    """Do all actual panes of this grid stay inside the aspect window?
+
+    The tier gate runs on the planned rectangles, not on a uniform cell: a
+    partially filled last row spreads its panes over the full width, so its
+    remainder pane can leave the window while a uniform cell would not.
+    """
+    for _, _, pane_w, pane_h in pane_rects(width, height, cells, cols, rows):
+        # Pixel aspect = ratio_pct/100 * pane_w / pane_h, compared as integers.
+        if not aspect_min * pane_h <= ratio_pct * pane_w <= aspect_max * pane_h:
+            return False
+    return True
 
 
 def fill_pair(width, height, cols, rows):
@@ -141,9 +173,12 @@ def better(candidate, best):
 def choose_grid(width, height, cells):
     """Grid for `cells` panes, preferring the aspect window, or None.
 
-    Tier A meets the hard minimum and the aspect window; tier B, used only
-    when tier A has no candidate for this size, meets the hard minimum alone.
-    The size and shape rules apply inside the best tier that has candidates.
+    Tier A keeps every planned pane of the candidate inside the aspect window
+    in addition to the hard minimum; tier B, used only when tier A has no
+    candidate for this size, meets the hard minimum alone. The ranking below
+    still runs on the uniform cell (`width/cols` x `height/rows`), so it only
+    orders candidates inside the best tier that has any.
+
     A grid of `cols` columns and `rows = ceil(cells / cols)` rows is enough:
     rows beyond that only add empty slots to a wider grid.
     """
@@ -153,7 +188,7 @@ def choose_grid(width, height, cells):
             rows = (cells + cols - 1) // cols
             if not fits_minimum(width, height, cols, rows):
                 continue
-            if tier == "ok" and not in_window(width, height, cols, rows):
+            if tier == "ok" and not panes_in_window(width, height, cells, cols, rows):
                 continue
             candidate = {
                 "rows": rows,
@@ -199,19 +234,17 @@ def build_tab(index, policy, tab_label, width, height, cells):
             % (cells, width, height, min_x, min_y))
         return None
     rows, cols = grid["rows"], grid["cols"]
-    y_bounds = [(row * height) // rows for row in range(rows + 1)]
+    y_bounds, x_bounds = row_bounds(width, height, cells, cols, rows)
     tab_cells = []
-    for row in range(rows):
-        in_row = min(cols, cells - row * cols)
-        x_bounds = [(col * width) // in_row for col in range(in_row + 1)]
-        for col in range(in_row):
+    for row, bounds in enumerate(x_bounds):
+        for col in range(len(bounds) - 1):
             tab_cells.append({
                 "index": row * cols + col,
                 "row": row,
                 "col": col,
-                "x": x_bounds[col],
+                "x": bounds[col],
                 "y": y_bounds[row],
-                "width": x_bounds[col + 1] - x_bounds[col],
+                "width": bounds[col + 1] - bounds[col],
                 "height": y_bounds[row + 1] - y_bounds[row],
                 "source": row == 0 and col == 0,
             })
@@ -229,17 +262,15 @@ def build_tab(index, policy, tab_label, width, height, cells):
         })
     # Then each row in order, left to right. The last pane of the row keeps
     # the remaining width, which is what a partially filled last row leaves.
-    for row in range(rows):
-        in_row = min(cols, cells - row * cols)
-        x_bounds = [(col * width) // in_row for col in range(in_row + 1)]
-        for col in range(1, in_row):
-            keep = x_bounds[col] - x_bounds[col - 1]
+    for row, bounds in enumerate(x_bounds):
+        for col in range(1, len(bounds) - 1):
+            keep = bounds[col] - bounds[col - 1]
             splits.append({
                 "tab": index,
                 "source_cell": row * cols + col - 1,
                 "target_cell": row * cols + col,
                 "direction": "right",
-                "ratio": round(keep / (width - x_bounds[col - 1]), 6),
+                "ratio": round(keep / (width - bounds[col - 1]), 6),
             })
     return {
         "index": index,
