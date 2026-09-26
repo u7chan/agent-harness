@@ -30,9 +30,9 @@ description: >
 
 ### 1. レビュアーのペインを用意する
 
-- `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` で空きの対話シェルを探し、あれば使う。無ければ `herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus`
+- `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` で空きの対話シェルを探し、あれば使う。無ければ `herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus`（再利用するペインの cwd は親と同じとは限らないため、レビュアーへ渡すリポジトリのルートはプロンプト側で指定する）
 - `herdr agent start issue-review --kind pi --pane <pane-id>`（モデルと thinking は付けない = 実行環境の既定。ユーザーが指定した時だけ引数で渡す）
-- 応答の `pane_id` を読み、`herdr pane rename <pane-id> issue-review` と `herdr pane get` で label を確認する
+- 応答の `pane_id` を読み、`herdr pane rename <pane-id> issue-review` と `herdr pane get <pane-id>` で label を確認する
 - 収束まで同じペインを使い回す（レビューのたびに増やさない）
 
 ### 2. 1 回目を委譲する
@@ -42,7 +42,7 @@ description: >
 
 プロンプトに含めるもの:
 
-- 対象ファイルの絶対パス（起票済みを更新するなら Issue の URL も）
+- 作業リポジトリのルート（`git rev-parse --show-toplevel`）と、対象ファイルの絶対パス（起票済みを更新するなら Issue の URL も。レビュアーはこのルートの実コードで裏取りする）
 - 検証: リポジトリの実コードと docs で、事実関係・契約・既存の作法を裏取りする
 - 観点: 実装時に詰まる抜け / スコープの過剰・不足 / docs の更新漏れ / テスト方針との整合
 - 形式: 指摘を 重大 / 中 / 軽 に分け、各指摘に根拠（ファイルパス + 該当箇所）を付ける。結論は OK / 条件付きOK / 要修正
@@ -63,8 +63,20 @@ description: >
 
 ### 5. Issue を確定する
 
-- 起票: `gh issue create --title "<title>" --body-file /tmp/<topic>-issue.md --label <label>...`
-- 更新: `gh issue edit <number> --body-file /tmp/<topic>-issue.md`
+GitHub への書き込みは [gh](../gh/SKILL.md) の dispatcher を使う（対象リポジトリは実行ディレクトリから解決される）。
+
+```bash
+# 起票
+jq -n --rawfile body /tmp/<topic>-issue.md \
+  '{title:"<title>", body:$body, labels:["<label>"], grant:"write"}' > /tmp/<topic>-issue-create.json
+gh/scripts/gh.sh issue.create /tmp/<topic>-issue-create.json
+
+# 更新
+jq -n --rawfile body /tmp/<topic>-issue.md \
+  '{number:<number>, body:$body, grant:"write"}' > /tmp/<topic>-issue-update.json
+gh/scripts/gh.sh issue.update /tmp/<topic>-issue-update.json
+```
+
 - タイトル・本文・ラベルは日本語。ラベルはリポジトリの既存のものを使う
 - 確定後に本文を読み直し、「レビュー / 指摘 / 下書き / Ver」のような語が混入していないか確認する
 - 報告: Issue の URL、タイトル、ラベル、往復回数、未反映の指摘
