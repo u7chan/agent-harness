@@ -91,12 +91,15 @@ if region_w < 1 or region_h < 1 or area_w < 1 or area_h < 1 or count < 2:
     sys.exit(2)
 
 
-def feasible(width, height, cols, rows):
-    """Can every pane in a cols x rows grid meet the size and aspect limits?"""
+def fits_minimum(width, height, cols, rows):
+    """Can every pane in a cols x rows grid meet the hard minimum size?"""
     if cols < 1 or rows < 1:
         return False
-    if cols * min_x > width or rows * min_y > height:
-        return False
+    return cols * min_x <= width and rows * min_y <= height
+
+
+def in_window(width, height, cols, rows):
+    """Is the grid's pixel aspect inside the preferred window?"""
     # Pixel aspect = ratio_pct/100 * (width/cols) / (height/rows). Compared
     # without floats: aspect_min <= 100 * aspect <= aspect_max.
     scaled = ratio_pct * width * rows
@@ -136,34 +139,47 @@ def better(candidate, best):
 
 
 def choose_grid(width, height, cells):
-    """Smallest-empty grid for `cells` panes, or None when none is feasible.
+    """Grid for `cells` panes, preferring the aspect window, or None.
 
+    Tier A meets the hard minimum and the aspect window; tier B, used only
+    when tier A has no candidate for this size, meets the hard minimum alone.
+    The size and shape rules apply inside the best tier that has candidates.
     A grid of `cols` columns and `rows = ceil(cells / cols)` rows is enough:
     rows beyond that only add empty slots to a wider grid.
     """
-    best = None
-    for cols in range(1, width // min_x + 1):
-        rows = (cells + cols - 1) // cols
-        if not feasible(width, height, cols, rows):
-            continue
-        candidate = {
-            "rows": rows,
-            "cols": cols,
-            "empty": rows * cols - cells,
-            "fill": fill_pair(width, height, cols, rows),
-            "distance": distance_pair(width, height, cols, rows),
-        }
-        if best is None or better(candidate, best):
-            best = candidate
-    return best
+    for tier in ("ok", "relaxed"):
+        best = None
+        for cols in range(1, width // min_x + 1):
+            rows = (cells + cols - 1) // cols
+            if not fits_minimum(width, height, cols, rows):
+                continue
+            if tier == "ok" and not in_window(width, height, cols, rows):
+                continue
+            candidate = {
+                "rows": rows,
+                "cols": cols,
+                "empty": rows * cols - cells,
+                "fill": fill_pair(width, height, cols, rows),
+                "distance": distance_pair(width, height, cols, rows),
+            }
+            if best is None or better(candidate, best):
+                best = candidate
+        if best is not None:
+            best["aspect_window"] = tier
+            return best
+    return None
 
 
 def capacity(width, height):
-    """Largest pane count a full grid of this area can hold."""
+    """Largest pane count a full grid of this area can hold.
+
+    The hard minimum is the only limit here, so every size up to the result
+    is placeable (the window is a preference, see choose_grid).
+    """
     most = 0
     for cols in range(1, width // min_x + 1):
         for rows in range(1, height // min_y + 1):
-            if feasible(width, height, cols, rows):
+            if fits_minimum(width, height, cols, rows):
                 most = max(most, cols * rows)
     return most
 
@@ -179,8 +195,8 @@ def build_tab(index, policy, tab_label, width, height, cells):
     if grid is None:
         sys.stderr.write(
             "ERROR: no feasible pane grid for %d panes in a %d x %d cell area: every pane "
-            "needs at least %dx%d cells and a pixel aspect between %.2f and %.2f\n"
-            % (cells, width, height, min_x, min_y, aspect_min / 100.0, aspect_max / 100.0))
+            "needs at least %dx%d cells\n"
+            % (cells, width, height, min_x, min_y))
         return None
     rows, cols = grid["rows"], grid["cols"]
     y_bounds = [(row * height) // rows for row in range(rows + 1)]
@@ -231,6 +247,7 @@ def build_tab(index, policy, tab_label, width, height, cells):
         "label": tab_label,
         "rows": rows,
         "cols": cols,
+        "aspect_window": grid["aspect_window"],
         "cells": tab_cells,
         "splits": splits,
     }
@@ -248,8 +265,7 @@ else:
     if room < 1:
         sys.stderr.write(
             "ERROR: no feasible pane grid in a %d x %d cell area: every pane needs at "
-            "least %dx%d cells and a pixel aspect between %.2f and %.2f\n"
-            % (area_w, area_h, min_x, min_y, aspect_min / 100.0, aspect_max / 100.0))
+            "least %dx%d cells\n" % (area_w, area_h, min_x, min_y))
         sys.exit(1)
     tab_policy = "new"
     tab_count = (count + room - 1) // room
@@ -275,6 +291,8 @@ plan = {
     "tab_area": {"width": area_w, "height": area_h},
     "tab_policy": tab_policy,
     "capacity": room,
+    "aspect_window": "relaxed" if any(
+        tab["aspect_window"] == "relaxed" for tab in tabs) else "ok",
     "rows": plan_rows,
     "cols": plan_cols,
     "tabs": [{
@@ -283,6 +301,7 @@ plan = {
         "label": tab["label"],
         "rows": tab["rows"],
         "cols": tab["cols"],
+        "aspect_window": tab["aspect_window"],
         "cells": tab["cells"],
     } for tab in tabs],
     "splits": [split for tab in tabs for split in tab["splits"]],
@@ -449,6 +468,7 @@ result = {
     "tab_area": plan["tab_area"],
     "tab_policy": plan["tab_policy"],
     "capacity": plan["capacity"],
+    "aspect_window": plan["aspect_window"],
     "rows": plan["rows"],
     "cols": plan["cols"],
     "tabs": [],
@@ -464,6 +484,7 @@ for tab in plan["tabs"]:
         "tab_id": info.get("tab_id"),
         "rows": tab["rows"],
         "cols": tab["cols"],
+        "aspect_window": tab["aspect_window"],
         "cells": [],
     }
     for cell in tab["cells"]:

@@ -876,6 +876,11 @@ pane_layout_plan_grids() {
   expect_plan 300x60 5 plan_grid_json '[2,3,6]'
   expect_plan 300x60 19 plan_grid_json '[4,5,20]'
   expect_plan_field 300x60 19 capacity 20
+  # 220x56 with M=10 ties through empty slots and fill (both candidates leave
+  # two slots and fill the minimum cell exactly), so rule 4 decides: 4x3 has
+  # an aspect distance of 0.014 against 1.114 for 3x4.
+  expect_plan 220x56 9 plan_grid_json '[3,4,10]'
+  expect_plan_field 220x56 9 aspect_window '"ok"'
 }
 
 pane_layout_plan_new_tabs() {
@@ -922,6 +927,32 @@ pane_layout_plan_geometry() {
     '[[0,0,0,0,0,100,20,true],[1,0,1,100,0,100,20,false],[2,1,0,0,20,100,20,false],[3,1,1,100,20,100,20,false],[4,2,0,0,40,200,20,false]]'
 }
 
+pane_layout_plan_relaxes_the_aspect_window() {
+  # 110x40 holds four panes (2x2) but no two-pane grid fits the aspect window
+  # (110x20 is 2.64, 55x40 is 0.66). The five-pane team is split evenly into
+  # three and two, and the two-pane tab falls back to the hard minimum (tier
+  # B) instead of failing the plan.
+  expect_plan 110x40 5 plan_tabs_json '[[2,2,3,null],[2,1,2,null]]'
+  expect_plan 110x40 5 plan_splits_json \
+    '[[0,0,2,"down",0.5],[0,0,1,"right",0.5],[1,0,1,"down",0.5]]'
+  expect_plan_field 110x40 5 tab_policy '"new"'
+  expect_plan_field 110x40 5 capacity 4
+  expect_plan_field 110x40 5 aspect_window '"relaxed"'
+  expect_plan_field 110x40 5 tabs.0.aspect_window '"ok"'
+  expect_plan_field 110x40 5 tabs.1.aspect_window '"relaxed"'
+  # A size with a window-satisfying grid keeps using it.
+  expect_plan 110x40 2 plan_grid_json '[2,2,3]'
+  expect_plan_field 110x40 2 tab_policy '"current"'
+  expect_plan_field 110x40 2 aspect_window '"ok"'
+  # 100x14 can hold exactly one pane: every requested tab is relaxed, and the
+  # plan still succeeds because the hard minimum is met.
+  expect_plan 100x14 3 plan_tabs_json '[[1,1,1,null],[1,1,1,null],[1,1,1,null]]'
+  expect_plan_field 100x14 3 tab_policy '"new"'
+  expect_plan_field 100x14 3 capacity 1
+  expect_plan_field 100x14 3 aspect_window '"relaxed"'
+  expect_plan_field 100x14 3 tabs.0.aspect_window '"relaxed"'
+}
+
 pane_layout_plan_is_pure() {
   reset_layout_state 247x47 0 0 247 47
   reset_logs
@@ -936,9 +967,11 @@ pane_layout_plan_is_pure() {
 }
 
 pane_layout_plan_rejects_bad_input() {
-  # Neither of these areas can hold one pane inside the aspect window.
+  # Neither of these areas can hold one pane at the hard minimum: 40x10 is
+  # smaller in both directions and 54x100 is narrower than 55 cells. The
+  # aspect window alone never fails a plan.
   expect_plan_error 40x10 3 'no feasible pane grid'
-  expect_plan_error 100x14 3 'no feasible pane grid'
+  expect_plan_error 54x100 3 'no feasible pane grid'
   # Usage errors.
   expect_rc 2 "$LAYOUT_SCRIPT"
   expect_rc 2 "$LAYOUT_SCRIPT" plan
@@ -984,6 +1017,8 @@ pane_layout_apply_current_tab() {
   printf '%s' "$result" | assert_json_field tabs.0.cells.0.pane_id '"wG:p1"'
   printf '%s' "$result" | assert_json_field tabs.0.cells.3.pane_id '"wG:p11"'
   printf '%s' "$result" | assert_json_field tabs.0.cells.3.width 124
+  printf '%s' "$result" | assert_json_field aspect_window '"ok"'
+  printf '%s' "$result" | assert_json_field tabs.0.aspect_window '"ok"'
   # No tab is created, and every creation keeps cwd and focus.
   expected="$(cat <<EOF
 pane layout --pane wG:p1
@@ -995,6 +1030,33 @@ EOF
 )"
   assert_layout_calls "$expected"
   ! grep -q '^tab create' "$HERDR_TEST_LAYOUT_CALLS"
+
+  # A caller that does not start at the tab origin: the split ratios are
+  # relative to the caller rectangle, and verification offsets every planned
+  # cell by the caller's own origin.
+  reset_layout_state 247x50 123 0 124 50
+  result="$(HERDR_TEST_TAB_AREA=247x50 "$LAYOUT_SCRIPT" apply --count 3 --cwd "$TEST_TMP")"
+  printf '%s' "$result" | assert_json_field tab_policy '"current"'
+  printf '%s' "$result" | assert_json_field region '{"height":50,"width":124}'
+  printf '%s' "$result" | assert_json_field rows 2
+  printf '%s' "$result" | assert_json_field cols 2
+  printf '%s' "$result" | assert_json_field created_panes '["wG:p10","wG:p9","wG:p11"]'
+  # Planned cells stay relative to the caller rectangle at 123,0.
+  printf '%s' "$result" | assert_json_field tabs.0.cells.1.x 62
+  printf '%s' "$result" | assert_json_field tabs.0.cells.1.y 0
+  printf '%s' "$result" | assert_json_field tabs.0.cells.3.x 62
+  printf '%s' "$result" | assert_json_field tabs.0.cells.3.y 25
+  grep -Fqx 'wG:p10|wG:t1|185|0|62|25' "$HERDR_TEST_STATE/panes"
+  grep -Fqx 'wG:p11|wG:t1|185|25|62|25' "$HERDR_TEST_STATE/panes"
+  expected="$(cat <<EOF
+pane layout --pane wG:p1
+pane split --pane wG:p1 --direction down --ratio 0.500000 --cwd $TEST_TMP --no-focus
+pane split --pane wG:p1 --direction right --ratio 0.500000 --cwd $TEST_TMP --no-focus
+pane split --pane wG:p9 --direction right --ratio 0.500000 --cwd $TEST_TMP --no-focus
+pane layout --pane wG:p1
+EOF
+)"
+  assert_layout_calls "$expected"
 }
 
 pane_layout_apply_new_tabs() {
@@ -1114,7 +1176,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=26
+expected_count=27
 
 run_test parent_success
 run_test child_success
@@ -1136,6 +1198,7 @@ run_test wrappers_are_thin
 run_test pane_layout_plan_grids
 run_test pane_layout_plan_new_tabs
 run_test pane_layout_plan_geometry
+run_test pane_layout_plan_relaxes_the_aspect_window
 run_test pane_layout_plan_is_pure
 run_test pane_layout_plan_rejects_bad_input
 run_test pane_layout_apply_current_tab

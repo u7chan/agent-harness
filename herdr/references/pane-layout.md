@@ -24,38 +24,48 @@ herdr/scripts/pane-layout.sh apply --count <n> [--label <label>] [--pane <pane-i
   defaults to `$HERDR_PANE_ID` and `--cwd` to `$PWD`; `--cwd` must be an
   absolute existing directory and is passed to every creation.
 - `--label` names new tabs. Drafts (`plan`) and results (`apply`) are one
-  JSON document each.
+  JSON document each, reporting the tab policy, the grid of every tab, the
+  capacity, and the aspect tier (`aspect_window`, see below).
 
 ## Constants
 
 | Constant | Value | Meaning |
 | --- | --- | --- |
-| hard minimum | 55 x 14 cells | Smallest pane this skill treats as usable. |
+| hard minimum | 55 x 14 cells | Smallest pane this skill treats as usable. Always required. |
 | cell ratio | 0.48 | Cell width divided by cell height. |
-| aspect window | 0.7 – 2.6 | Accepted pixel aspect of one pane. |
-| target aspect | 1.4 | Preferred pixel aspect. |
+| aspect window | 0.7 – 2.6 | Preferred pixel aspect of one pane. Relaxed only when no grid of the requested size fits it. |
+| target aspect | 1.4 | Preferred pixel aspect within the window. |
 
 A cell's pixel aspect is `0.48 * (region_width / cols) / (region_height / rows)`,
 that is, the width and height the region gives one pane, converted to pixels.
-The window is why a 100 x 14 region is rejected even though one pane would meet
-the hard minimum: 100 x 14 cells is an aspect of about 3.4.
 
 ## Grid selection
 
 For one region and a required cell count, the planner enumerates every column
-count from 1 to `floor(width / 55)` with `rows = ceil(cells / cols)` and ranks
-the feasible grids in this order:
+count from 1 to `floor(width / 55)` with `rows = ceil(cells / cols)` and picks
+the grid in two tiers:
 
-1. every pane meets the hard minimum (55 x 14 cells) and the pixel aspect is
-   inside the window;
-2. fewest empty slots (`rows * cols - cells`);
-3. largest worst-case fill, `min(cell width / 55, cell height / 14)`;
-4. aspect closest to the target 1.4;
-5. fewest rows, then fewest columns (the widest grid).
+- **tier A** — every pane meets the hard minimum (55 x 14 cells) **and** the
+  pixel aspect is inside the window;
+- **tier B** — used only when tier A has no candidate for this size: every pane
+  meets the hard minimum, whatever its aspect.
+
+Within the best tier that has candidates, the grids are ranked in this order:
+
+1. fewest empty slots (`rows * cols - cells`);
+2. largest worst-case fill, `min(cell width / 55, cell height / 14)`;
+3. aspect closest to the target 1.4;
+4. fewest rows, then fewest columns (the widest grid).
+
+The window is a preference and the minimum is hard, so a plan only fails when
+the minimum cannot be met. The plan reports the tier it used as
+`aspect_window`: `"ok"` when every tab stayed in tier A, `"relaxed"` when at
+least one tab fell back to tier B. Each tab carries the same field for its own
+grid.
 
 For a 247 x 47 region, `cells` maps to a grid as follows:
 
-| Cells | Grid (columns x rows) | `plan --count` |
+| Cells | Grid (rows x columns) | `plan --count` |
 | --- | --- | --- |
 | 3 | 1 x 3 | 2 |
 | 4 | 2 x 2 | 3 |
@@ -97,12 +107,15 @@ within one cell per dimension; the actual panes are not resized afterwards.
 
 ## Tab policy
 
-`capacity` is the largest pane count a full grid of the tab area can hold. For
-a 247 x 47 tab that is 12 panes (3 rows x 4 columns).
+`capacity` is the largest pane count a full grid of the tab area can hold at
+the hard minimum, so every size up to it is placeable. For a 247 x 47 tab that
+is 12 panes (3 rows x 4 columns). A tab whose size only fits tier B is
+reported as `"relaxed"`, for example 110 x 40 split into 3 and 2 panes: the
+three-pane tab is `"ok"` and the two-pane tab is `"relaxed"`.
 
-- **current** — a feasible grid for `count + 1` cells exists in the caller
-  rectangle. The caller pane is cell 0 (top-left) and the plan covers the
-  caller's rectangle with `count + 1` cells, so `apply` creates exactly
+- **current** — a grid for `count + 1` cells exists in the caller rectangle
+  (tier A or tier B). The caller pane is cell 0 (top-left) and the plan covers
+  the caller's rectangle with `count + 1` cells, so `apply` creates exactly
   `count` panes and does not change the caller's position.
 - **new** — no such grid exists. The caller pane is left untouched and the
   whole team goes to `ceil(count / capacity)` new tabs, sized as evenly as
@@ -126,8 +139,10 @@ Both exceptions apply only to a planned multi-pane layout built by this script:
 
 ## Failure behavior
 
-`plan` exits non-zero with a reason on stderr when the region cannot hold the
-requested grid. `apply` stops the same way, without repairs, when:
+`plan` exits non-zero with a reason on stderr only when the hard minimum
+cannot be met (an area smaller than 55 x 14 cells for even one pane); the
+aspect window alone never fails a plan. `apply` stops the same way, without
+repairs, when:
 
 - `herdr pane layout` fails or does not describe the requested pane;
 - a `tab create` or `pane split` fails, or its response carries no ID;
