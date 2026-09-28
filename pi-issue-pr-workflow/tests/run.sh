@@ -104,5 +104,51 @@ check_eq "unresolved root keeps requested level" \
   "$(printf '%s\n' "$out" | sed -n 's/.* requested=\([^ ]*\).*/\1/p')" "high"
 check_eq "unresolved root prints one line" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" "1"
 
+# Argument errors and unsafe values must still produce exactly one unknown
+# record with a nonzero exit, including on the paths that never reach pi.
+check_unknown_record() { # name rc out
+  local name="$1" rc="$2" out="$3"
+  if [ "$rc" -ne 0 ]; then
+    ok "$name exits nonzero"
+  else
+    ng "$name exits nonzero" "expected nonzero exit, got $rc"
+  fi
+  case "$out" in
+    *"result=unknown"*) ok "$name reports result=unknown" ;;
+    *) ng "$name reports result=unknown" "output: $out" ;;
+  esac
+  check_eq "$name prints one line" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" "1"
+}
+
+# A dangling --pi-root must reach the shared argument-error path instead of
+# exiting in the wrapper with no record.
+out="$("$HELPER" --provider opencode-go --model deepseek-v4.1-flash --thinking max \
+  --pi-root 2>"$WORK/dangling-root.err")"
+rc=$?
+check_unknown_record "dangling --pi-root" "$rc" "$out"
+check_eq "dangling --pi-root keeps provider" \
+  "$(printf '%s\n' "$out" | sed -n 's/.*provider=\([^ ]*\).*/\1/p')" "opencode-go"
+
+# Values containing newlines must not split the record; the unsafe field is
+# blanked and the result stays unknown.
+out="$("$HELPER" --provider opencode-go --model "$(printf 'bad\012model')" --thinking max \
+  2>"$WORK/newline-model.err")"
+rc=$?
+check_unknown_record "newline model" "$rc" "$out"
+check_eq "newline model is blanked" \
+  "$(printf '%s\n' "$out" | sed -n 's/.* model=\([^ ]*\).*/\1/p')" ""
+
+out="$("$HELPER" --provider "$(printf 'bad\012provider')" --model deepseek-v4.1-flash --thinking max \
+  2>"$WORK/newline-provider.err")"
+rc=$?
+check_unknown_record "newline provider" "$rc" "$out"
+check_eq "newline provider is blanked" \
+  "$(printf '%s\n' "$out" | sed -n 's/.*provider=\([^ ]*\).*/\1/p')" ""
+
+out="$("$HELPER" --provider opencode-go --model deepseek-v4.1-flash \
+  --thinking "$(printf 'max\012extra')" 2>"$WORK/newline-thinking.err")"
+rc=$?
+check_unknown_record "newline thinking" "$rc" "$out"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -64,14 +64,17 @@ have_pi_root=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --pi-root)
-      if [ "$#" -lt 2 ]; then
-        printf 'resolve-model-spec: --pi-root requires a value\n' >&2
-        usage >&2
-        exit 2
-      fi
+      # Tracked so that a resolved root is not appended when the caller
+      # supplied one. A dangling --pi-root is forwarded as-is, so the .mjs
+      # reports it through the shared argument-error path as one
+      # result=unknown line with a nonzero exit.
       have_pi_root=1
-      args+=("$1" "$2")
-      shift 2
+      args+=("$1")
+      shift
+      if [ "$#" -gt 0 ]; then
+        args+=("$1")
+        shift
+      fi
       ;;
     *)
       args+=("$1")

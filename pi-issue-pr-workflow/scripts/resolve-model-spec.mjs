@@ -38,16 +38,36 @@ Exit status is 0 only for result=ok.`;
  * Print the single key=value line. `writeSync` keeps the line complete even
  * when the process exits right after writing to a pipe.
  */
+/**
+ * True when a value can be embedded in the one-line record. Whitespace and
+ * control characters (including newlines) would split the record or its key=value
+ * fields, so they are not accepted as field content.
+ */
+function isSafeField(value) {
+  return typeof value === "string" && !/[\s\u0000-\u001f\u007f]/.test(value);
+}
+
+/** Keep the one-line record parseable even when a value is unexpected. */
+function field(value) {
+  return isSafeField(value) ? value : "";
+}
+
+/**
+ * Print the single key=value line. `writeSync` keeps the line complete even
+ * when the process exits right after writing to a pipe. Every field passes
+ * through `field()`, so the record stays on one line even for invalid input.
+ */
 function emit({ provider = "", model = "", requested = "", supported = [], effective = "", result, thinkingLevelMap }) {
   const map = thinkingLevelMap === undefined ? "" : JSON.stringify(thinkingLevelMap);
+  const levels = Array.isArray(supported) ? supported.join(",") : "";
   const line = [
-    `provider=${provider}`,
-    `model=${model}`,
-    `requested=${requested}`,
-    `supported=${supported.join(",")}`,
-    `effective=${effective}`,
-    `result=${result}`,
-    `thinking_level_map=${map}`,
+    `provider=${field(provider)}`,
+    `model=${field(model)}`,
+    `requested=${field(requested)}`,
+    `supported=${field(levels)}`,
+    `effective=${field(effective)}`,
+    `result=${field(result)}`,
+    `thinking_level_map=${field(map)}`,
   ].join(" ");
   writeSync(1, `${line}\n`);
 }
@@ -79,11 +99,11 @@ function parseArgs(argv) {
     }
     const key = optionNames[argument];
     if (!key) {
-      return { error: `unknown argument '${argument}'` };
+      return { options, error: `unknown argument '${argument}'` };
     }
     i += 1;
     if (i >= argv.length) {
-      return { error: `${argument} requires a value` };
+      return { options, error: `${argument} requires a value` };
     }
     options[key] = argv[i];
   }
@@ -124,13 +144,15 @@ async function main() {
   }
   if (parsed.error) {
     writeSync(2, `resolve-model-spec: ${parsed.error}\n${USAGE}\n`);
-    emit({ result: "unknown" });
-    process.exit(2);
+    unresolved(parsed.options, parsed.error, 2);
   }
   const options = parsed.options;
 
   if (!options.provider || !options.model || !options.thinking) {
     unresolved(options, "--provider, --model, and --thinking are required", 2);
+  }
+  if (!isSafeField(options.provider) || !isSafeField(options.model)) {
+    unresolved(options, "--provider and --model must not contain whitespace or control characters", 2);
   }
   if (!THINKING_LEVELS.includes(options.thinking)) {
     unresolved(options, `unknown thinking level '${options.thinking}'`, 2);
