@@ -39,7 +39,14 @@ The logical roles are `impl`, `review`, and `pr-fix`. Every physical agent is Pi
 
 `pr-fix` may be assigned to the `impl` agent instead of a distinct agent. The `review` role must always use a distinct agent and must not edit the implementation.
 
-Use `pi --list-models` to validate every explicit provider/model pair, but do not treat its thinking yes/no column as level validation. Resolve the model through Pi's installed runtime metadata and use its `thinkingLevelMap` semantics, which are the same model-specific supported-level and clamping logic used by Pi, to verify that the requested thinking level is supported and remains unchanged as the effective level. Do not silently choose a Pi default, accept a clamped level, maintain aliases, or infer an unavailable ID. Treat a partial, invalid, ambiguous, unsupported, or clamped specification as unresolved.
+Use `pi --list-models` to validate every explicit provider/model pair, but do not treat its thinking yes/no column as level validation. Resolve each full specification through the helper, which asks the installed Pi runtime's public API for the exact model and the supported/clamped thinking levels:
+
+```bash
+pi-issue-pr-workflow/scripts/resolve-model-spec.sh \
+  --provider <provider> --model <model> --thinking <level>
+```
+
+It prints one key=value line with `provider`, `model`, `requested`, `supported`, `effective`, `result`, and `thinking_level_map`, and exits nonzero unless `result=ok`. Only `result=ok` (the effective level equals the requested level) resolves the specification; every other result is unresolved, so stop instead of silently choosing a Pi default, accepting a clamped level, maintaining aliases, or inferring an unavailable ID. Treat a partial, invalid, ambiguous, unsupported, or clamped specification as unresolved.
 
 ## Kickoff gate
 
