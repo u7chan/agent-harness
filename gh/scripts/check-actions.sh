@@ -87,6 +87,21 @@ else
   pass 'actions.json permission values are valid'
 fi
 
+missing_grants=$(jq -r '
+  .actions | to_entries[] |
+  select(.value.input_schema.grant == null) |
+  "\(.key + 1): \(.value.name // "<unnamed>") missing input_schema.grant"
+' "$ACTIONS_JSON")
+if [[ -n "$missing_grants" ]]; then
+  grant_details=()
+  while IFS= read -r detail; do
+    grant_details+=("$detail")
+  done <<< "$missing_grants"
+  fail 'every action declares input_schema.grant' "${grant_details[@]}"
+else
+  pass 'every action declares input_schema.grant'
+fi
+
 missing_scripts=()
 for action_name in "${action_names[@]}"; do
   if [[ ! -f "$ACTIONS_DIR/$action_name.sh" ]]; then

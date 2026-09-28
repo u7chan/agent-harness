@@ -1013,6 +1013,10 @@ test_dispatcher_input_contracts() {
   "$SCRIPT_DIR/dispatcher-input.sh" >/dev/null
 }
 
+test_grant_contracts() {
+  "$SCRIPT_DIR/grant.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1076,6 +1080,7 @@ main() {
   run_test test_reviews_read_contracts
   run_test test_target_resolve_contracts
   run_test test_dispatcher_input_contracts
+  run_test test_grant_contracts
 
   teardown_fixture
   trap - EXIT
