@@ -186,13 +186,18 @@ main() {
 
   local permission
   permission="$(jq -r '.permission // "read"' <<< "$action_def")"
+  # Compare the JSON string, not a shell-expanded value: command
+  # substitution strips trailing newlines, so "read\n" would otherwise
+  # collapse into the allowed value "read".
+  local grant_json
+  grant_json="$(jq -r '(.grant // "read") | tojson' "$request_file")"
   local grant
-  grant="$(jq -r '.grant // "read"' "$request_file")"
-
-  case "$grant" in
-    read | write | sensitive-write) ;;
+  case "$grant_json" in
+    '"read"') grant=read ;;
+    '"write"') grant=write ;;
+    '"sensitive-write"') grant=sensitive-write ;;
     *)
-      envelope_fail "$action_name" "INVALID_GRANT" "Invalid grant '$grant' (allowed: read, write, sensitive-write)" false
+      envelope_fail "$action_name" "INVALID_GRANT" "Invalid grant $grant_json (allowed: read, write, sensitive-write)" false
       exit 1
       ;;
   esac

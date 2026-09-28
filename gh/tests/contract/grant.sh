@@ -4,9 +4,11 @@ set -u
 # Contract tests for the grant field (Issue #224): grant is declared on
 # every action, read actions accept it as an optional field (default read),
 # write actions keep it required, and only read / write / sensitive-write
-# are accepted. The catalog entries are the real ones from actions.json
-# (the fixture symlinks it); only the action bodies are mocked so dispatch
-# returns an ok envelope without any GitHub call.
+# are accepted. The value is compared on the JSON string, so trailing
+# whitespace such as "read\n" must not collapse into an allowed value.
+# The catalog entries are the real ones from actions.json (the fixture
+# symlinks it); only the action bodies are mocked so dispatch returns an
+# ok envelope without any GitHub call.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/helpers.sh"
@@ -85,6 +87,33 @@ test_unknown_grant_rejected() (
   assert_json_eq "$output" '.error.code' "INVALID_GRANT" || return 1
 )
 
+# A trailing newline used to be stripped by the command substitution that
+# read the grant value, turning "read\n" into the allowed value "read"
+# (Issue #224 review blocker). The comparison happens on the JSON string,
+# so all three values must fail as INVALID_GRANT with the newline intact.
+test_grant_trailing_newline_rejected() (
+  setup_fixture
+  trap teardown_fixture EXIT
+
+  local payload output
+  while IFS= read -r payload; do
+    [ -z "$payload" ] && continue
+    output="$(dispatch actions.describe "$payload")" && return 1 || true
+    assert_json_eq "$output" '.status' "failed" || {
+      echo "  payload: $payload"
+      return 1
+    }
+    assert_json_eq "$output" '.error.code' "INVALID_GRANT" || {
+      echo "  payload: $payload"
+      return 1
+    }
+  done <<'CASES'
+{"action":"repo.get","grant":"read\n"}
+{"action":"repo.get","grant":"write\n"}
+{"action":"repo.get","grant":"sensitive-write\n"}
+CASES
+)
+
 test_read_action_without_grant_defaults_to_read() (
   setup_fixture
   trap teardown_fixture EXIT
@@ -125,6 +154,7 @@ main() {
   run_test test_repo_get_accepts_grant_only_input
   run_test test_repo_get_unknown_key_rejected
   run_test test_unknown_grant_rejected
+  run_test test_grant_trailing_newline_rejected
   run_test test_read_action_without_grant_defaults_to_read
   run_test test_write_action_without_grant_still_required
   run_test test_unknown_fields_message_comma_space_no_trailing
