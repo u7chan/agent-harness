@@ -1,11 +1,12 @@
 # Worktree workspace teams
 
 Procedure for running a team inside a Herdr worktree workspace. The parent
-workspace normally starts and coordinates that team itself: the
-`worktree-team` edge (parent checkout to its linked worktree, and back) is
-derived from `herdr workspace list` state and is allowed by the delegation
-scope rules. Starting the team by hand remains the fallback for the cases the
-rules do not cover and for users who want to drive the team directly.
+workspace starts the team, either directly or through one orchestrator
+([Orchestrator-first](#orchestrator-first)): the `worktree-team` edge (parent
+checkout to its linked worktree, and back) is derived from `herdr workspace
+list` state and is allowed by the delegation scope rules. Starting the team by
+hand remains the fallback for the cases the rules do not cover and for users
+who want to drive the team directly.
 
 The scope rules are operational safeguards, not a permission boundary
 ([`async-delegation.md`](async-delegation.md#workspace-and-worktree-ownership),
@@ -63,6 +64,63 @@ Sibling worktrees of one repository, a second checkout of the repository, and
 cross-server targets stay rejected. A rejected edge exits 3 with
 `scope-reject: <reason>` and writes nothing; report it instead of retrying
 around it.
+
+### Orchestrator-first
+
+In this composition the parent creates the worktree and starts exactly one
+orchestrator in its root pane; the orchestrator then creates and drives the
+team, and the parent creates no team panes.
+
+1. Create the worktree as described in [Topology creation](#topology-creation)
+   and keep the linked workspace ID and root pane ID from that JSON response.
+2. Write the orchestrator's task file with the worktree environment block and
+   start the orchestrator from the parent workspace:
+
+   ```bash
+   herdr/scripts/worktree-team-start.sh <root-pane-id> <orchestrator-name> \
+     --provider <provider> --model <model> --thinking <level> <task-file>
+   ```
+
+   This is the parent's only `worktree-team-start.sh` call into the worktree
+   workspace; the script's scope, startup, and return rules apply unchanged.
+3. The orchestrator owns the team inside the worktree workspace: creating
+   panes (`herdr/scripts/pane-layout.sh apply`), starting agents (`herdr agent
+   start`), and delegating tasks (`herdr/scripts/parent-delegate-async.sh`).
+   The parent must not pre-create role panes — `impl`, `review`, `tester`, or
+   any other team member — or start those agents; one writer per team.
+
+#### Worktree environment block
+
+The parent always passes this block to the orchestrator, in the task file body
+passed to `worktree-team-start.sh`:
+
+```text
+workspace: <linked workspace ID>
+pane: <root pane ID>
+checkout: <worktree checkout path>
+branch: <work branch>
+base ref: <base ref the branch was created from>
+base commit: <commit ID of that base ref>
+```
+
+- `workspace` and `pane` come only from Herdr JSON responses: the `herdr
+  worktree create` response (`result.workspace.workspace_id`,
+  `result.root_pane.pane_id`) or, after a reopen, the `herdr worktree open`
+  response. Do not guess them from display order, labels, focus, or a later
+  list ([`herdr/SKILL.md`](../SKILL.md#caller-pinning)).
+- `checkout` and `branch` come from the `herdr worktree list --cwd "$PWD"`
+  entry whose `open_workspace_id` is the linked workspace; do not construct
+  the path.
+- `base ref` and `base commit` are read with Git in the source checkout, not
+  from Herdr state; `base commit` is the commit `base ref` resolves to.
+
+The orchestrator uses the block as its operating context: its workspace and
+pane, the checkout the team works in, and the branch and base the task starts
+from. It passes the applicable values on in each team task.
+
+The rest of this section describes the direct composition, where the parent
+prepares and starts each role member itself; in the orchestrator-first
+composition that work belongs to the orchestrator, as above.
 
 Prepare one pane per role and one task file per role before starting anything.
 The worktree root pane comes from the creation response, so split it for every

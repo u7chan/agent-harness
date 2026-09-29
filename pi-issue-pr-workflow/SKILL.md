@@ -27,6 +27,12 @@ Before any workflow side effect:
 4. Read the Issue and its conversation comments through the GH skill.
 5. Read the target repository's instructions and inspect its Git and worktree state.
 
+For the orchestrator-first worktree team, the task text handed to the
+orchestrator follows
+[the kickoff task template](references/kickoff-task-template.md); the template
+holds the task-text format, and the team table and approval rules stay in
+[Kickoff gate](#kickoff-gate).
+
 Stop on an ambiguous repository, unexpected worktree changes, or unavailable required tooling. Do not guess a target, discard changes, or create a replacement workspace.
 
 ## Team specification
@@ -56,6 +62,10 @@ Use a table containing:
 
 | Role | Assignee | Provider | Model | Thinking | Selection reason |
 |---|---|---|---|---|---|
+
+The team table and the approval rules in this section remain the authority;
+[the kickoff task template](references/kickoff-task-template.md) only fixes
+the format of the task text handed to the orchestrator.
 
 Choose task-adaptively: right-size model capability and thinking for each role, and reserve stronger reasoning for complexity that requires it. State uncertainty and tradeoffs; do not invent pricing, quota, latency, or capability claims.
 
