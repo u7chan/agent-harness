@@ -127,6 +127,7 @@ The wrappers classify every edge with `herdr/scripts/lib/scope.sh` immediately b
 Read-only discovery (`herdr workspace list`, `herdr worktree list --cwd "$PWD"`, `herdr pane list --workspace <linked-workspace-id>`) stays allowed, and the worktree lifecycle commands stay available when the user explicitly requests them.
 
 When the user asks for a team to run self-contained in a worktree workspace, start and coordinate it as described in [Worktree workspace teams](references/worktree-workspace-teams.md).
+In the orchestrator-first composition the parent creates the worktree, starts exactly one orchestrator in its root pane with `worktree-team-start.sh`, and passes the worktree environment block; the orchestrator then creates and starts the team ([Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)).
 
 ## Pane operations
 
