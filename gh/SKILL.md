@@ -33,6 +33,8 @@ Select the smallest matching category set.
 
 ## Permission
 
+`grant` is the common operation-permission input of every action: `actions.json` declares it on all actions, no-input actions accept it too, and it defaults to `read` when omitted. It must be one of the values below; any other value fails with `INVALID_GRANT`. A grant below the action's `permission` fails with `GRANT_INSUFFICIENT`. Write and sensitive-write actions require an explicit `grant`.
+
 - `read` — No side effects. Read-only GitHub data access.
 - `write` — Creates or modifies GitHub data. Requires confirmed intent from the user.
 - `sensitive-write` — Irreversible operations that affect others. Requires explicit user confirmation.

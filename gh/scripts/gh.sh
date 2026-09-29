@@ -43,7 +43,9 @@ EOF
 # - optional field: absent passes; when present it must match the declared
 #   type, except an explicit null, which is allowed as a per-action contract
 #   (update actions use null to clear a value while absence means "keep").
-# - unknown keys are rejected as UNKNOWN_FIELDS.
+# - unknown keys are rejected as UNKNOWN_FIELDS. A missing or empty
+#   input_schema takes the same path: an empty request passes and any key
+#   is unknown, so no-input actions accept only empty input.
 validate_input_file() {
   local action_name="$1"
   local request_file="$2"
@@ -51,16 +53,6 @@ validate_input_file() {
 
   local input_schema
   input_schema="$(jq -c '.input_schema // {}' <<< "$action_def")"
-
-  if [ "$input_schema" = "{}" ] || [ "$input_schema" = "null" ]; then
-    local has_keys
-    has_keys="$(jq -r 'if (. | keys | length) > 0 then "true" else "false" end' "$request_file")"
-    if [ "$has_keys" = "true" ]; then
-      envelope_fail "$action_name" "UNEXPECTED_INPUT" "Action '$action_name' expects no input" false
-      return 1
-    fi
-    return 0
-  fi
 
   local has_required
   has_required="$(jq -r '[to_entries[] | select(.value.required == true)] | length' <<< "$input_schema")"
@@ -76,13 +68,13 @@ validate_input_file() {
   local schema_keys_json
   schema_keys_json="$(jq -c 'keys' <<< "$input_schema")"
   local unknown_fields
-  unknown_fields="$(jq -r --argjson known "$schema_keys_json" '
-    keys - $known | .[]
+  unknown_fields="$(jq -c --argjson known "$schema_keys_json" '
+    keys - $known
   ' "$request_file" 2>/dev/null || true)"
 
-  if [ -n "$unknown_fields" ]; then
+  if [ -n "$unknown_fields" ] && [ "$unknown_fields" != "[]" ]; then
     local formatted
-    formatted="$(echo "$unknown_fields" | tr '\n' ', ' | sed 's/, $//')"
+    formatted="$(jq -r 'join(", ")' <<< "$unknown_fields")"
     envelope_fail "$action_name" "UNKNOWN_FIELDS" "Unknown fields: $formatted" false
     return 1
   fi
@@ -194,8 +186,21 @@ main() {
 
   local permission
   permission="$(jq -r '.permission // "read"' <<< "$action_def")"
+  # Compare the JSON string, not a shell-expanded value: command
+  # substitution strips trailing newlines, so "read\n" would otherwise
+  # collapse into the allowed value "read".
+  local grant_json
+  grant_json="$(jq -r '(.grant // "read") | tojson' "$request_file")"
   local grant
-  grant="$(jq -r '.grant // "read"' "$request_file")"
+  case "$grant_json" in
+    '"read"') grant=read ;;
+    '"write"') grant=write ;;
+    '"sensitive-write"') grant=sensitive-write ;;
+    *)
+      envelope_fail "$action_name" "INVALID_GRANT" "Invalid grant $grant_json (allowed: read, write, sensitive-write)" false
+      exit 1
+      ;;
+  esac
 
   if [ "$(permission_level "$grant")" -lt "$(permission_level "$permission")" ]; then
     envelope_fail "$action_name" "GRANT_INSUFFICIENT" "Action requires '$permission' but grant is '$grant'" false

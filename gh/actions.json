@@ -22,6 +22,11 @@
           "type": "string",
           "required": false,
           "description": "Search action names and descriptions"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -47,6 +52,11 @@
           "type": "string",
           "required": true,
           "description": "The action name to describe"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -62,7 +72,13 @@
       "category": "repository",
       "permission": "read",
       "requires_auth": true,
-      "input_schema": {},
+      "input_schema": {
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
       "output_schema": {
         "data": {
           "type": "object",
@@ -97,6 +113,11 @@
           "type": "number",
           "required": false,
           "description": "Number of workflow runs to return (default: 20, range: 1-100)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -131,6 +152,11 @@
           "type": "number",
           "required": true,
           "description": "Issue number"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -198,6 +224,11 @@
           "type": "number",
           "required": false,
           "description": "Results per page (1-100, default: 30)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -906,6 +937,11 @@
           "type": "number",
           "required": false,
           "description": "Results per page (1-100, default: 30)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -973,6 +1009,11 @@
           "type": "number",
           "required": false,
           "description": "Results per page (1-100, default: 30)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -1023,6 +1064,11 @@
           "type": "number",
           "required": false,
           "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -1097,6 +1143,11 @@
           "type": "number",
           "required": false,
           "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -1125,6 +1176,11 @@
           "type": "number",
           "required": false,
           "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -1197,6 +1253,11 @@
           "type": "number",
           "required": false,
           "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -1255,6 +1316,11 @@
           "type": "number",
           "required": false,
           "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -1298,6 +1364,11 @@
           "type": "number",
           "required": false,
           "description": "Results per page for collection reads (1-100, default: 100)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -1914,6 +1985,11 @@
           "type": "number",
           "required": false,
           "description": "PR number (required if reference is owner/repo)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -2067,6 +2143,11 @@
           "type": "number",
           "required": false,
           "description": "Results per page for collection reads (1-100, default: 100)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -2354,6 +2435,11 @@
           "type": "number",
           "required": false,
           "description": "Results per page for collection reads (1-100, default: 100)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
@@ -2531,6 +2617,11 @@
           "type": "number",
           "required": false,
           "description": "Threads per page (1-100, default: 100)"
+        },
+        "grant": {
+          "type": "string",
+          "required": false,
+          "description": "Operation permission level (read, write, sensitive-write)"
         }
       },
       "output_schema": {
