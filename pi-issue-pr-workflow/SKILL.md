@@ -37,13 +37,13 @@ Stop on an ambiguous repository, unexpected worktree changes, or unavailable req
 
 ## Team specification
 
-The logical roles are `impl`, `review`, and `pr-fix`. Every physical agent is Pi. A complete physical agent specification contains all of:
+The logical roles are `impl`, `review`, and `pr-fix`. `tester` is an optional extra role. Every physical agent is Pi. A complete physical agent specification contains all of:
 
 - the exact provider ID;
 - the exact model ID under that provider in `pi --list-models`;
 - one thinking level supported by that exact model: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`.
 
-`pr-fix` may be assigned to the `impl` agent instead of a distinct agent. The `review` role must always use a distinct agent and must not edit the implementation.
+`pr-fix` may be assigned to the `impl` agent instead of a distinct agent. The `review` role must always use a distinct agent and must not edit the implementation. `tester` is a distinct physical agent too, and is never started when the specification does not include it. A run without a tester keeps the behavior described here without an extra pane or condition. The tester does not edit the implementation, commit, edit the PR, or post GitHub reviews: its findings are triage input to the orchestrator, where reproducible functional defects are mandatory fixes and other findings may join the same fix round, while the `review` role remains the authority for Blocker determination. The tester's task text, re-verification, completion, and environment separation are in [the tester role reference](references/tester-role.md).
 
 Use `pi --list-models` to validate every explicit provider/model pair, but do not treat its thinking yes/no column as level validation. Resolve each full specification through the helper, which asks the installed Pi runtime's public API for the exact model and the supported/clamped thinking levels:
 
@@ -71,6 +71,16 @@ Choose task-adaptively: right-size model capability and thinking for each role, 
 
 Assign `pr-fix` to `impl` by default. Propose a distinct fixer only when there is a concrete handoff benefit, such as different required expertise, likely context pressure, or changes spanning independently understandable areas. Explain that reason in the proposal.
 
+Determine the target PR for this run from the Issue body and the repository conventions, and state it in the proposal:
+
+- When they describe a multi-PR plan (for example an infrastructure PR ① and a UI PR ② built on ①'s branch), state the PR this run produces as `対象 PR: <position>/<total>` (for example `対象 PR: 1/2`). Each run produces exactly one PR; a multi-PR Issue is completed by sequential runs.
+- Otherwise state `対象 PR: single`.
+- If a plan exists but this run's position cannot be determined, do not guess: keep the target unresolved in this proposal and wait for the existing approval instead of adding a separate stop or approval loop.
+
+State the close keyword decision in the same proposal, because GitHub interprets closing keywords in commit messages when they reach the default branch. A closing keyword (`close #<issue>`, `closes`, `fixes`, `resolves`, and their forms) is written in the PR body and in the commit messages only when this PR is the last PR of the plan and repository conventions require a closing keyword; otherwise both use a non-closing reference such as `Related to #<issue>`. A repository convention alone does not establish lastness: when the Issue describes no plan, default to no closing keyword and let the approved proposal establish otherwise. For a stacked PR whose base branch differs from the work branch, state the base difference and the merge-time keyword risk. Split and spelling examples are in [the multi-PR Issue reference](references/multi-pr-issue.md).
+
+When the specification includes a tester, include its default task in the same proposal: E2E verification of the Issue's user-visible surface through the Playwright skill, or, when the Playwright skill is unavailable, the target application's existing tests plus a smoke check as a substitute unresolved item for this approval. The tester's task is written into the delegation body and does not add a column to the team table.
+
 Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. If all assignments were already complete and valid, summarize the resolved team and proceed without an additional approval round.
 
 ## Start the team
@@ -94,9 +104,9 @@ After the team is settled:
 5. Apply responsibility-based agent names and pane labels.
 6. Inspect each started Pi pane's runtime status and verify that its effective provider, model, and thinking level exactly match the approved specification before sending work. If any value differs or cannot be verified, stop.
 
-Start both agents for a shared `impl`/`pr-fix` team, or all three agents when `pr-fix` is separate. If any startup result is failed or unknown, do not start implementation and do not automatically close the panes that were created. Report the observed state.
+Start both agents for a shared `impl`/`pr-fix` team, or all three agents when `pr-fix` is separate. When the team includes a tester, start three agents when `pr-fix` is shared and four agents when it is separate. If any startup result is failed or unknown, do not start implementation and do not automatically close the panes that were created. Report the observed state.
 
-Only `impl` receives a task at kickoff. Leave `review` and a separate `pr-fix` idle until their phases.
+Only `impl` receives a task at kickoff. Leave `review` and a separate `pr-fix` idle until their phases. `tester` stays idle until the Draft PR as well.
 
 ## Delegation contract
 
@@ -115,11 +125,19 @@ Ask `impl` to:
 1. read the Issue and comments;
 2. implement only the Issue scope and follow repository instructions;
 3. run and pass every required test, check, formatter, and linter;
-4. commit and push the work branch;
-5. use the GH skill to create a Draft PR with the required repository-specific description;
+4. commit and push the work branch, applying the close keyword decision from the Kickoff gate to the commit messages;
+5. use the GH skill to create a Draft PR with the required repository-specific description, applying the same decision to the PR body;
 6. return the commit, verification results, and PR number and URL.
 
 Do not advance without successful required verification, a confirmed push, and a Draft PR. If required verification fails or cannot run, require `blocked` and stop before treating the implementation as complete. Do not treat an unknown Git or GitHub result as success or blindly repeat it.
+
+### Tester verification
+
+When the specification includes a tester, delegate its task after the confirmed Draft PR. The tester's task may run in parallel with the Round 1 review. The tester's approved task is the default E2E verification of the Issue's user-visible surface through the Playwright skill, or the substitute approved at the Kickoff gate.
+
+The tester adds no review round. The tester's findings are triage input: reproducible functional defects are mandatory fixes, other findings may join the same fix round, and the `review` role remains the authority for Blocker determination. The tester's fixes are routed to the assigned `pr-fix` agent; a fix push that addresses tester findings is a normal fix push and consumes the existing three-round review budget. After Round 3, a mandatory tester finding stops the run and is reported without extra rounds.
+
+After every fix push, the tester re-verifies on the latest head, limited to the reported items and the affected scope, and reports each as pass or unverified. Paid-API verification for the tester is off by default and the Issue's verification policy wins. The tester's task text, re-verification checklist, and environment separation values are in [the tester role reference](references/tester-role.md).
 
 ### Initial review
 
@@ -165,9 +183,11 @@ Complete only when all of the following are confirmed:
 - every required verification has succeeded on the current PR head;
 - the PR exists and remains Draft;
 - the current PR head matches the commit covered by the latest full Review-skill LGTM review (including a recheck's full latest-head review), with no Blocker;
+- the PR body and the commit messages follow the close keyword decision for the target PR determined at the Kickoff gate;
 - no required review fix remains unaddressed;
+- when a tester is specified only, every item it took on is either verified as passing on the current PR head or reported as unverified with its reason; the tester condition adds to, and never replaces, the review LGTM requirement;
 - every thread the latest recheck classified `Resolved` has been resolved after reply confirmation and the lightweight checks (this workflow's auto-resolve), while `Partial`, `Unresolved`, `Unknown`, other authors' threads, and user-decision discussions remain open.
 
 Conversation resolution follows the Review skill's Resolve policy, which is canonical in its recheck reference (`references/recheck.md`). Outside this workflow it remains explicit instruction only. Within the fix → recheck loop, auto-resolve is delegated: the recheck carries the workflow's auto-resolve designation, and after a verified LGTM the threads it classified `Resolved` are resolved by the reviewer or, on handoff, by the orchestrator using the reported verified target set, each confirmed by a `review-threads.read` re-check of `resolved=true` with the reply confirmation and lightweight checks that recheck.md defines. Every thread the latest recheck did not classify `Resolved` remains open. A verified LGTM never auto-resolves a thread by itself. Do not automatically mark the PR ready, close panes, merge the PR, or close the Issue.
 
-Report the Issue, base and work branches, Draft PR, latest commit, verification, review round count, unresolved optional feedback or conversations, and every created pane's role and observed state. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup.
+Report the Issue, the target PR position (`対象 PR: 1/2` or `対象 PR: single`, with the base branch difference when the PR is stacked), base and work branches, Draft PR, latest commit, verification, review round count, unresolved optional feedback or conversations, and every created pane's role and observed state. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup.
