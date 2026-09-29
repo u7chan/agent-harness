@@ -1,47 +1,39 @@
 # Tester role
 
-Delegation body, re-verification report, completion report, and environment
-separation for the optional `tester` role. The rules for the role are in
-[Team specification](../SKILL.md#team-specification) and
-[Tester verification](../SKILL.md#tester-verification); this file fixes the
-shapes a run writes down.
+Record formats for the optional `tester` role: the body it receives, the
+return it writes, and the environment separation values it uses. The rules are
+in [Team specification](../SKILL.md#team-specification) and
+[Tester verification](../SKILL.md#tester-verification); this file fixes shapes
+only and adds no rule or condition of its own.
 
 ## Delegation body
 
-The body uses the delegation contract that applies to every role and adds:
+The body uses the delegation contract that applies to every role and records:
 
+- the task approved at the Kickoff gate;
 - the target PR and its head SHA;
-- the user-visible surface the Issue makes verifiable;
+- the scope the task names (the user-visible surface for a default E2E task);
 - the environment separation block below;
-- the expected return: one line per verification item with `pass`, `fail`, or
-  `unverified`.
+- the expected return: one line per verification item.
 
-The default task subject is E2E verification of the Issue's user-visible
-surface through the Playwright skill. When that skill is unavailable, the
-approved substitute is the target application's existing tests plus a smoke
-check.
+## Return report
 
-## Re-verification report
-
-One block per reported item, on the latest head:
+The return states the head SHA and one line per item:
 
 ```text
-item: <reported finding or verification item>
+item: <verification item>
 head: <head SHA>
 result: pass | fail | unverified
 evidence: <command or observation>
 reason: <required for unverified>
 ```
 
-An item outside the reported set and the affected scope is not re-opened in
-the pass.
-
-## Completion report
-
-The return states the head SHA and every item it took on as `pass`, `fail`, or
-`unverified` with its reason. Verification that could not run at all is
-returned as `blocked` with the command and observation; per-item findings stay
-in the report for the orchestrator's triage.
+After a fix push, the same block is used for the re-verified items; the
+re-verification scope is fixed in
+[Tester verification](../SKILL.md#tester-verification). Per-item findings stay
+in the report for the orchestrator's triage, and the mandatory-check rule for
+`completed` is the one that applies to every role
+([Delegation contract](../SKILL.md#delegation-contract)).
 
 ## Environment separation
 

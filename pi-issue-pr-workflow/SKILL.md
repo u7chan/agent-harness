@@ -56,7 +56,7 @@ It prints one key=value line with `provider`, `model`, `requested`, `supported`,
 
 ## Kickoff gate
 
-If any role assignment or agent specification is unresolved, inspect the Issue and relevant repository context, then propose the complete team before continuing. Preserve every valid value the user supplied.
+If any role assignment, agent specification, target PR determination, or tester task is unresolved, inspect the Issue and relevant repository context, then propose the complete team before continuing. Preserve every valid value the user supplied.
 
 Use a table containing:
 
@@ -79,9 +79,9 @@ Determine the target PR for this run from the Issue body and the repository conv
 
 State the close keyword decision in the same proposal, because GitHub interprets closing keywords in commit messages when they reach the default branch. A closing keyword (`close #<issue>`, `closes`, `fixes`, `resolves`, and their forms) is written in the PR body and in the commit messages only when this PR is the last PR of the plan and repository conventions require a closing keyword; otherwise both use a non-closing reference such as `Related to #<issue>`. A repository convention alone does not establish lastness: when the Issue describes no plan, default to no closing keyword and let the approved proposal establish otherwise. For a stacked PR whose base branch differs from the work branch, state the base difference and the merge-time keyword risk. Split and spelling examples are in [the multi-PR Issue reference](references/multi-pr-issue.md).
 
-When the specification includes a tester, include its default task in the same proposal: E2E verification of the Issue's user-visible surface through the Playwright skill, or, when the Playwright skill is unavailable, the target application's existing tests plus a smoke check as a substitute unresolved item for this approval. The tester's task is written into the delegation body and does not add a column to the team table.
+When the specification includes a tester whose task is unspecified, propose the default task in the same proposal: E2E verification of the Issue's user-visible surface through the Playwright skill, or, when the Playwright skill is unavailable, the target application's existing tests plus a smoke check as a substitute unresolved item for this approval. A task supplied with the tester is preserved as-is and is not replaced by the default. The tester's task is written into the delegation body and does not add a column to the team table.
 
-Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. If all assignments were already complete and valid, summarize the resolved team and proceed without an additional approval round.
+Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. Only when all assignments are complete and valid, the target PR is determined, and no tester task waits on the default proposal, summarize the resolved team and proceed without an additional approval round.
 
 ## Start the team
 
@@ -133,7 +133,7 @@ Do not advance without successful required verification, a confirmed push, and a
 
 ### Tester verification
 
-When the specification includes a tester, delegate its task after the confirmed Draft PR. The tester's task may run in parallel with the Round 1 review. The tester's approved task is the default E2E verification of the Issue's user-visible surface through the Playwright skill, or the substitute approved at the Kickoff gate.
+When the specification includes a tester, delegate its task after the confirmed Draft PR. The tester's task may run in parallel with the Round 1 review. Delegate the task approved at the Kickoff gate as-is; do not replace an explicitly supplied task with the default E2E task.
 
 The tester adds no review round. The tester's findings are triage input: reproducible functional defects are mandatory fixes, other findings may join the same fix round, and the `review` role remains the authority for Blocker determination. The tester's fixes are routed to the assigned `pr-fix` agent; a fix push that addresses tester findings is a normal fix push and consumes the existing three-round review budget. After Round 3, a mandatory tester finding stops the run and is reported without extra rounds.
 
