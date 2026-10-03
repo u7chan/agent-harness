@@ -495,6 +495,19 @@ for n in "$A" "$B" "$C"; do
     | tee "$EVIDENCE_DIR/$n-after-remove.json" \
     | jq -e '.status == "ok" and .data.blockedBy.totalCount == 0 and .data.blocking.totalCount == 0 and .data.blockedBy.hasNextPage == false and .data.blocking.hasNextPage == false'
 done
+
+# Rejected self-reference: real gh may return exit 1 with GraphQL errors.
+# The dispatcher must classify the rejection, not an ambiguous transport.
+jq -n --argjson a "$A" '{number: $a, blocked_by: [$a], grant: "write"}' \
+  > "$EVIDENCE_DIR/selfref-request.json"
+if bash "$GH_DISPATCHER" issue.dependencies.add "$EVIDENCE_DIR/selfref-request.json" \
+    > "$EVIDENCE_DIR/selfref.json"; then
+  echo "Self-reference unexpectedly succeeded" >&2
+  exit 1
+fi
+jq -e '.status == "failed" and .error.code == "API_ERROR"' "$EVIDENCE_DIR/selfref.json"
+printf '{"number":%s}\n' "$A" | bash "$GH_DISPATCHER" issue.get \
+  | jq -e '.status == "ok" and .data.blockedBy.totalCount == 0 and .data.blocking.totalCount == 0'
 printf 'Evidence: %s\n' "$EVIDENCE_DIR"
 ```
 
@@ -503,6 +516,7 @@ printf 'Evidence: %s\n' "$EVIDENCE_DIR"
 | Both mutation directions are correct | B appears in A's `blockedBy.nodes`; C appears in A's `blocking.nodes` |
 | Symmetric add/remove | B's `blocking` and C's `blockedBy` expose A, then become empty |
 | Idempotent add/remove | Repeated calls return `already_applied` |
+| Rejected self-reference | `failed/API_ERROR` and no new dependency, including real gh's nonzero-exit GraphQL errors |
 | Bounded read contract | Both connections have `nodes`, `totalCount`, boolean `hasNextPage`; nodes carry `number`, `title`, lowercase `state`, `html_url` |
 | Fail-closed contract | Contract tests cover zero-exit GraphQL errors (`API_ERROR`), unverified writes/partial batches (`unknown_outcome`), and truncated absence checks |
 

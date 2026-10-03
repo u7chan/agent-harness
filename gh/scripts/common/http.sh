@@ -58,6 +58,14 @@ call_gh_api() {
       return 0
     fi
 
+    # gh normally exits nonzero for GraphQL errors, even on HTTP 200.
+    # An explicit GraphQL rejection must not be retried as a transport
+    # failure just because its message contains "rate limit" or "timeout".
+    if [ "$endpoint" = graphql ] && printf '%s\n' "$result" | jq -e \
+      'type == "object" and (.errors | type == "array" and length > 0)' >/dev/null 2>&1; then
+      break
+    fi
+
     if is_retryable "$(printf '%s\n%s' "$result" "$diag")" "$exit_code" && [ "$attempt" -lt "$GH_RETRY_MAX" ]; then
       local delay=$((GH_RETRY_BASE_DELAY * (2 ** (attempt - 1))))
       sleep "$delay"
@@ -66,6 +74,13 @@ call_gh_api() {
 
     break
   done
+
+  # call_graphql binds this private, function-local capture path (Bash
+  # dynamic scope). Preserve its error body for classification without
+  # changing REST's empty failure stdout or forwarding raw error JSON.
+  if [ -n "${_gh_api_failure_body_file:-}" ]; then
+    printf '%s\n' "$result" > "$_gh_api_failure_body_file" || return 1
+  fi
 
   # Only the redacted, size-bounded diagnostic is forwarded on failure; the
   # stdout body is the fallback when gh produced no stderr at all. Unmatched
@@ -87,8 +102,13 @@ call_gh_api() {
 call_graphql() {
   local query="$1"
   shift
-  local result
-  result="$(call_gh_api graphql POST -f "query=$query" "$@")" || return 1
+  local result exit_code=0 _gh_api_failure_body_file
+  _gh_api_failure_body_file="$(mktemp "${TMPDIR:-/tmp}/gh-graphql-body.XXXXXX")" || return 1
+  result="$(call_gh_api graphql POST -f "query=$query" "$@")" || exit_code=$?
+  if [ "$exit_code" -ne 0 ]; then
+    result="$(cat "$_gh_api_failure_body_file")"
+  fi
+  rm -f "$_gh_api_failure_body_file"
   if ! printf '%s\n' "$result" | jq -se 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1; then
     return 1
   fi
@@ -98,6 +118,7 @@ call_graphql() {
   if printf '%s\n' "$result" | jq -e '(.errors // []) | length > 0' >/dev/null 2>&1; then
     return 2
   fi
+  [ "$exit_code" -eq 0 ] || return 1
   printf '%s\n' "$result"
 }
 

@@ -90,7 +90,7 @@ if query.startswith("query"):
         sys.exit(1)
     if state.get("read_errors") or (state.get("post_read_errors") and state.get("mutations")):
         output({"data": {"node": None}, "errors": [{"message": "denied"}]})
-        sys.exit(0)
+        sys.exit(state.get("graphql_error_exit", 0))
     pairs = state.get("pairs", [])
     issue = {"__typename": "Issue", "id": f"I_{number}", "number": number,
              "repository": {"nameWithOwner": "u7chan/agent-harness"},
@@ -127,7 +127,7 @@ save()
 if (number == blocker or state.get("mutation_errors") or
         state.get("fail_mutation_at") == state["mutations"]):
     output({"errors": [{"message": "raw secret/error must not be forwarded"}]})
-    sys.exit(0)
+    sys.exit(state.get("graphql_error_exit", 0))
 if state.get("mutation_transport_error"):
     print("gh: Service Unavailable (HTTP 503)", file=sys.stderr)
     sys.exit(1)
@@ -268,19 +268,26 @@ test_dependency_input_validation() (
   assert_eq "$(wc -l < "$MOCK_GH_CALLS")" 0 || return 1
 )
 
-test_graphql_zero_exit_errors_fail_closed() (
+test_graphql_errors_fail_closed_for_both_exit_codes() (
   setup_dependencies_fixture
   trap teardown_fixture EXIT
-  set_state '{"mutation_errors":true}'
-  dispatch_dependencies issue.dependencies.add '{"number":200,"blocked_by":[201],"grant":"write"}'
-  assert_result 1 failed API_ERROR || return 1
-  assert_eq "$(mutation_count)" 1 || return 1
-  if printf '%s\n' "$output" | grep -q 'raw secret'; then return 1; fi
+  local error_exit action
+  for error_exit in 0 1; do
+    for action in issue.dependencies.add issue.dependencies.remove; do
+      set_state "{\"mutation_errors\":true,\"graphql_error_exit\":$error_exit,\"pairs\":[[200,202]]}"
+      : > "$MOCK_GH_CALLS"
+      dispatch_dependencies "$action" '{"number":200,"blocked_by":[201,202],"grant":"write"}'
+      assert_result 1 failed API_ERROR || return 1
+      assert_eq "$(mutation_count)" 1 || return 1
+      if printf '%s\n' "$output" | grep -q 'raw secret'; then return 1; fi
+    done
+  done
 )
 
 test_self_reference_is_api_error() (
   setup_dependencies_fixture
   trap teardown_fixture EXIT
+  set_state '{"graphql_error_exit":1}'
   dispatch_dependencies issue.dependencies.add '{"number":200,"blocked_by":[200],"grant":"write"}'
   assert_result 1 failed API_ERROR || return 1
   assert_eq "$(jq -s '[.[] | select(.kind == "rest")] | length' "$MOCK_GH_CALLS")" 1 || return 1
@@ -316,7 +323,7 @@ test_unverified_write_is_unknown_outcome() (
 test_partial_batch_is_unknown_outcome() (
   setup_dependencies_fixture
   trap teardown_fixture EXIT
-  set_state '{"fail_mutation_at":2}'
+  set_state '{"fail_mutation_at":2,"graphql_error_exit":1}'
   dispatch_dependencies issue.dependencies.add '{"number":200,"blocked_by":[201],"blocking":[202,203],"grant":"write"}'
   assert_result 1 unknown_outcome || return 1
   assert_eq "$(mutation_count)" 2 || return 1
@@ -389,7 +396,7 @@ test_graphql_reads_retry_with_unchanged_arguments() (
   assert_eq "$(cat "$MOCK_SLEEP_LOG")" "$(printf '1\n2')" || return 1
   assert_eq "$(jq -s '[.[] | select(.kind == "read")] | length' "$MOCK_GH_CALLS")" 3 || return 1
   assert_eq "$(jq -s '[.[] | select(.kind == "read") | .argv] | unique | length' "$MOCK_GH_CALLS")" 1 || return 1
-  set_state '{"read_errors":true}'
+  set_state '{"read_errors":true,"graphql_error_exit":1}'
   : > "$MOCK_GH_CALLS"
   dispatch_dependencies issue.get '{"number":200}'
   assert_result 1 failed API_ERROR || return 1
@@ -403,7 +410,7 @@ main() {
   run_test test_remove_missing_is_noop
   run_test test_only_changed_relationships_are_mutated
   run_test test_dependency_input_validation
-  run_test test_graphql_zero_exit_errors_fail_closed
+  run_test test_graphql_errors_fail_closed_for_both_exit_codes
   run_test test_self_reference_is_api_error
   run_test test_invalid_peers_fail_before_any_write
   run_test test_unverified_write_is_unknown_outcome
