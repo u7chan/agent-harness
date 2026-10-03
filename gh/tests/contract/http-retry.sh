@@ -420,6 +420,61 @@ test_repo_get_end_to_end_retry() (
   assert_eq "$(cat "$MOCK_SLEEP_LOG")" "$(printf '1\n2\n')" || return 1
 )
 
+test_graphql_nonzero_errors_classified_without_retry_or_leak() (
+  setup_fixture
+  trap teardown_fixture EXIT
+  write_retry_mock_gh
+  use_http_sh
+  setup_retry_env
+  mkdir "$FIXTURE_DIR/scratch"
+  export TMPDIR="$FIXTURE_DIR/scratch"
+  export MOCK_MODE=failure MOCK_FAIL_RC=1 \
+    MOCK_FAIL_STDOUT='{"data":{"addBlockedBy":null},"errors":[{"message":"rate limit: ghp_SUPERSECRETTOKEN1234567890"}]}' \
+    MOCK_FAIL_STDERR='gh: rate limit: ghp_SUPERSECRETTOKEN1234567890'
+
+  call_graphql 'mutation { addBlockedBy { clientMutationId } }' \
+    > "$FIXTURE_DIR/out.txt" 2> "$FIXTURE_DIR/err.txt" && rc=0 || rc=$?
+  assert_eq "$rc" 2 || return 1
+  assert_eq "$(cat "$FIXTURE_DIR/out.txt")" '' || return 1
+  assert_eq "$(jq -s 'length' "$MOCK_GH_CALLS")" 1 || return 1
+  assert_eq "$(cat "$MOCK_SLEEP_LOG")" '' || return 1
+  assert_contains "$(cat "$FIXTURE_DIR/err.txt")" '[REDACTED]' || return 1
+  if grep -q 'SUPERSECRET' "$FIXTURE_DIR/err.txt"; then return 1; fi
+  assert_eq "$(find "$TMPDIR" -type f | wc -l)" 0 || return 1
+)
+
+test_graphql_nonzero_without_errors_stays_ambiguous() (
+  setup_fixture
+  trap teardown_fixture EXIT
+  write_retry_mock_gh
+  use_http_sh
+  setup_retry_env
+  export MOCK_MODE=failure MOCK_FAIL_RC=1 MOCK_FAIL_STDERR='unclassified failure' \
+    MOCK_FAIL_STDOUT='{"data":{"addBlockedBy":{"clientMutationId":null}}}'
+  call_graphql 'mutation { addBlockedBy { clientMutationId } }' \
+    > "$FIXTURE_DIR/out.txt" 2> "$FIXTURE_DIR/err.txt" && rc=0 || rc=$?
+  assert_eq "$rc" 1 || return 1
+  assert_eq "$(cat "$FIXTURE_DIR/out.txt")" '' || return 1
+  assert_eq "$(jq -s 'length' "$MOCK_GH_CALLS")" 1 || return 1
+)
+
+test_graphql_malformed_response_is_not_explicit_rejection() (
+  setup_fixture
+  trap teardown_fixture EXIT
+  write_retry_mock_gh
+  use_http_sh
+  setup_retry_env
+  export MOCK_MODE=success
+  local response
+  for response in 'not-json' '{"errors":false}' '{"errors":{}}' '{} {}'; do
+    export MOCK_OK_STDOUT="$response"
+    call_graphql 'query { node(id:"fixture") { id } }' \
+      > "$FIXTURE_DIR/out.txt" 2> "$FIXTURE_DIR/err.txt" && rc=0 || rc=$?
+    assert_eq "$rc" 1 || return 1
+    assert_eq "$(cat "$FIXTURE_DIR/out.txt")" '' || return 1
+  done
+)
+
 main() {
   echo "=== http.sh retry (stderr transient detection) contract tests ==="
 
@@ -435,6 +490,9 @@ main() {
   run_test test_success_json_not_mixed_with_stderr_warning
   run_test test_failure_diag_sanitized_and_size_bounded
   run_test test_repo_get_end_to_end_retry
+  run_test test_graphql_nonzero_errors_classified_without_retry_or_leak
+  run_test test_graphql_nonzero_without_errors_stays_ambiguous
+  run_test test_graphql_malformed_response_is_not_explicit_rejection
 
   print_summary
 }

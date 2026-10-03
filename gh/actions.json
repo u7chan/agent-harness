@@ -143,7 +143,7 @@
     },
     {
       "name": "issue.get",
-      "description": "Get a single issue",
+      "description": "Get a single issue including blockedBy and blocking connections (first 100 nodes, totalCount and hasNextPage; no cursor traversal)",
       "category": "issue",
       "permission": "read",
       "requires_auth": true,
@@ -184,6 +184,30 @@
             ],
             "milestone": {
               "title": "string"
+            },
+            "blockedBy": {
+              "nodes": [
+                {
+                  "number": "integer",
+                  "title": "string",
+                  "state": "string",
+                  "html_url": "string"
+                }
+              ],
+              "totalCount": "integer",
+              "hasNextPage": "boolean"
+            },
+            "blocking": {
+              "nodes": [
+                {
+                  "number": "integer",
+                  "title": "string",
+                  "state": "string",
+                  "html_url": "string"
+                }
+              ],
+              "totalCount": "integer",
+              "hasNextPage": "boolean"
             },
             "comments": "integer",
             "created_at": "string",
@@ -778,6 +802,102 @@
             ],
             "milestone": {
               "title": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.dependencies.add",
+      "description": "Add same-repository issue dependencies. At least one non-empty blocked_by or blocking array is required; issue numbers must be positive integers. Returns blockedBy/blocking connections; already_applied skips mutations.",
+      "category": "dependency",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number in the current repository (positive integer)"
+        },
+        "blocked_by": {
+          "type": "array",
+          "items": {"type": "number"},
+          "required": false,
+          "description": "Issue numbers that block this issue (same repository); at least one of blocked_by or blocking must be non-empty"
+        },
+        "blocking": {
+          "type": "array",
+          "items": {"type": "number"},
+          "required": false,
+          "description": "Issue numbers blocked by this issue (same repository); at least one of blocked_by or blocking must be non-empty"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "blockedBy": {
+              "nodes": [{"number": "integer", "title": "string", "state": "string", "html_url": "string"}],
+              "totalCount": "integer",
+              "hasNextPage": "boolean"
+            },
+            "blocking": {
+              "nodes": [{"number": "integer", "title": "string", "state": "string", "html_url": "string"}],
+              "totalCount": "integer",
+              "hasNextPage": "boolean"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "issue.dependencies.remove",
+      "description": "Remove same-repository issue dependencies. At least one non-empty blocked_by or blocking array is required; issue numbers must be positive integers. Returns blockedBy/blocking connections; already_applied skips mutations.",
+      "category": "dependency",
+      "permission": "write",
+      "requires_auth": true,
+      "input_schema": {
+        "number": {
+          "type": "number",
+          "required": true,
+          "description": "Issue number in the current repository (positive integer)"
+        },
+        "blocked_by": {
+          "type": "array",
+          "items": {"type": "number"},
+          "required": false,
+          "description": "Issue numbers to stop blocking this issue (same repository); at least one of blocked_by or blocking must be non-empty"
+        },
+        "blocking": {
+          "type": "array",
+          "items": {"type": "number"},
+          "required": false,
+          "description": "Issue numbers this issue should stop blocking (same repository); at least one of blocked_by or blocking must be non-empty"
+        },
+        "grant": {
+          "type": "string",
+          "required": true,
+          "description": "Operation permission level (read, write, sensitive-write)"
+        }
+      },
+      "output_schema": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "blockedBy": {
+              "nodes": [{"number": "integer", "title": "string", "state": "string", "html_url": "string"}],
+              "totalCount": "integer",
+              "hasNextPage": "boolean"
+            },
+            "blocking": {
+              "nodes": [{"number": "integer", "title": "string", "state": "string", "html_url": "string"}],
+              "totalCount": "integer",
+              "hasNextPage": "boolean"
             }
           }
         }

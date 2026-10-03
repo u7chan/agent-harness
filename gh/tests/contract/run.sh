@@ -1017,6 +1017,10 @@ test_grant_contracts() {
   "$SCRIPT_DIR/grant.sh" >/dev/null
 }
 
+test_issue_dependencies_contracts() {
+  bash "$SCRIPT_DIR/issue-dependencies.sh" >/dev/null
+}
+
 main() {
   echo "=== gh dispatcher contract tests ==="
   echo
@@ -1081,6 +1085,7 @@ main() {
   run_test test_target_resolve_contracts
   run_test test_dispatcher_input_contracts
   run_test test_grant_contracts
+  run_test test_issue_dependencies_contracts
 
   teardown_fixture
   trap - EXIT
