@@ -440,6 +440,78 @@ echo '{"number":1, "sub_issue_id":123, "after_id":456, "grant": "write"}' | bash
 |-------|--------|
 | status ok | `.status == "ok"` |
 
+### issue.dependencies.add / issue.dependencies.remove
+
+Run only in a repository approved for disposable Issue creation. Use the
+development dispatcher's absolute path when verifying unmerged changes (see
+[_docs/skill-testing.md](../_docs/skill-testing.md)); do not use an installed,
+same-named skill or modify its pinned clone. The current working directory
+selects the repository for all three fixtures and all dependency operations.
+No existing Issue is changed. Keep the fixture Issues as verification evidence;
+closing them requires explicit human approval for the sensitive-write action.
+
+```bash
+set -euo pipefail
+GH_DISPATCHER="<checkout>/gh/scripts/gh.sh"
+EVIDENCE_DIR=$(mktemp -d /tmp/gh-dependency-smoke-XXXXXX)
+
+# A is the target; B blocks A; A blocks C. All are new, same-repo Issues.
+for role in a b c; do
+  jq -n --arg title "gh dependency smoke $role $(date +%s)" \
+    '{title: $title, body: "Disposable dependency verification fixture.", grant: "write"}' \
+    | bash "$GH_DISPATCHER" issue.create > "$EVIDENCE_DIR/$role.json"
+  jq -e '.status == "ok"' "$EVIDENCE_DIR/$role.json"
+done
+A=$(jq -r '.data.number' "$EVIDENCE_DIR/a.json")
+B=$(jq -r '.data.number' "$EVIDENCE_DIR/b.json")
+C=$(jq -r '.data.number' "$EVIDENCE_DIR/c.json")
+jq -n --argjson a "$A" --argjson b "$B" --argjson c "$C" \
+  '{number: $a, blocked_by: [$b], blocking: [$c], grant: "write"}' \
+  > "$EVIDENCE_DIR/request.json"
+
+# Add both directions, then prove idempotency without a second mutation.
+bash "$GH_DISPATCHER" issue.dependencies.add "$EVIDENCE_DIR/request.json" \
+  | tee "$EVIDENCE_DIR/add.json" | jq -e '.status == "ok"'
+bash "$GH_DISPATCHER" issue.dependencies.add "$EVIDENCE_DIR/request.json" \
+  | jq -e '.status == "already_applied"'
+
+# Re-fetch A and both peers: the inverse view must describe the same edges.
+printf '{"number":%s}\n' "$A" | bash "$GH_DISPATCHER" issue.get \
+  | tee "$EVIDENCE_DIR/a-after-add.json" \
+  | jq -e --argjson b "$B" --argjson c "$C" \
+    '.status == "ok" and any(.data.blockedBy.nodes[]; .number == $b) and any(.data.blocking.nodes[]; .number == $c)'
+printf '{"number":%s}\n' "$B" | bash "$GH_DISPATCHER" issue.get \
+  | jq -e --argjson a "$A" '.status == "ok" and any(.data.blocking.nodes[]; .number == $a)'
+printf '{"number":%s}\n' "$C" | bash "$GH_DISPATCHER" issue.get \
+  | jq -e --argjson a "$A" '.status == "ok" and any(.data.blockedBy.nodes[]; .number == $a)'
+
+# Remove both directions, then prove idempotency and symmetric removal.
+bash "$GH_DISPATCHER" issue.dependencies.remove "$EVIDENCE_DIR/request.json" \
+  | tee "$EVIDENCE_DIR/remove.json" | jq -e '.status == "ok"'
+bash "$GH_DISPATCHER" issue.dependencies.remove "$EVIDENCE_DIR/request.json" \
+  | jq -e '.status == "already_applied"'
+for n in "$A" "$B" "$C"; do
+  printf '{"number":%s}\n' "$n" | bash "$GH_DISPATCHER" issue.get \
+    | tee "$EVIDENCE_DIR/$n-after-remove.json" \
+    | jq -e '.status == "ok" and .data.blockedBy.totalCount == 0 and .data.blocking.totalCount == 0 and .data.blockedBy.hasNextPage == false and .data.blocking.hasNextPage == false'
+done
+printf 'Evidence: %s\n' "$EVIDENCE_DIR"
+```
+
+| Check | Pass Condition |
+|-------|----------------|
+| Both mutation directions are correct | B appears in A's `blockedBy.nodes`; C appears in A's `blocking.nodes` |
+| Symmetric add/remove | B's `blocking` and C's `blockedBy` expose A, then become empty |
+| Idempotent add/remove | Repeated calls return `already_applied` |
+| Bounded read contract | Both connections have `nodes`, `totalCount`, boolean `hasNextPage`; nodes carry `number`, `title`, lowercase `state`, `html_url` |
+| Fail-closed contract | Contract tests cover zero-exit GraphQL errors (`API_ERROR`), unverified writes/partial batches (`unknown_outcome`), and truncated absence checks |
+
+GraphQL reads reuse REST transport retry/backoff. Mutations are single-fire,
+and GraphQL `errors` are never retried; inspect `issue.get` before recovering
+from `unknown_outcome`. Connection cursors beyond the first 100 nodes are not
+followed. With explicit cleanup approval, close only these fixture Issues via
+`issue.close` (`grant: "sensitive-write"`), never delete existing Issues.
+
 ### Already Applied (Idempotency)
 
 ```bash

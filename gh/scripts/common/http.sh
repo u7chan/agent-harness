@@ -78,6 +78,29 @@ call_gh_api() {
   return "${exit_code:-1}"
 }
 
+# GraphQL uses the same transport retry/backoff and sanitized diagnostics as
+# REST. A zero CLI exit is not sufficient: GraphQL errors (including partial
+# data) fail closed with return code 2. Transport or malformed-body failures
+# return 1. Mutating callers pin GH_RETRY_MAX=1 and never resend an ambiguous
+# write; read callers may use the normal transport retry cap. GraphQL errors
+# in a successful HTTP response are never retried.
+call_graphql() {
+  local query="$1"
+  shift
+  local result
+  result="$(call_gh_api graphql POST -f "query=$query" "$@")" || return 1
+  if ! printf '%s\n' "$result" | jq -se 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1; then
+    return 1
+  fi
+  if ! printf '%s\n' "$result" | jq -e '.errors == null or (.errors | type == "array")' >/dev/null 2>&1; then
+    return 1
+  fi
+  if printf '%s\n' "$result" | jq -e '(.errors // []) | length > 0' >/dev/null 2>&1; then
+    return 2
+  fi
+  printf '%s\n' "$result"
+}
+
 call_gh_api_paginated() {
   local endpoint="$1"
   local jq_filter="$2"

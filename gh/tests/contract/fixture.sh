@@ -32,7 +32,7 @@ get_host() {
 }
 EOF
 
-  for common_name in envelope target http file attach; do
+  for common_name in envelope target http file attach issue-dependencies; do
     ln -s "$gh_dir/scripts/common/$common_name.sh" \
       "$FIXTURE_DIR/scripts/common/$common_name.sh"
   done

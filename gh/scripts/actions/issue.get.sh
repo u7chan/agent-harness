@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common/envelope.sh"
 source "$SCRIPT_DIR/../common/target.sh"
 source "$SCRIPT_DIR/../common/http.sh"
+source "$SCRIPT_DIR/../common/issue-dependencies.sh"
 
 main() {
   local input="$1"
@@ -33,15 +34,25 @@ main() {
     exit 1
   fi
 
+  local node_id dependencies
+  node_id="$(issue_node_id "$data" "$number")" || {
+    envelope_fail "issue.get" "API_ERROR" "Issue response has no verifiable node ID" false
+    exit 1
+  }
+  dependencies="$(read_issue_dependencies "$node_id" "$owner_repo" "$number" 2>"$GH_TEMP_DIR/gh-stderr")" || {
+    envelope_fail "issue.get" "API_ERROR" "Failed to fetch issue dependencies" false
+    exit 1
+  }
+
   local formatted
-  formatted="$(echo "$data" | jq '{
+  formatted="$(echo "$data" | jq --argjson dependencies "$dependencies" '{
     id, number, title, state, html_url, body,
     user: {login: .user.login},
     labels: [.labels[]? | {name: .name}],
     assignees: [.assignees[]? | {login: .login}],
     milestone: {title: .milestone.title},
     comments, created_at, updated_at, closed_at
-  }')"
+  } + $dependencies')"
 
   local target
   target="$(echo "$repo_target" | jq --argjson number "$number" '{type: "issue", repository: .repository, number: $number}')"

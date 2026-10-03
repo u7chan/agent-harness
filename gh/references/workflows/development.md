@@ -8,6 +8,33 @@ Basic:
 - `issue.get`
 - `comments.read`
 
+`issue.get` includes `blockedBy` and `blocking`. Each connection contains
+`nodes` (`number`, `title`, lowercase `state`, `html_url`), `totalCount`, and
+`hasNextPage`. At most 100 nodes per direction are read; cursors are not followed.
+
+### Record or remove dependencies
+
+- `issue.dependencies.add` / `issue.dependencies.remove` (category `dependency`,
+  permission `write` for both).
+- Supply `number`, at least one non-empty `blocked_by` or `blocking` array, and
+  `grant: "write"`. All numbers are positive integers from the current repository;
+  URLs and cross-repository references are not accepted.
+- `blocked_by: [A]` means A blocks the target; `blocking: [B]` means the target
+  blocks B. Both directions may be submitted together; duplicate numbers within
+  a direction are ignored. Mutations are sent only for relationships that differ.
+- Reapplying the desired state returns `already_applied` without a mutation.
+  Writes return the same two connection objects as `issue.get`.
+- GraphQL reads share REST's transport retries and sanitized diagnostics.
+  Mutations are single-fire (`GH_RETRY_MAX=1`); GraphQL errors are never retried.
+  An explicit GraphQL error before any successful mutation is `API_ERROR`, not
+  `GRANT_INSUFFICIENT` (which describes the dispatcher's local grant).
+- Unverifiable post-write state, malformed/transport-failed mutation responses,
+  or a partially applied batch return `unknown_outcome`. Re-read before deciding
+  whether to retry; batches are not atomic and are not rolled back automatically.
+- A truncated list cannot prove absence: a requested but unseen relationship
+  fails the pre-check with `API_ERROR`; deletion that cannot prove absence after
+  the write returns `unknown_outcome`.
+
 ## 2. Create pull request
 
 Prerequisites:
