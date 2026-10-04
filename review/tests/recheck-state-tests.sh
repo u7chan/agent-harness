@@ -142,6 +142,19 @@ gate_partial="$(json_input unused --argjson record "$record" --arg head "$H" \
   '{operation:"gate",records:[$record,{thread_id:"T2",root_comment_id:200,reviewer_login:"reviewer",classification:"Partial",classification_reply_id:201,verification_head_sha:$head}],verification_head_sha:$head,full_review:{clean:true,blockers:0,important_unknowns:0},round:2}')"
 assert_decision "Partial record blocks LGTM" "$gate_partial" blocked
 assert_field "Partial record blocks with classification reason" "$gate_partial" '.reason' classification_not_resolved
+# The skill identifies the root label before calling gate. Keep all reply records
+# for reporting/Resolve, but pass only the original Blocker records to gate.
+optional_record="$(jq -nc --arg head "$H" '{thread_id:"T2",root_comment_id:200,reviewer_login:"reviewer",classification:"Unresolved",classification_reply_id:201,verification_head_sha:$head}')"
+classified="$(jq -nc --argjson blocker "$record" --argjson optional "$optional_record" '[{root_label:"Blocker",record:$blocker},{root_label:"Consider",record:$optional}]')"
+mandatory="$(jq -c '[.[] | select(.root_label == "Blocker") | .record]' <<< "$classified")"
+gate_optional_open="$(json_input unused --argjson records "$mandatory" --arg head "$H" \
+  '{operation:"gate",records:$records,verification_head_sha:$head,full_review:{clean:true,blockers:0,important_unknowns:0},round:2}')"
+assert_decision "unresolved optional finding does not block mandatory gate" "$gate_optional_open" lgtm_eligible
+assert_field "optional classification remains available outside gate" "$(jq -nc --argjson classified "$classified" '{count:($classified | length)}')" '.count' 2
+mandatory_open="$(jq -c '[.[] | if .root_label == "Blocker" then .record.classification = "Unresolved" else . end | select(.root_label == "Blocker") | .record]' <<< "$classified")"
+gate_mandatory_open="$(json_input unused --argjson records "$mandatory_open" --arg head "$H" \
+  '{operation:"gate",records:$records,verification_head_sha:$head,full_review:{clean:true,blockers:0,important_unknowns:0},round:2}')"
+assert_decision "unresolved original Blocker cannot pass gate" "$gate_mandatory_open" blocked
 gate_round3="$(json_input unused --argjson record "$record" --arg head "$H" \
   '{operation:"gate",records:[$record],verification_head_sha:$head,full_review:{clean:true,blockers:0,important_unknowns:0},round:3}')"
 assert_decision "clean Round 3 permits LGTM planning" "$gate_round3" lgtm_eligible

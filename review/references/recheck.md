@@ -4,14 +4,14 @@
 
 ## 決定的なスナップショットと責任境界
 
-Review skill は元 finding の再評価、分類理由、full review、LGTM 可否、ラウンド制御を担当する。取得・投稿・mutation は `gh` Action が担当し、分類や LGTM policy を Action に実装しない。skill は各 read Action の結果を、ネットワーク・時刻・永続 state に依存しない `review/scripts/recheck-state.py` に渡して判定する。
+Review skill は元 finding の再評価、分類理由、最新 head のレビュー、LGTM 可否、ラウンド制御を担当する。取得・投稿・mutation は `gh` Action が担当し、分類や LGTM policy を Action に実装しない。skill は各 read Action の結果を、ネットワーク・時刻・永続 state に依存しない `review/scripts/recheck-state.py` に渡して判定する。
 
 helper の入力は次の操作を持つ JSON である。
 
 - `parse`: current output template の direct reply の strict header だけを `Resolved`、`Partial`、`Unresolved`、`Unknown` として認識する。
 - `reconcile`: `review-threads.read` の出力を正規化し、thread ごとの root、tail、コメント一覧を持つ canonical snapshot を返す。ID 欠落・重複、root が一意でない、直接 root への返信でない、pagination が不完全な場合は `stop` になる。REST との相互照合は行わない。
 - `plan`: 対象 thread の root が自分の指摘か、未 Resolve か、同じ分類の返信が既に tail にあるか（同 actor・同 root・同分類 = plan レベルの dedup）を判定し、`reuse`（投稿不要）か `post`（投稿する）を返す。対象の特定に失敗した場合は `stop` になる。
-- `gate`: 分類返信の record と最新 head の full review 結果から LGTM 可否を判定し、`lgtm_eligible` か `blocked` を返す。
+- `gate`: 元 Blocker の分類返信 record（下記の選別規則）と最新 head の `full_review` 結果から LGTM 可否を判定し、`lgtm_eligible` か `blocked` を返す。
 
 各 record は実行中だけ次を保持し、ファイルや再起動後へ持ち越さない。
 
@@ -50,10 +50,20 @@ classification_reply_id, verification_head_sha
 
 `plan` が `reuse` を返した場合は投稿せず、既存の tail 返信を今回の分類 anchor として記録する。`Partial`、`Unresolved`、`Unknown` の返信は分類として記録してもスレッドを Resolve しない。root の特定自体が曖昧な場合は `Unknown` として返信せず、Resolve もしない。
 
-## 最新 head のフルレビュー
+### gate に渡す分類 record
 
-- 対象候補の分類返信を終えた後、`pr.read` で head SHA を再確認し、その SHA の差分、影響範囲、関連テストを初回レビューと同じ深さでレビューする。再チェック中に新しく見つけた論点や fix が導入した回帰を対象外にしない。
-- 既存 Blocker がすべて `Resolved` と確認でき、かつ最新 head のフルレビューで新しい Blocker がない場合だけ、最新 head に固定した `reviews.create` の `COMMENT` レビューで `LGTM` を投稿する。`Partial`、`Unresolved`、`Unknown` の既存 Blocker、フルレビューで判断できない Blocker、または新しい Blocker が一つでもあれば LGTM を投稿しない。
+再分類の候補は Blocker と Nit / Consider / FYI のすべてについて評価・返信し、確認できた分類 record を今回の実行中はすべて保持する。一方 `gate` の `records` には、元 root comment のラベルが **Blocker** のものだけを選んで渡す。元ラベルは root の本文と API の ID を照合して skill が判断する。helper の record には元ラベルがなく、helper に選別させない。任意指摘の未解消だけでは LGTM を妨げないが、分類結果は報告し、`Partial` / `Unresolved` / `Unknown` の thread を自動 Resolve しない。
+
+元 Blocker の候補を漏らして gate に空の `records` を渡さない。元 Blocker のラベルや対象を一意に確認できない、分類が `Unknown`、返信が未確認（投稿失敗・`stop`、または anchor を検証できない）なら、LGTM の判定を止めて理由を報告する。元 Blocker の `Partial` / `Unresolved` は `records` に含めて `blocked` とし、重要な unknown は `full_review.important_unknowns` に反映して LGTM を止める。任意指摘でも今回スコープの不具合・必須条件違反が確認された場合は、元ラベルに関係なく最新 head のレビューで Blocker として評価する。元 Blocker がない場合だけ空の `records` が正当である。これらの選別と判定は skill の責務で、gate の入出力契約は変えない。
+
+## 最新 head のレビュー範囲
+
+- 初回は従来どおり PR 全体をレビューする。再チェックの基準は同じ PR で自分が投稿した直近の完了済み Review-skill レビューの `commit_id` とする。`reviews.read` の投稿者、本文形式（[output-templates.md](output-templates.md)）、投稿日時から一意に特定する。workflow の会話に前回 review ID / SHA があっても API と照合する。第三者のレビューや単なる返信は基準にしない。対象候補の分類返信後に `pr.read` で head SHA を再確認する。
+- ローカル checkout が対象リポジトリと一致し、基準 SHA と `pr.read` で固定した最新 head SHA の Git オブジェクトが利用可能なら、`git merge-base --is-ancestor <前回SHA> <最新SHA>` を確認して `git diff <前回SHA> <最新SHA>` で修正差分を読む。checkout や working tree は切り替えない。差分が空でも既存指摘を元の失敗条件で再評価し、前回レビューと合わせて最新 head を判定する。
+- 基準が一意に決まらない、オブジェクトがない、checkout の対象が異なる、または rebase / force-push で非祖先なら、既存の `pr.diff.read` で PR 全体のレビューに戻す。理由と対象範囲を報告する。GitHub 操作には既存の gh dispatcher を使い、自動 fetch や新しい gh Action は使わない。
+- 基準が使える場合は既存指摘と修正差分、その影響先に集中する。変更した共有コード・型・設定の呼び出し元や契約を辿り、変更行外に現れる回帰も確認する。未変更範囲を新しい観点でゼロから再探索しない。今回の PR が導入・悪化させた失敗経路や受け入れ条件違反に気づいたら、修正差分外でも通常の Finding とし、前回の見落としなら明示する。無関係な問題は [review-criteria.md](review-criteria.md) の別 Issue 候補に分離する。
+- `gate` の入力名 `full_review` は維持する。この入力は上記の範囲で、前回レビューとその後の変更確認を合わせて固定した最新 head を評価した結果であり、helper にスコープ判定を移さない。
+- 上記の必須判定 record の元 Blocker がすべて `Resolved` と確認でき、かつ最新 head のレビューで今回スコープの Blocker がない場合だけ、最新 head に固定した `reviews.create` の `COMMENT` レビューで `LGTM` を投稿する。任意指摘だけが未解消ならその旨を本文と報告に残す。元 Blocker の `Partial`、`Unresolved`、`Unknown`、判断できない重要な条件、または新しい Blocker が一つでもあれば LGTM を投稿しない。
 - LGTM の投稿前に payload を検証し、投稿後に対象、本文、head SHA、レビュー状態を再取得して検証する。検証できた LGTM だけを LGTM として報告し、失敗・不明な場合は LGTM として報告しない。
 
 ## 安全な投稿順序
@@ -62,9 +72,9 @@ classification_reply_id, verification_head_sha
 
 初期スナップショットから候補を一意に特定し、各 root comment に今回の分類を materialize する（`reuse` は過去の返信を現在 head の証明として扱わず、今回の再検証結果を既存 anchor に結び付けるだけである）。投稿成功または already-applied の返信について `(thread_id, root_comment_id, reviewer_login, classification_reply_id)` を record として保持する。
 
-### 2. 最新 head のフルレビュー
+### 2. 最新 head のレビュー
 
-最新 head を再取得して全体をレビューし、新しい指摘を通常のレビュー結果に含める。Blocker が残る、または重要な判定が `Unknown` の場合は LGTM を投稿しない。
+最新 head を再取得し、上記の範囲でレビューして今回スコープの新しい指摘を通常のレビュー結果に含める。Blocker が残る、または重要な判定が `Unknown` の場合は LGTM を投稿しない。
 
 ### 3. 検証済み LGTM
 
@@ -104,6 +114,6 @@ workflow では `Resolved` 分類返信が閉会コメントを兼ねる。前�
 
 ## 報告
 
-ラウンド、最新 head SHA、フルレビュー結果、分類返信件数（投稿成功 / already-applied / stop を別集計）、検証済み LGTM の有無、Resolve（明示指示 / workflow コンテキスト）の成功・未解決・不明件数を簡潔に伝える。Resolve の失敗や結果不明を成功件数に含めず、対象外として保持した `Partial`、`Unresolved`、`Unknown`、他者のスレッド、ユーザー判断待ちの議論も明示する。
+ラウンド、最新 head SHA、レビュー基準と範囲（縮退時は理由も）、最新 head のレビュー結果、分類返信件数（投稿成功 / already-applied / stop を別集計）、検証済み LGTM の有無、Resolve（明示指示 / workflow コンテキスト）の成功・未解決・不明件数を簡潔に伝える。別 Issue 候補があれば独立して報告する。Resolve の失敗や結果不明を成功件数に含めず、対象外として保持した `Partial`、`Unresolved`、`Unknown`、他者のスレッド、ユーザー判断待ちの議論も明示する。
 
 workflow コンテキストで自動 Resolve が指定された run では、reviewer が自分で Resolve せずオーケストレーターへ引き渡す場合（handoff）、報告に対象 thread ごとの verified target set として `(thread_id, root_comment_id, reviewer_login, classification_reply_id)`（「レビュースレッドの特定」の組と同一）を必ず含める。オーケストレーターはこの報告された組を対象の正とし、fresh read から対象を再構成しない。オーケストレーター側の完了確認は、`review-threads.resolve` の実行後に `review-threads.read` で各対象を再取得し、対象が一致したまま `resolved=true` であることを確認することである。

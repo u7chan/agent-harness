@@ -143,6 +143,8 @@ After every fix push, the tester re-verifies on the latest head, limited to the 
 
 Give the PR URL or number to `review` and explicitly ask it to use the Review skill in PR mode. The reviewer posts its result to GitHub and returns the review round, head commit, finding counts, and whether a Blocker remains.
 
+Pass the user's operational and compatibility requirements from the request to the reviewer in the delegation text; the Review skill records the applied assumption in every review result. Report any separate Issue candidates without counting them as findings or blocking LGTM.
+
 The reviewer never implements a fix, approves the PR, or merges it. Nit, Consider, and FYI findings do not block this workflow when the Review skill reports LGTM.
 
 ### Review fixes
@@ -162,14 +164,14 @@ The fixer must return `blocked` when required verification fails or cannot run. 
 
 ### Review loop
 
-After a confirmed fix push, ask the same `review` agent explicitly to recheck all prior unresolved findings and, in that same task, perform a full review of the latest head using the Review skill's recheck procedure. Do not request only normal PR mode or make the recheck optional: the delegation must require both reclassification of the prior root comments and review of the full current diff and affected code for regressions. Recheck replies alone are never sufficient to establish LGTM.
+After a confirmed fix push, ask the same `review` agent explicitly to recheck all prior unresolved findings and review the latest head using the Review skill's recheck procedure (`review/references/recheck.md`). Carry forward the user's operational and compatibility requirements. Do not request only normal PR mode or make the recheck optional: the delegation must require both reclassification of the prior root comments and the latest-head review within that reference's scope. Recheck replies alone are never sufficient to establish LGTM.
 
 The recheck delegation also carries this workflow's auto-resolve designation: after posting its classification replies and a verified LGTM, the reviewer either resolves the threads it classified `Resolved` (see Completion) or hands the verified target set to the orchestrator, which then resolves them. The Review skill's recheck reference (`references/recheck.md`, "Workflow コンテキストの自動 Resolve") is the canonical rule for the trigger, the reply confirmation, the lightweight checks, and the execution; the workflow only designates auto-resolve and never restates or re-derives that policy. On handoff, the reviewer's recheck report must include each target as the tuple `(thread_id, root_comment_id, reviewer_login, classification_reply_id)` (see the Review skill's recheck reporting spec), and the orchestrator treats that reported set as the target authority rather than re-deriving targets from a fresh read. The orchestrator resolves each target with `review-threads.resolve` and confirms completion by re-reading it with `review-threads.read` and verifying `resolved=true`.
 
-Count the initial full review as Round 1 and allow at most three full review rounds in total.
+Count the initial PR-wide review as Round 1 and allow at most three review rounds in total.
 
-- If the latest full review of the current head posts LGTM with no Blocker, complete the workflow.
-- If a Blocker remains before Round 3, repeat fix then full review.
+- If the latest verified review of the current head posts LGTM with no Blocker, complete the workflow.
+- If a Blocker remains before Round 3, repeat fix then recheck.
 - If a Blocker remains after Round 3, stop and report the remaining failure condition and evidence.
 - If any agent returns `blocked`, stop the phase and request the needed decision or input.
 
@@ -182,7 +184,7 @@ Complete only when all of the following are confirmed:
 - the Issue implementation is pushed to the PR head;
 - every required verification has succeeded on the current PR head;
 - the PR exists and remains Draft;
-- the current PR head matches the commit covered by the latest full Review-skill LGTM review (including a recheck's full latest-head review), with no Blocker;
+- the current PR head matches the commit covered by the latest verified Review-skill LGTM review (including a recheck's latest-head review under its canonical scope), with no Blocker;
 - the PR body and the commit messages follow the close keyword decision for the target PR determined at the Kickoff gate;
 - no required review fix remains unaddressed;
 - when a tester is specified only, every item it took on is either verified as passing on the current PR head or reported as unverified with its reason; the tester condition adds to, and never replaces, the review LGTM requirement;
@@ -190,4 +192,4 @@ Complete only when all of the following are confirmed:
 
 Conversation resolution follows the Review skill's Resolve policy, which is canonical in its recheck reference (`references/recheck.md`). Outside this workflow it remains explicit instruction only. Within the fix → recheck loop, auto-resolve is delegated: the recheck carries the workflow's auto-resolve designation, and after a verified LGTM the threads it classified `Resolved` are resolved by the reviewer or, on handoff, by the orchestrator using the reported verified target set, each confirmed by a `review-threads.read` re-check of `resolved=true` with the reply confirmation and lightweight checks that recheck.md defines. Every thread the latest recheck did not classify `Resolved` remains open. A verified LGTM never auto-resolves a thread by itself. Do not automatically mark the PR ready, close panes, merge the PR, or close the Issue.
 
-Report the Issue, the target PR position (`対象 PR: 1/2` or `対象 PR: single`, with the base branch difference when the PR is stacked), base and work branches, Draft PR, latest commit, verification, review round count, unresolved optional feedback or conversations, and every created pane's role and observed state. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup.
+Report the Issue, the target PR position (`対象 PR: 1/2` or `対象 PR: single`, with the base branch difference when the PR is stacked), base and work branches, Draft PR, latest commit, verification, review round count, separate Issue candidates if any, unresolved optional feedback or conversations, and every created pane's role and observed state. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup.
