@@ -198,6 +198,9 @@ expect_invalid invalid-recheck-label review-comments.reply \
 # --- 公開形式・契約トークンの厳密検査(完全一致) ---
 # ラベル、分類 header、tuple 形式、API トークン、節見出しは公開契約なので完全一致で固定する。
 expect_doc_contains recheck-head-scope "$RECHECK_REFERENCE" '## 最新 head のレビュー範囲'
+expect_doc_keywords gate-record-scope "$RECHECK_REFERENCE" '元 root comment' 'Blocker' 'records' '任意指摘'
+expect_doc_keywords gate-fails-closed "$RECHECK_REFERENCE" '返信が未確認' '重要な unknown' 'LGTM'
+expect_doc_keywords recheck-template-required "$OUTPUT_TEMPLATES" '前回の必須指摘が解消' '任意指摘' '未解消'
 expect_doc_contains candidate-section "$OUTPUT_TEMPLATES" '## 別 Issue 候補'
 expect_doc_keywords recheck-baseline "$RECHECK_REFERENCE" 'reviews.read' 'commit_id' '投稿日時'
 expect_doc_keywords recheck-diff "$RECHECK_REFERENCE" 'git merge-base --is-ancestor' 'git diff' '差分が空'
