@@ -9,6 +9,7 @@ REVIEW_CRITERIA="$SCRIPT_DIR/../references/review-criteria.md"
 REVIEW_LENSES="$SCRIPT_DIR/../references/review-lenses.md"
 RECHECK_REFERENCE="$SCRIPT_DIR/../references/recheck.md"
 POSTING_REFERENCE="$SCRIPT_DIR/../references/posting-api.md"
+OUTPUT_TEMPLATES="$SCRIPT_DIR/../references/output-templates.md"
 WORKFLOW_SKILL="$SCRIPT_DIR/../../pi-issue-pr-workflow/SKILL.md"
 RECHECK_STATE_TEST="$SCRIPT_DIR/recheck-state-tests.sh"
 TEST_TMP="$(mktemp -d /tmp/review-validator-XXXXXX)"
@@ -115,6 +116,9 @@ expect_doc_min_occurrences() {
 expect_valid reviews.create "$FIXTURES/no-findings.json"
 expect_valid reviews.create "$FIXTURES/nit-only.json"
 expect_valid reviews.create "$FIXTURES/blocker.json"
+jq '.body = "**LGTM**\n\n前提: 運用中の公開 API 互換性を維持します。\n\n前回の指摘が解消され、最新 head に今回スコープの Blocker はありません。\n\n## 別 Issue 候補\n\n- 旧ログの誤表記が残っています。既存ログで今回の変更に影響しません。別 Issue への切り出しを提案します。"' \
+  "$FIXTURES/no-findings.json" > "$TEST_TMP/issue-candidate.json"
+expect_valid reviews.create "$TEST_TMP/issue-candidate.json"
 expect_valid review-comments.reply "$FIXTURES/recheck-resolved.json"
 expect_valid review-comments.reply "$FIXTURES/recheck-unresolved.json"
 jq '.body = "**Partial** (**Blocker**): 一部の入力経路に失敗条件が残っています。"' \
@@ -151,6 +155,18 @@ expect_invalid lgtm-overall-blocker-conflict reviews.create \
 expect_invalid unresolved-variable reviews.create \
   '.body += "\n\n{件数}"' \
   "$FIXTURES/no-findings.json"
+expect_invalid missing-assumption reviews.create \
+  '.body |= gsub("前提: 後方互換・移行は明示要件なしとして扱いました。\\n\\n"; "")' \
+  "$FIXTURES/no-findings.json"
+expect_invalid unresolved-assumption reviews.create \
+  '.body |= sub("後方互換・移行は明示要件なしとして扱いました。"; "{適用した互換・移行要件または明示要件なしの前提}")' \
+  "$FIXTURES/no-findings.json"
+expect_invalid unresolved-candidate reviews.create \
+  '.body += "\n\n## 別 Issue 候補\n\n- {今回と無関係な理由}"' \
+  "$FIXTURES/no-findings.json"
+expect_invalid candidate-blocker-conflict reviews.create \
+  '.body += "\n\n## 別 Issue 候補\n\n- 旧ログの誤表記。" | .comments = [{path:"review/SKILL.md",position:1,body:"**Blocker**: 今回の変更で処理が壊れます。"}]' \
+  "$FIXTURES/no-findings.json"
 expect_invalid unresolved-scope-variable reviews.create \
   '.body += "\n\n{確認範囲の要約}"' \
   "$FIXTURES/no-findings.json"
@@ -181,7 +197,12 @@ expect_invalid invalid-recheck-label review-comments.reply \
 
 # --- 公開形式・契約トークンの厳密検査(完全一致) ---
 # ラベル、分類 header、tuple 形式、API トークン、節見出しは公開契約なので完全一致で固定する。
-expect_doc_contains recheck-full-head "$RECHECK_REFERENCE" '## 最新 head のフルレビュー'
+expect_doc_contains recheck-head-scope "$RECHECK_REFERENCE" '## 最新 head のレビュー範囲'
+expect_doc_contains candidate-section "$OUTPUT_TEMPLATES" '## 別 Issue 候補'
+expect_doc_keywords recheck-baseline "$RECHECK_REFERENCE" 'reviews.read' 'commit_id' '投稿日時'
+expect_doc_keywords recheck-diff "$RECHECK_REFERENCE" 'git merge-base --is-ancestor' 'git diff' '差分が空'
+expect_doc_keywords recheck-fallback "$RECHECK_REFERENCE" 'pr.diff.read' '非祖先' 'checkout'
+expect_doc_keywords recheck-propagation "$RECHECK_REFERENCE" '共有コード' '呼び出し元' '回帰'
 expect_doc_contains recheck-unique-target "$RECHECK_REFERENCE" '(thread_id, root_comment_id, reviewer_login, classification_reply_id)'
 expect_doc_contains recheck-keeps-nonresolved "$RECHECK_REFERENCE" '`Partial`、`Unresolved`、`Unknown`'
 expect_doc_contains recheck-rejects-unknown "$RECHECK_REFERENCE" '`unknown_outcome`'
@@ -243,8 +264,8 @@ expect_doc_keywords criteria-preserves-zero-findings "$REVIEW_CRITERIA" '`0 find
 expect_doc_keywords lens-not-checklist "$REVIEW_LENSES" 'チェックリスト' 'finding'
 expect_doc_keywords lens-no-finding-per-lens "$REVIEW_LENSES" '一件ずつ' 'lens'
 expect_doc_keywords skill-no-approve "$REVIEW_SKILL" 'マージ' 'クローズ' '`APPROVE`'
-expect_doc_keywords workflow-requires-recheck "$WORKFLOW_SKILL" 'recheck all prior unresolved findings' 'full review'
-expect_doc_keywords posting-order "$POSTING_REFERENCE" '再チェック返信' 'フルレビュー' 'LGTM' '順序'
+expect_doc_keywords workflow-requires-recheck "$WORKFLOW_SKILL" 'recheck all prior unresolved findings' 'latest-head review'
+expect_doc_keywords posting-order "$POSTING_REFERENCE" '再チェック返信' '最新 head のレビュー' 'LGTM' '順序'
 expect_doc_keywords posting-verifies-lgtm-head "$POSTING_REFERENCE" '明示指示'
 expect_doc_keywords workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'explicit instruction only'
 expect_doc_keywords workflow-resolve-scoped-auto "$WORKFLOW_SKILL" 'auto-resolve' 'Resolved'

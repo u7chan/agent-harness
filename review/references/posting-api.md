@@ -25,7 +25,7 @@ baseline 入力（`baseline_comment_ids` 等）や thread 入力は渡さない�
 
 ## 再チェックの投稿と Resolve
 
-再チェック返信、最新 head のフルレビュー、最終 LGTM はこの順序で行う。Resolve の対象・閉会コメント・前後確認の手順の正本は [recheck.md](recheck.md) の「明示指示による Resolve」と「Workflow コンテキストの自動 Resolve」であり、この文書は API 接続上の契約だけを置く。LGTM の投稿自体はスレッドを Resolve しない。
+再チェック返信、[recheck.md](recheck.md) の範囲での最新 head のレビュー、最終 LGTM はこの順序で行う。Resolve の対象・閉会コメント・前後確認の手順の正本は [recheck.md](recheck.md) の「明示指示による Resolve」と「Workflow コンテキストの自動 Resolve」であり、この文書は API 接続上の契約だけを置く。LGTM の投稿自体はスレッドを Resolve しない。
 
 - 分類 record として採用できる `review-comments.reply` の結果は、`status=ok`（投稿成功）と exact-match dedup の `already_applied`（`classification_reply_id` は返されたコメント ID）だけである。`failed`、`unknown_outcome` は今回の record に加えず、retry もしない。
 - `review-threads.resolve` は一件ずつ呼び、直後に `review-threads.read` で同じ対象を再取得して `resolved=true` を確認する。再取得に失敗した場合や状態が不明な場合は成功として扱わない。対象との一致確認の条件は recheck.md に従う。

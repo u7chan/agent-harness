@@ -29,7 +29,7 @@ A run reports on its own PR, not on the Issue:
 | Field | Value for the run |
 |---|---|
 | PR | the run's Draft PR |
-| Head | the commit the latest full review covers |
+| Head | the commit covered by the latest verified Review-skill review (initial review or scoped recheck) |
 | Verification | the checks that passed on that head |
 | Issue state | the Issue may stay open until the last PR |
 | Close keyword | the decision made for this run's position |

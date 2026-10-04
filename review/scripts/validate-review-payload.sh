@@ -43,7 +43,7 @@ if grep -Eq '\((Optional|Required)\)|（(任意|必須)）' <<<"$texts"; then
   fail "severity labels must not include requirement supplements"
 fi
 
-if grep -Eq '\{(Blocker\|Nit\|Consider\|FYI|問題と根拠|発生条件と影響|必要な場合だけ修正案|件数|解消を確認できた根拠|元のラベル|残っている条件と影響|判定できない理由|full SHA|n|意味で要約した確認範囲|確認範囲の要約)\}' <<<"$texts"; then
+if grep -Eq '\{(Blocker\|Nit\|Consider\|FYI|問題と根拠|発生条件と影響|必要な場合だけ修正案|件数|解消を確認できた根拠|元のラベル|残っている条件と影響|判定できない理由|full SHA|n|意味で要約した確認範囲|確認範囲の要約|適用した互換・移行要件または明示要件なしの前提|今回と無関係な理由)\}' <<<"$texts"; then
   fail "body contains an unresolved template variable"
 fi
 
@@ -68,6 +68,9 @@ if [ "$action" = "reviews.create" ]; then
   ' "$payload_file" >/dev/null || fail "inline findings must start with an exact severity label"
 
   review_body="$(jq -r '.body' "$payload_file")"
+  if ! grep -Eq '^前提: [^[:space:]].*$' <<<"$review_body"; then
+    fail "review body must contain a standalone assumption line"
+  fi
   first_line="${review_body%%$'\n'*}"
   has_blocker="$(jq '[.body, .comments[]?.body] | any(.[]; . != null and test("(^|\\n)\\*\\*Blocker\\*\\*: "))' "$payload_file")"
 
