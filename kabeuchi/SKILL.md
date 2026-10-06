@@ -20,6 +20,8 @@ Use the response language required by active instructions or explicitly requeste
 - Resolve upstream dependencies before asking about downstream decisions.
 - Investigate facts available in files, code, tools, and the conversation yourself instead of asking the user for discoverable facts.
 - Separate facts from decisions. Present one decision at a time, give a recommendation, and leave the choice to the user.
+- Treat `I don't know` as a valid answer. Do not force a decision when the user lacks enough evidence to make one.
+- Treat recommendations as proposals, not decisions. Accept and incorporate user pushback without defending the recommendation unnecessarily.
 - After each answer, update the settled decisions, open questions, contradictions, deferred ideas, and next branch.
 - Do not implement, edit files, or make external changes until the user confirms the shared understanding.
 
@@ -35,6 +37,8 @@ Kabeuchi is a convergence process, not an exhaustive design exercise.
 - Prioritize irreversible or expensive-to-change decisions. Defer reversible implementation details unless they block progress.
 - Treat every additional component, layer, configuration option, dependency, and extension point as complexity that must justify itself against the current goal.
 - If an answer expands the agreed scope, call out the scope increase explicitly and ask whether it belongs in the current task instead of silently incorporating it.
+- If a required decision cannot be resolved reliably through discussion, identify the smallest experiment, prototype, measurement, or investigation needed to resolve it instead of continuing to speculate.
+- Do not spend additional questions trying to resolve uncertainty that requires evidence rather than discussion.
 - If the resulting change no longer looks focused, first remove or defer nonessential scope. Split work only when the remaining required scope is inherently separable.
 - Stop as soon as there is enough shared understanding to implement and verify the agreed scope. Do not continue because additional design choices still exist.
 
