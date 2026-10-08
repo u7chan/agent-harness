@@ -1,7 +1,7 @@
 {
   "reference": "u7chan/agent-harness",
   "number": 73,
-  "body": "**LGTM**\n\n前提: 後方互換・移行は明示要件なしとして扱いました。\n\nNit の指摘を 1 件コメントしました。",
+  "body": "**LGTM**\n\n前提: 公開 API・保存形式の互換性を確認し、移行の追加要件はありません。\n\nNit の指摘を 1 件コメントしました。",
   "comments": [
     {
       "path": "review/SKILL.md",
