@@ -4,7 +4,7 @@
     "items": [
       {
         "id": 100,
-        "body": "root finding",
+        "body": "**Blocker**: root finding",
         "html_url": "https://github.com/u7chan/agent-harness/pull/200#discussion_r100",
         "path": "review/SKILL.md",
         "line": 42,
@@ -40,7 +40,7 @@
           {
             "id": "PRRC_root",
             "database_id": 100,
-            "body": "root finding",
+            "body": "**Blocker**: root finding",
             "html_url": "https://github.com/u7chan/agent-harness/pull/200#discussion_r100",
             "path": "review/SKILL.md",
             "line": 42,

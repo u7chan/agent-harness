@@ -156,10 +156,10 @@ expect_invalid unresolved-variable reviews.create \
   '.body += "\n\n{件数}"' \
   "$FIXTURES/no-findings.json"
 expect_invalid missing-assumption reviews.create \
-  '.body |= gsub("前提: 後方互換・移行は明示要件なしとして扱いました。\\n\\n"; "")' \
+  '.body |= gsub("前提: [^\\n]+\\n\\n"; "")' \
   "$FIXTURES/no-findings.json"
 expect_invalid unresolved-assumption reviews.create \
-  '.body |= sub("後方互換・移行は明示要件なしとして扱いました。"; "{適用した互換・移行要件または明示要件なしの前提}")' \
+  '.body |= sub("前提: [^\\n]+"; "前提: {適用した互換・移行要件または明示要件なしの前提}")' \
   "$FIXTURES/no-findings.json"
 expect_invalid unresolved-candidate reviews.create \
   '.body += "\n\n## 別 Issue 候補\n\n- {今回と無関係な理由}"' \
@@ -198,7 +198,9 @@ expect_invalid invalid-recheck-label review-comments.reply \
 # --- 公開形式・契約トークンの厳密検査(完全一致) ---
 # ラベル、分類 header、tuple 形式、API トークン、節見出しは公開契約なので完全一致で固定する。
 expect_doc_contains recheck-head-scope "$RECHECK_REFERENCE" '## 最新 head のレビュー範囲'
-expect_doc_keywords gate-record-scope "$RECHECK_REFERENCE" '元 root comment' 'Blocker' 'records' '任意指摘'
+# Blocker coverage is verified by RECHECK_STATE_TEST; only the input contract
+# tokens are pinned here, not the prose explaining the selection policy.
+expect_doc_keywords gate-input-contract "$RECHECK_REFERENCE" '`snapshot`' '`reviewer_login`' '`records`' '`full_review`'
 expect_doc_keywords gate-fails-closed "$RECHECK_REFERENCE" '返信が未確認' '重要な unknown' 'LGTM'
 expect_doc_keywords recheck-template-required "$OUTPUT_TEMPLATES" '前回の必須指摘が解消' '任意指摘' '未解消'
 expect_doc_contains candidate-section "$OUTPUT_TEMPLATES" '## 別 Issue 候補'

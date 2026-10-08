@@ -208,6 +208,8 @@ def snapshot_from(value: Any) -> tuple[dict[str, Any] | None, str | None]:
         return None, "snapshot is not an object"
     if "canonical" in value:
         value = value["canonical"]
+        if not isinstance(value, dict):
+            return None, "canonical snapshot is not an object"
     if "snapshot" in value and isinstance(value["snapshot"], dict):
         value = value["snapshot"]
 
@@ -367,29 +369,77 @@ def check_record(record: Any) -> tuple[dict[str, Any] | None, str | None]:
     missing = sorted(field for field in required if field not in record)
     if missing:
         return None, f"record is missing fields: {', '.join(missing)}"
-    if record["classification"] not in CLASSIFICATIONS:
+    for field in ("thread_id", "reviewer_login", "verification_head_sha"):
+        if not isinstance(record[field], str) or not record[field]:
+            return None, f"record has an invalid {field}"
+    if not is_int(record["root_comment_id"]) or record["root_comment_id"] <= 0:
+        return None, "record has an invalid root comment id"
+    if not valid_classification(record["classification"]):
         return None, "record has an invalid classification"
-    if not isinstance(record["classification_reply_id"], int) or record["classification_reply_id"] <= 0:
+    if not is_int(record["classification_reply_id"]) or record["classification_reply_id"] <= 0:
         return None, "record has an invalid classification reply id"
     return record, None
 
 
 def operation_gate(input_data: dict[str, Any]) -> int:
+    if "snapshot" not in input_data:
+        return stop("gate", "snapshot_is_required")
+    snapshot, error = snapshot_from(input_data["snapshot"])
+    if error:
+        return stop("gate", "snapshot_invalid", detail=error)
+    assert snapshot is not None
+    reviewer = input_data.get("reviewer_login")
+    if not isinstance(reviewer, str) or not reviewer:
+        return stop("gate", "invalid_reviewer_login")
+
+    # Derive coverage from the complete initial snapshot, independently of the
+    # skill's record selection. Resolved roots still establish reviewer identity.
+    reviewer_has_root = False
+    blocker_threads: dict[int, str] = {}
+    for thread in snapshot["threads"]:
+        root, _, error = root_and_tail(thread)
+        assert error is None and root is not None
+        if root["actor"] != reviewer:
+            continue
+        reviewer_has_root = True
+        if not thread["resolved"] and root["body"].startswith("**Blocker**: "):
+            blocker_threads[root["comment_id"]] = thread["thread_id"]
+    if not reviewer_has_root:
+        return stop("gate", "reviewer_root_missing")
+
     records = input_data.get("records")
     if not isinstance(records, list):
         return stop("gate", "records_are_required")
     head = input_data.get("verification_head_sha", input_data.get("head_sha"))
     if not isinstance(head, str) or not head:
         return stop("gate", "verification_head_sha_missing")
+    records_by_root: dict[int, dict[str, Any]] = {}
     for record_value in records:
-        if isinstance(record_value, dict) and record_value.get("classification") in {"Partial", "Unresolved", "Unknown"}:
-            return emit("gate", decision="blocked", eligible=False, reason="classification_not_resolved")
         record, error = check_record(record_value)
         if error:
             return stop("gate", error)
         assert record is not None
+        root_id = record["root_comment_id"]
+        if root_id in records_by_root:
+            return stop("gate", "duplicate_record_root", root_comment_id=root_id)
+        records_by_root[root_id] = record
+
+    if records_by_root.keys() != blocker_threads.keys():
+        return stop(
+            "gate",
+            "blocker_record_mismatch",
+            missing_root_comment_ids=sorted(blocker_threads.keys() - records_by_root.keys()),
+            unexpected_root_comment_ids=sorted(records_by_root.keys() - blocker_threads.keys()),
+        )
+    for root_id, record in records_by_root.items():
+        if record["reviewer_login"] != reviewer:
+            return stop("gate", "record_reviewer_mismatch")
+        if record["thread_id"] != blocker_threads[root_id]:
+            return stop("gate", "record_thread_mismatch")
         if record["verification_head_sha"] != head:
             return stop("gate", "record_head_mismatch")
+    if any(record["classification"] != "Resolved" for record in records_by_root.values()):
+        return emit("gate", decision="blocked", eligible=False, reason="classification_not_resolved")
 
     full_review = input_data.get("full_review", {})
     if not isinstance(full_review, dict):

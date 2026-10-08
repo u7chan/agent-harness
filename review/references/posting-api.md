@@ -14,14 +14,14 @@ GitHub Action の入力、出力、`permission` は `gh/actions.json` を正本�
 - 再チェック返信は `review/scripts/validate-review-payload.sh review-comments.reply <payload-file>` で検査してから投稿する。
 - 投稿直前と投稿後の確認は、`SKILL.md` の安全条件に従う。
 
-再チェック分類返信の `review-comments.reply` には `number`、`reply_to`（root の REST 数値 ID）、`body`、`grant` を渡す。Action は次の順序で動作する。
+再チェック分類返信の `review-comments.reply` には `number`、`reply_to`（root の REST 数値 ID）、`body`、`grant` を渡す。Action の結果は次の意味で扱う。
 
-1. `reply_to` から root まで `in_reply_to_id` を辿り、root が対象 PR に所属することを確認する（root 解決に visited set と最大深さ 50 のガードを持つ）。
-2. 対象 PR の全レビューコメントを REST で全ページ取得し、同 body・同 actor・同 root（`in_reply_to_id == root`）の返信が既にあれば `already_applied` を返して POST しない。
-3. なければ root への `in_reply_to` 付きで POST する。POST は 1 回だけ試行し、レスポンスが曖昧な場合（失敗時）は改めて全コメントを再読取して exact match を adopt する（二重投稿防止）。adopt できなければ `unknown_outcome` とする。
-4. POST 成功後はレスポンスの ID で再取得し、ID・URL・PR 所属・本文（file-based 比較）・actor・`in_reply_to_id` が意図どおりであることを確認する。不一致は `unknown_outcome` とし、成功 target を作らない。
+- `ok`: root への返信を投稿し、再取得で ID・URL・PR 所属・本文・actor・`in_reply_to_id` を検証できた。
+- `already_applied`: 同 body・同 actor・同 root（`in_reply_to_id == root`）の返信を確認した。新しく投稿せず、返された既存コメント ID を採用できる。
+- `failed`: 処理に失敗した。分類 record として採用しない。
+- `unknown_outcome`: 投稿の成否または投稿後の状態を検証できない。成功と数えず、同じ run で再試行しない。
 
-baseline 入力（`baseline_comment_ids` 等）や thread 入力は渡さない。edit history の照合や GraphQL preflight も行わない。
+baseline 入力（`baseline_comment_ids` 等）や thread 入力は渡さない。
 
 ## 再チェックの投稿と Resolve
 

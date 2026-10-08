@@ -1,11 +1,12 @@
 name: contract-tests
 
 # Runs the gh dispatcher contract suite, the action catalog consistency
-# check, the playwright skill mock tests, the Herdr async wrapper tests, and
-# the pi-issue-pr-workflow model-spec classification tests on every push and
-# pull request. All checks are hermetic: they run unauthenticated with no
-# credentials, no network access, no real gh CLI (the suite supplies a fixture
-# gh.sh and a fake gh CLI where needed), no real browser (the playwright suite
+# check, the review payload and recheck tests, the playwright skill mock tests,
+# the Herdr async wrapper tests, and the pi-issue-pr-workflow model-spec
+# classification tests on every push and pull request. All checks are hermetic:
+# they run unauthenticated with no credentials, no network access, no real gh
+# CLI (the suite supplies a fixture gh.sh and a fake gh CLI where needed),
+# no real browser (the playwright suite
 # supplies a fake playwright-cli shim), no real Herdr (the wrapper suite
 # supplies a fake herdr CLI), and no installed pi (the model-spec suite loads
 # the pure classification module only).
@@ -33,6 +34,9 @@ jobs:
 
       - name: Run action catalog consistency check
         run: gh/scripts/check-actions.sh
+
+      - name: Run review payload and recheck contract tests
+        run: review/tests/run.sh
 
       - name: Run playwright skill mock tests
         run: playwright/tests/run.sh
