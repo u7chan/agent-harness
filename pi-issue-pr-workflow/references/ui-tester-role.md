@@ -56,15 +56,17 @@ one line as at kickoff.
 ## Completion cleanup
 
 Completion closes only the `ui-tester` pane this workflow created that received
-no delegation, once every other completion condition is confirmed, and reports
-exactly one line:
+no delegation, once every other completion condition is confirmed, with
+`herdr pane close <pane-id>`, and reports exactly one line:
 
 ```text
 ui-tester: <pane-id> をクローズ（未委譲）
 ```
 
 Never close a user-created pane or a pane that received a delegation, and close
-nothing when the run fails or stops before completion.
+nothing when the run fails or stops before completion. Only that single pane is
+closed: `herdr tab close` and `herdr workspace close` would close delegated
+panes with it, so they are not used for this cleanup.
 
 ## Delegation body
 

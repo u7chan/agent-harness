@@ -14,6 +14,7 @@ SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 HELPER="$SKILL_DIR/scripts/team-record.sh"
 MODULE="$SKILL_DIR/scripts/lib/team-record.mjs"
 SKILL_MD="$SKILL_DIR/SKILL.md"
+UI_TESTER_REFERENCE="$SKILL_DIR/references/ui-tester-role.md"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/team-record-test-XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
@@ -617,6 +618,21 @@ check_contains "skill documents the required role option" "$SKILL_TEXT" "--requi
 check_contains "skill shows the ui-tester role in the reuse line" "$SKILL_TEXT" "[ui-tester=<provider>/<model>/<thinking>]"
 check_contains "skill documents the composition reuse gate" "$SKILL_TEXT" "states the composition never reuses the record"
 check_contains "skill documents writing the settled composition" "$SKILL_TEXT" "including the composition"
+
+# An exclusion the user overrides never settles a composition, so the write
+# keeps the approved ui-tester in the record instead of dropping it.
+check_contains "skill never reads the participation decision as a composition" "$SKILL_TEXT" "decides this run's team only and never states the composition"
+check_contains "skill keeps the reuse path for an overridden participation decision" "$SKILL_TEXT" "A participation decision the user overrode is not such a statement either"
+check_contains "skill keeps an excluded ui-tester in the record" "$SKILL_TEXT" 'a recorded `ui-tester` that the participation decision excluded stays in the record'
+check_contains "skill keeps the record whatever the exclusion's origin is" "$SKILL_TEXT" "whether the Issue derived the decision or the user overrode it in the same reply"
+check_not_contains "skill no longer narrows the kept record to a derived exclusion" "$SKILL_TEXT" "only the participation decision excluded"
+
+# Completion cleanup names the command for the one pane it may close.
+UI_TESTER_TEXT="$(cat "$UI_TESTER_REFERENCE")"
+check_contains "skill names the pane close command" "$SKILL_TEXT" '`herdr pane close <pane-id>`'
+check_contains "skill rules out closing a whole tab or workspace" "$SKILL_TEXT" '`herdr tab close` and `herdr workspace close` are never used'
+check_contains "ui-tester reference names the pane close command" "$UI_TESTER_TEXT" '`herdr pane close <pane-id>`'
+check_contains "ui-tester reference scopes the close to the single pane" "$UI_TESTER_TEXT" '`herdr tab close` and `herdr workspace close` would close delegated'
 
 # No output may leak the machine paths or credentials of the environment.
 ALL_OUTPUT="$(cat "$WORK/all-output.txt" 2>/dev/null || true)"
