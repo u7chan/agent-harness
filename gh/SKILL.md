@@ -49,6 +49,10 @@ Select the smallest matching category set.
 - Read actions with potentially large responses (currently `pr.files.read`) bound what enters the conversation. Within the inline boundary (`GH_INLINE_MAX_BYTES`, default 20000 bytes) `data` is returned inline unchanged. Beyond it, `data` becomes `{items, truncated: true, total_count, inline_count, omitted, output_file, size_bytes}`: `items` is the lightened view with the fields named in `omitted` left out, capped at `GH_INLINE_MAX_ITEMS` (default 100) items and at `GH_INLINE_MAX_BYTES` bytes of encoded items; `output_file` holds the complete data including the omitted fields and items beyond `inline_count`. Nothing is discarded silently: read `output_file` for the parts left out and delete it when done. If the artifact cannot be saved, the action fails with `ARTIFACT_ERROR` instead of returning a truncated result.
 - Do not modify API arguments or endpoints on retry.
 
+## Review comment replies
+
+`review-comments.reply` posts to `POST /repos/<owner>/<repo>/pulls/<number>/comments` with `in_reply_to` set to the thread root. GitHub records a body-less `COMMENTED` review for every reply, and `reviews.read` returns these records with `body: ""`. A measurement on 2026-10-10 showed that `POST /repos/<owner>/<repo>/pulls/<number>/comments/<comment-id>/replies` creates the same record, so the reply endpoint cannot avoid it. Never identify the latest review from review-list position or count; the review skill's re-check rule owns that selection ([recheck.md](../review/references/recheck.md)).
+
 ## Targets
 
 Actions address an issue/PR by `number`, and may take a `reference` in one of these forms:
