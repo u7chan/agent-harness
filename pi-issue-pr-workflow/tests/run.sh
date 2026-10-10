@@ -4,7 +4,8 @@
 # is imported directly, the wrapper is driven only with an unresolved pi
 # package root, and tests/team-record.sh replaces the model-spec resolver with a
 # stub through --resolver while it exercises the approved-team-record helper.
-# tests/ui-tester-evidence.sh reads the skill's Markdown without any helper.
+# tests/ui-tester-evidence.sh and tests/fixed-lines.sh read the skill's Markdown
+# without any helper.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,6 +14,7 @@ MODULE="$SKILL_DIR/scripts/lib/model-spec.mjs"
 HELPER="$SKILL_DIR/scripts/resolve-model-spec.sh"
 TEAM_RECORD_TEST="$SCRIPT_DIR/team-record.sh"
 UI_TESTER_EVIDENCE_TEST="$SCRIPT_DIR/ui-tester-evidence.sh"
+FIXED_LINES_TEST="$SCRIPT_DIR/fixed-lines.sh"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/model-spec-test-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -171,6 +173,15 @@ if "$UI_TESTER_EVIDENCE_TEST"; then
   ok "ui-tester evidence contract tests"
 else
   ng "ui-tester evidence contract tests" "see the failing cases above"
+fi
+
+# The fixed report lines are pinned at their authoritative definition, so this
+# documentation contract runs here for the same reason.
+printf '\n== fixed lines contract ==\n'
+if "$FIXED_LINES_TEST"; then
+  ok "fixed line tests"
+else
+  ng "fixed line tests" "see the failing cases above"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
