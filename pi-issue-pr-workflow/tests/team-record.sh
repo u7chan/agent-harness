@@ -144,9 +144,9 @@ eq("readRoleSpec rejects a non-object", lib.readRoleSpec("opencode-go/m/high"), 
 // validateRecord: what the reuse path may accept.
 eq("validateRecord accepts the smallest record", reasonOf(valid()), "ok:impl,review,pr-fix");
 eq(
-  "validateRecord accepts a tester",
-  reasonOf(valid({ roles: makeRoles({ tester: { provider: "opencode-go", model: "m", thinking: "max" } }) })),
-  "ok:impl,review,pr-fix,tester",
+  "validateRecord accepts a ui-tester",
+  reasonOf(valid({ roles: makeRoles({ "ui-tester": { provider: "opencode-go", model: "m", thinking: "max" } }) })),
+  "ok:impl,review,pr-fix,ui-tester",
 );
 eq(
   "validateRecord ignores unknown top-level keys",
@@ -155,7 +155,7 @@ eq(
 );
 eq(
   "validateRecord ignores unknown role keys",
-  reasonOf({ ...valid(), roles: makeRoles({ "ui-tester": { provider: "opencode-go", model: "m", thinking: "max" } }) }),
+  reasonOf({ ...valid(), roles: makeRoles({ reviewer: { provider: "opencode-go", model: "m", thinking: "max" } }) }),
   "ok:impl,review,pr-fix",
 );
 eq("validateRecord rejects a non-object", reasonOf(null), "bad-record");
@@ -202,15 +202,15 @@ eq(
 );
 eq(
   "validateRecord rejects an invalid optional role",
-  reasonOf({ ...valid(), roles: makeRoles({ tester: { provider: "opencode-go", model: "" , thinking: "max" } }) }),
+  reasonOf({ ...valid(), roles: makeRoles({ "ui-tester": { provider: "opencode-go", model: "" , thinking: "max" } }) }),
   "bad-role-spec",
 );
 
 // buildRecord: the canonical content the writer stores.
 eq(
   "buildRecord keeps role order",
-  Object.keys(lib.buildRecord(makeRoles({ tester: { provider: "opencode-go", model: "m", thinking: "max" } }), false).roles),
-  ["impl", "review", "pr-fix", "tester"],
+  Object.keys(lib.buildRecord(makeRoles({ "ui-tester": { provider: "opencode-go", model: "m", thinking: "max" } }), false).roles),
+  ["impl", "review", "pr-fix", "ui-tester"],
 );
 eq("buildRecord stores the version", lib.buildRecord(makeRoles(), true).version, 1);
 eq("buildRecord stores the shared flag", lib.buildRecord(makeRoles(), true).pr_fix_shared_with_impl, true);
@@ -306,7 +306,7 @@ mkdir -p "$RECORDS"
 IMPL='{"provider":"opencode-go","model":"deepseek-v4.1-flash","thinking":"high"}'
 REVIEW='{"provider":"openai-codex","model":"gpt-6-astra","thinking":"medium"}'
 PRFIX='{"provider":"opencode-go","model":"deepseek-v4.1-flash","thinking":"high"}'
-TESTER='{"provider":"opencode-go","model":"deepseek-v4-flash","thinking":"max"}'
+UI_TESTER='{"provider":"opencode-go","model":"deepseek-v4-flash","thinking":"max"}'
 UNRESOLVABLE='{"provider":"opencode-go","model":"unresolvable","thinking":"high"}'
 CLAMPED='{"provider":"opencode-go","model":"clamped-model","thinking":"high"}'
 
@@ -315,8 +315,11 @@ record() { # file json
 }
 
 record valid.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX}}"
-record valid-tester.json "{\"version\":1,\"pr_fix_shared_with_impl\":false,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX,\"tester\":$TESTER}}"
-record unknown-keys.json "{\"version\":1,\"note\":\"hand written\",\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX,\"ui-tester\":$TESTER,\"unknown\":{\"provider\":\"x\"}}}"
+record valid-ui-tester.json "{\"version\":1,\"pr_fix_shared_with_impl\":false,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX,\"ui-tester\":$UI_TESTER}}"
+# Role keys this version does not know, including a previous name of a known
+# role, are ignored: a run that needs such a role finds no role to reuse and
+# returns to the proposal path.
+record unknown-keys.json "{\"version\":1,\"note\":\"hand written\",\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX,\"reviewer\":$UI_TESTER,\"unknown\":{\"provider\":\"x\"}}}"
 record bad-json.json 'not json'
 record version2.json "{\"version\":2,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX}}"
 record version-missing.json "{\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX}}"
@@ -411,20 +414,21 @@ check_eq "reusable record impl" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-f
 check_eq "reusable record review" "$(kv "$OUT" review)" "openai-codex/gpt-6-astra/medium"
 check_eq "reusable record pr-fix" "$(kv "$OUT" pr-fix)" "opencode-go/deepseek-v4.1-flash/high"
 
-capture resolve --record "$RECORDS/valid-tester.json" --resolver "$WORK/stub-mixed.sh"
-check_eq "reusable record with tester exits ok" "$RC" "0"
-check_eq "reusable record tests the tester spec" "$(kv "$OUT" tester)" "opencode-go/deepseek-v4-flash/max"
+capture resolve --record "$RECORDS/valid-ui-tester.json" --resolver "$WORK/stub-mixed.sh"
+check_eq "reusable record with ui-tester exits ok" "$RC" "0"
+check_eq "reusable record tests the ui-tester spec" "$(kv "$OUT" ui-tester)" "opencode-go/deepseek-v4-flash/max"
 
 # Unknown top-level and role keys are ignored, so a later role name does not
 # break this reader; the role is simply absent and --require-role reports it.
 capture resolve --record "$RECORDS/unknown-keys.json" --resolver "$WORK/stub-mixed.sh"
 check_eq "unknown keys still reuse the record" "$RC" "0"
-check_eq "unknown role key is not a known role" "$(kv "$OUT" tester)" ""
-capture resolve --record "$RECORDS/unknown-keys.json" --resolver "$WORK/stub-mixed.sh" --require-role tester
-check_nonzero "required unknown role name"
-check_eq "required unknown role name result" "$(kv "$OUT" result)" "unresolved"
-check_eq "required unknown role name is reported" "$(kv "$OUT" unresolved)" "tester"
-check_eq "required unknown role name reports absent" "$(kv "$OUT" unresolved_result)" "absent"
+check_eq "unknown role key is not a known role" "$(kv "$OUT" ui-tester)" ""
+check_eq "unknown role keys keep the required roles" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
+capture resolve --record "$RECORDS/unknown-keys.json" --resolver "$WORK/stub-mixed.sh" --require-role ui-tester
+check_nonzero "required ui-tester absent from the record"
+check_eq "required ui-tester result" "$(kv "$OUT" result)" "unresolved"
+check_eq "required ui-tester is reported" "$(kv "$OUT" unresolved)" "ui-tester"
+check_eq "required ui-tester reports absent" "$(kv "$OUT" unresolved_result)" "absent"
 
 # One recorded role that does not resolve sends the kickoff back to the
 # proposal path, and the other specifications stay visible for the proposal.
@@ -492,9 +496,9 @@ check_eq "written record resolves" "$(kv "$OUT" result)" "ok"
 
 # An existing record is replaced, and the replacement keeps mode 0600.
 capture write --record "$TARGET" --resolver "$WORK/stub-mixed.sh" \
-  --pr-fix-shared-with-impl false "${WRITE_TEAM[@]}" --role tester=opencode-go/deepseek-v4-flash/max
+  --pr-fix-shared-with-impl false "${WRITE_TEAM[@]}" --role ui-tester=opencode-go/deepseek-v4-flash/max
 check_eq "write replaces the record" "$RC" "0"
-check_eq "write stores the tester" "$(json_field "$TARGET" roles.tester.model)" "deepseek-v4-flash"
+check_eq "write stores the ui-tester" "$(json_field "$TARGET" roles.ui-tester.model)" "deepseek-v4-flash"
 check_eq "write replacement mode is 0600" "$(file_mode "$TARGET")" "600"
 check_eq "replaced record reports the shared flag" "$(json_field "$TARGET" pr_fix_shared_with_impl)" "false"
 
@@ -610,6 +614,9 @@ check_contains "skill documents the record location" "$SKILL_TEXT" 'PI_CODING_AG
 check_contains "skill documents the reuse line" "$SKILL_TEXT" "前回承認編成を使用"
 check_contains "skill documents the report origin" "$SKILL_TEXT" "origin of the used team specification"
 check_contains "skill documents the required role option" "$SKILL_TEXT" "--require-role"
+check_contains "skill shows the ui-tester role in the reuse line" "$SKILL_TEXT" "[ui-tester=<provider>/<model>/<thinking>]"
+check_contains "skill documents the composition reuse gate" "$SKILL_TEXT" "states the composition never reuses the record"
+check_contains "skill documents writing the settled composition" "$SKILL_TEXT" "including the composition"
 
 # No output may leak the machine paths or credentials of the environment.
 ALL_OUTPUT="$(cat "$WORK/all-output.txt" 2>/dev/null || true)"

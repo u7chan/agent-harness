@@ -19,9 +19,9 @@ import { THINKING_LEVELS } from "./model-spec.mjs";
 export const RECORD_VERSION = 1;
 
 /** Role names of this skill, in team-table order. */
-export const ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix", "tester"]);
+export const ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix", "ui-tester"]);
 
-/** Roles a record must provide; `tester` is the optional extra role. */
+/** Roles a record must provide; `ui-tester` is the optional extra role. */
 export const REQUIRED_ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix"]);
 
 /**

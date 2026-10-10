@@ -60,10 +60,12 @@ A team the user approved is recorded outside the repository, so a later kickoff 
 
 - Path: `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow/teams/<key>.json`.
 - Key: `<owner>__<repo>` from `origin`, or the repository root path when the remote does not name exactly `owner/repo`.
-- Content: `{"version": 1, "pr_fix_shared_with_impl": <boolean>, "roles": {"impl": {...}, "review": {...}, "pr-fix": {...} [,"tester": {...}]}}`, where each role holds `provider`, `model`, and `thinking`.
+- Content: `{"version": 1, "pr_fix_shared_with_impl": <boolean>, "roles": {"impl": {...}, "review": {...}, "pr-fix": {...} [,"ui-tester": {...}]}}`, where each role holds `provider`, `model`, and `thinking`.
 - Write: atomically (temporary file plus rename) with mode `0600`.
 
-The reader ignores unknown keys, so roles added later do not break it. A role key follows this skill's role names: a record written under another name does not resolve that role, and the run returns to the proposal path. An unknown `version`, a missing role, a missing `pr_fix_shared_with_impl`, or a shared flag whose `pr-fix` differs from `impl` all make the record unresolvable.
+The reader ignores unknown keys, so roles added later do not break it. A role key follows this skill's role names: a record written under another name does not resolve that role, so `--require-role` reports it `unresolved` and the run returns to the proposal path. Renaming a role does not migrate records either: the previous name stays an unknown key and its value is ignored, so a run that asks for the renamed role finds no role to reuse and proposes the team again. An unknown `version`, a missing role, a missing `pr_fix_shared_with_impl`, or a shared flag whose `pr-fix` differs from `impl` all make the record unresolvable.
+
+Nothing but the team specification is recorded: the target PR and the `ui-tester` task are not part of a record, so they gate reuse only by being unresolved. Every recorded part — a provider, model, thinking, or the composition — is reused only when this run does not state it ([Kickoff gate](#kickoff-gate)).
 
 Read and write it with the helper:
 
@@ -77,7 +79,7 @@ pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root
 pi-issue-pr-workflow/scripts/team-record.sh write --repo-root <repository root> \
   --pr-fix-shared-with-impl <true|false> \
   --role impl=<provider>/<model>/<thinking> --role review=<provider>/<model>/<thinking> \
-  --role pr-fix=<provider>/<model>/<thinking> [--role tester=<provider>/<model>/<thinking>]
+  --role pr-fix=<provider>/<model>/<thinking> [--role ui-tester=<provider>/<model>/<thinking>]
 ```
 
 `resolve` prints one key=value line with `record`, `present`, `result` (`ok`, `missing`, `invalid`, or `unresolved`), `pr_fix_shared_with_impl`, and one field per recorded role; an `invalid` result adds a `reason`, and an `unresolved` one names the failing `unresolved` role and its `unresolved_result`. `--require-role <role>` adds a role this run needs: when the record does not provide it, the result is `unresolved` instead of a silently omitted role. `write` prints one line and rejects every specification it cannot resolve, so the record only ever holds specifications that resolved at write time.
@@ -88,14 +90,14 @@ If any role assignment, agent specification, target PR determination, or ui-test
 
 Reuse the [approved team record](#approved-team-record) before proposing:
 
-1. Resolve it with `pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root>`, adding `--require-role tester` when the user asks for a tester in this run.
-2. Skip the table and the approval wait only when all of these hold: `result=ok`; this run supplies no explicit provider, model, or thinking value; the target PR is determined; and no tester task is unresolved. Print exactly one line and continue to [Start the team](#start-the-team):
+1. Resolve it with `pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root>`, adding `--require-role ui-tester` when the user asks for a `ui-tester` in this run.
+2. Skip the table and the approval wait only when all of these hold: `result=ok`; this run supplies no explicit provider, model, or thinking value; this run does not state the composition itself, meaning neither whether `pr-fix` shares the `impl` agent nor whether a `ui-tester` joins; the target PR is determined; and no `ui-tester` task is unresolved. Print exactly one line and continue to [Start the team](#start-the-team):
 
    ```text
-   前回承認編成を使用: impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [tester=<provider>/<model>/<thinking>]
+   前回承認編成を使用: impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]
    ```
 
-   A record that includes a tester carries no tester task: reuse needs the task supplied in this run, and otherwise the default-task proposal below applies.
+   The recorded team carries the composition, so a run that states the composition never reuses the record: it returns to the proposal path and waits for approval, because reuse would silently keep a recorded composition the run overrode. A record that includes a `ui-tester` carries no `ui-tester` task: reuse needs the task supplied in this run, and otherwise the default-task proposal below applies.
 3. Otherwise propose the complete team as described in this section and wait for approval, keeping every rule below unchanged.
 
 Use a table containing:
@@ -123,7 +125,7 @@ When the specification includes a `ui-tester` whose task is unspecified, propose
 
 Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. Only when all assignments are complete and valid, the target PR is determined, and no ui-tester task waits on the default proposal, summarize the resolved team and proceed without an additional approval round.
 
-Once the team is settled, write it to the [approved team record](#approved-team-record) with `team-record.sh write` using exactly the settled values. A value supplied in this run wins over the record: never silently keep a recorded value the user overrode, and never write a value that does not resolve. When the user asks to see the team (`編成見せて`), print the table from the `resolve` output without waiting for approval; displaying the record is not an approval and does not change it.
+Once the team is settled, write it to the [approved team record](#approved-team-record) with `team-record.sh write` using exactly the settled values, including the composition: `--pr-fix-shared-with-impl` and exactly the roles that join, so a run that separates `pr-fix` from `impl` or drops a recorded `ui-tester` records that composition instead of keeping the recorded one. A value supplied in this run wins over the record: never silently keep a recorded value the user overrode, and never write a value that does not resolve. When the user asks to see the team (`編成見せて`), print the table from the `resolve` output without waiting for approval; displaying the record is not an approval and does not change it.
 
 ## Start the team
 

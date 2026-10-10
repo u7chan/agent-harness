@@ -74,7 +74,7 @@ resolve options:
 write options:
   --role <role>=<provider>/<model>/<thinking>
       team member to record (repeatable); impl, review, and pr-fix are
-      required, tester is optional, and the role name must be one of them.
+      required, ui-tester is optional, and the role name must be one of them.
       The provider is the first segment and the thinking level is the last
       one, so a model ID may contain \`/\`.
   --pr-fix-shared-with-impl <true|false>
