@@ -58,6 +58,8 @@ Add supporting files only when they have a concrete responsibility:
 
 Instruction-only skills use natural-language judgment and existing tools directly. Tool harnesses add schemas, validation, and constrained dispatch for operations whose results must be predictable.
 
+Checks that span every skill live at the repository root under `scripts/` rather than inside one skill (for example `scripts/check-markdown-links.sh`), and CI runs them directly over the skill directories.
+
 ## Design constraints
 
 - Keep `SKILL.md` minimal. Put deterministic validation and tool constraints in scripts or schemas.
