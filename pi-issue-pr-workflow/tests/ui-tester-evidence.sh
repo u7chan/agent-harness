@@ -66,7 +66,8 @@ check_contains "video is for time-direction claims only" "$ROLE_TEXT" \
 check_contains "the video format is WebM" "$ROLE_TEXT" 'WebM'
 check_contains "GIF is out of scope" "$ROLE_TEXT" 'Never produce a GIF'
 check_contains "text overlays are out of scope" "$ROLE_TEXT" 'drawtext'
-check_contains "artifacts live under PW_ARTIFACT_DIR" "$ROLE_TEXT" 'PW_ARTIFACT_DIR'
+check_contains "artifacts live under PW_ARTIFACT_DIR" "$ROLE_TEXT" \
+  'Keep every artifact under `PW_ARTIFACT_DIR`'
 check_contains "the attachment limit is 10 MB" "$ROLE_TEXT" '10 MB'
 check_contains "ffmpeg is optional" "$ROLE_TEXT" 'ffmpeg is optional'
 check_contains "a dropped video is recorded as a fallback" "$ROLE_TEXT" \
