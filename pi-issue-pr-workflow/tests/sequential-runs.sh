@@ -70,10 +70,20 @@ check_contains "the command is a raw TUI prompt" "$REFERENCE_TEXT" \
   'herdr agent prompt <pane-id> "/compact"'
 check_contains "the command is not a delegation" "$REFERENCE_TEXT" \
   'This is not a delegation'
-check_contains "completion is judged on the screen line" "$REFERENCE_TEXT" \
-  'Compacting context... (escape to cancel)'
+check_contains "a successful compaction adds its result line" "$REFERENCE_TEXT" \
+  'Compacted from <N>'
+check_contains "a failed compaction adds an error line" "$REFERENCE_TEXT" \
+  'Compaction failed: <reason>'
+check_contains "the indicator line is not the completion test" "$REFERENCE_TEXT" \
+  'never judge the outcome by searching'
 check_contains "agent_status is never a completion signal" "$REFERENCE_TEXT" \
-  'the status is never a'
+  'never a completion signal'
+check_contains "reuse covers panes from an earlier run" "$REFERENCE_TEXT" \
+  'an earlier run of the same Issue'
+check_contains "a full reuse creates no pane" "$REFERENCE_TEXT" \
+  'create no pane'
+check_contains "SKILL.md skips the planner for a full reuse" "$TEAM_TEXT" \
+  'the planner is not called'
 
 # --- handoff and other panes ----------------------------------------------
 

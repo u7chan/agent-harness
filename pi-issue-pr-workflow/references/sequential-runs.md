@@ -7,9 +7,9 @@ and how; [Start the team](../SKILL.md#start-the-team) and
 [Completion](../SKILL.md#completion) keep the pane rules.
 
 The decision uses the current conversation only: the panes are the ones this
-orchestrator started for the previous run, and nothing about them is written to
-disk. A pane is never reused because of its label, its agent name, or an entry
-in the approved team record.
+orchestrator started for the roles in an earlier run of the same Issue, and
+nothing about them is written to disk. A pane is never reused because of its
+label, its agent name, or an entry in the approved team record.
 
 ## Scope
 
@@ -17,8 +17,8 @@ Reuse applies to a run that follows a completed run of the same Issue in the
 same Herdr workspace and worktree. A run whose predecessor stopped before
 [Completion](../SKILL.md#completion) builds every pane as
 [Start the team](../SKILL.md#start-the-team) describes, and the stopped run's
-panes stay open for inspection. A run with no memory of the previous run's
-panes, such as a new orchestrator session, has no reuse candidates either.
+panes stay open for inspection. A run with no memory of those panes, such as a
+new orchestrator session, has no reuse candidates either.
 
 ## Reuse conditions
 
@@ -27,7 +27,7 @@ A joining role reuses its previous pane only when every condition holds:
 | Condition | Check |
 | --- | --- |
 | Same workspace and worktree | The pane is in the current Herdr workspace and worktree, as the previous run's delegation was. |
-| The pane is this orchestrator's role pane | The pane is the one this orchestrator started for that role during the previous run and named in this conversation. A pane that only matches by label or agent name is a different pane. |
+| The pane is this orchestrator's role pane | The pane is one this orchestrator started for that role in an earlier run of this Issue and named in this conversation. A pane that only matches by label or agent name is a different pane. |
 | The pane is idle | `herdr agent get <pane-id>` reports `agent_status: idle`. |
 | The effective specification matches | A `herdr agent read <pane-id> --source visible` footer shows this run's settled provider, model, and thinking for the role. Startup argv and the approved team record are not evidence of the running values. |
 
@@ -38,8 +38,8 @@ team.
 
 ## Compact a reused pane
 
-A reused pane still holds the previous run's conversation, so compact it before
-this run's first task reaches it:
+A reused pane carries the conversation of its earlier runs, so compact it
+before this run's first task reaches it:
 
 1. Send the command to the pane as a TUI command:
 
@@ -52,20 +52,26 @@ this run's first task reaches it:
    `herdr agent prompt` call is the transport. The pane is in the same
    workspace, which the reuse conditions already require.
 
-2. Judge completion on the screen. While the compaction runs, the visible
-   snapshot shows `Compacting context... (escape to cancel)`, and
-   `herdr agent get` still reports `agent_status: idle`; the status is never a
-   completion signal. The pane is ready when a fresh read has that line gone.
+2. Judge the outcome from the pane's output, never with `herdr agent get`. The
+   command ends by adding one result line to the pane: on success
+   `Compacted from <N> tokens`, on failure `Compaction failed: <reason>`.
+   `herdr agent get` reports `agent_status: idle` throughout the compaction,
+   so the status is never a completion signal.
 
-3. Send the next task only after that read. Never send a task, a return, or any
-   other command while the indicator is on screen. Re-read the snapshot in
-   short bounded steps; do not hold the orchestrator pane with long
-   `sleep`-based polling
+3. Re-read the pane in short bounded steps until it shows this command's result
+   line, and send the next task only then. Never send a task, a return, or any
+   other command while the compaction is running, and do not hold the
+   orchestrator pane with long `sleep`-based polling
    ([Async delegation](../../herdr/SKILL.md#async-delegation)).
 
-A compaction that does not finish, or that leaves an error, fails the reuse:
-the pane receives no task for this run and a new pane is built for the role
-instead. The pane stays open either way.
+The transient indicator line `Compacting context... (escape to cancel)` shows
+while the compaction runs, but never judge the outcome by searching the pane
+for it: the pane's own transcript can contain the same phrase for unrelated
+reasons. The result line is the authority.
+
+A compaction that fails, reported by a `Compaction failed: <reason>` line,
+fails the reuse: the pane receives no task for this run and a new pane is
+built for the role instead. The pane stays open either way.
 
 ## Carry the facts in the task text
 
@@ -84,17 +90,18 @@ worktree and a reused pane never imply shared context.
 
 ## Panes for a new role
 
-A role that had no pane in the previous run has nothing to reuse, and the
-planner cannot move an existing pane into a planned cell
+A joining role without a reusable pane has nothing to reuse, and the planner
+cannot move an existing pane into a planned cell
 ([pane layout](../../herdr/references/pane-layout.md#exceptions-to-the-skills-pane-rules)):
 
+- no new role (every joining role is reused): create no pane, and do not call
+  the planner, which rejects `--count 0` because its minimum count is 2;
 - one new role: split it from the orchestrator pane with the Herdr skill's
   single-pane rules
   ([When the requested agent is absent](../../herdr/SKILL.md#when-the-requested-agent-is-absent));
 - two or more new roles:
   `herdr/scripts/pane-layout.sh apply --count <new panes>` with the new panes
-  only, never the whole team, because the planner's minimum count is 2 and it
-  does not cover the single-pane case.
+  only, never the whole team.
 
 Reused panes keep the name and label they already carry; only new panes are
 named and labelled. A role that leaves the team, such as `pr-fix` moving back to
