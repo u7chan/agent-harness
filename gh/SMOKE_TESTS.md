@@ -8,14 +8,14 @@ command -v jq >/dev/null && command -v gh >/dev/null
 
 ## Disposable Test Setup
 
-以下の手順で使い捨てのテスト用Issue/PRを作成し、テスト実行後に削除することを推奨する。
+The following steps create a disposable test Issue/PR, and deleting it after the test run is recommended.
 
 ```bash
 TEST_OWNER="anomalyco"
 TEST_REPO="sandbox"
 TEST_BRANCH="smoke-test-$(date +%s)"
 
-# テスト用ブランチを作成
+# Create the test branch
 cd "$HOME/path/to/repo"
 CURRENT_BRANCH=$(git branch --show-current)
 git checkout -b "$TEST_BRANCH"
@@ -23,30 +23,30 @@ echo "// smoke $(date +%s)" > smoke-test.js
 git add smoke-test.js && git commit -m "smoke test setup"
 git push -u origin "$TEST_BRANCH"
 
-# テスト用PRを作成
+# Create the test PR
 TEST_PR_RESULT=$(jq -n --arg head "$TEST_BRANCH" \
   '{"title":"smoke-test-pr","base":"main","head":$head,"grant":"write"}' \
   | bash gh/scripts/gh.sh pr.create)
 echo "$TEST_PR_RESULT" | jq -e '.status == "ok"'
 TEST_PR_NUMBER=$(echo "$TEST_PR_RESULT" | jq -r '.data.number')
 
-# 動的にcommit SHAを取得
+# Get the commit SHA dynamically
 TEST_COMMIT_SHA=$(echo "{\"number\":$TEST_PR_NUMBER}" \
   | bash gh/scripts/gh.sh pr.commits.read \
   | jq -e '.status == "ok"' \
   | jq -r '.data[0].sha')
 
-# 動的にreview comment IDを取得（既存のreview commentがなければ作成）
+# Get the review comment ID dynamically (create one when no review comment exists)
 TEST_COMMENT_ID=$(echo "{\"number\":$TEST_PR_NUMBER}" \
   | bash gh/scripts/gh.sh review-comments.read \
   | jq -r '.data.items[0].id // empty')
 
-# 動的にthread node IDを取得
+# Get the thread node ID dynamically
 THREAD_IDS=$(echo "{\"number\":$TEST_PR_NUMBER}" \
   | bash gh/scripts/gh.sh review-threads.read \
   | jq -r '.data.threads[0].thread_id // empty')
 
-# テスト用Issueを作成
+# Create the test Issue
 TEST_ISSUE_RESULT=$(echo '{"title":"smoke-test-issue","grant":"write"}' \
   | bash gh/scripts/gh.sh issue.create \
   | jq -e '.status == "ok"')
@@ -60,10 +60,10 @@ echo "THREAD_IDS=$THREAD_IDS"
 ```
 
 ```bash
-# テスト終了後はブランチを削除し、元のブランチに戻す
+# After the test run, delete the branch and return to the original branch
 git checkout "$CURRENT_BRANCH"
 git push origin --delete "$TEST_BRANCH" 2>/dev/null || true
-# PR自体はAPI経由でclose（deleteはgh pr closeで）
+# Close the PR itself through the API (deletion is done with gh pr close)
 echo "{\"number\":$TEST_PR_NUMBER, \"grant\": \"sensitive-write\"}" \
   | bash gh/scripts/gh.sh pr.close | jq -e '.status == "ok"'
 ```
@@ -943,7 +943,7 @@ fi
 | status ok or already_applied | `.status` in `("ok", "already_applied")` |
 | reply has in_reply_to_id | `.data.in_reply_to_id != null` |
 
-再実行すると exact-body dedup により `already_applied` になり、2 重投稿されない。
+Re-running returns `already_applied` through exact-body dedup, so nothing is posted twice.
 
 ### review-comments.reply (reply mismatch)
 
@@ -1123,7 +1123,7 @@ echo "{\"number\":$TEST_PR_NUMBER}" | bash gh/scripts/gh.sh review-threads.read 
 
 ```bash
 # Test: get single thread by thread_id (GraphQL node ID, string)
-# 動的取得した最初のthread IDを使用
+# Use the first thread ID obtained dynamically
 if [ -n "$THREAD_IDS" ]; then
   echo "{\"number\":$TEST_PR_NUMBER, \"thread_id\":\"$THREAD_IDS\"}" | bash gh/scripts/gh.sh review-threads.read | jq -e '.status == "ok" and (.data.threads | length >= 0)'
 fi
@@ -1150,7 +1150,7 @@ echo '{"number":1, "per_page":1.5}' | bash gh/scripts/gh.sh review-threads.read 
 
 ```bash
 # Test: resolve a review thread (thread_id is GraphQL node ID string)
-# 動的取得した最初のthread IDを使用
+# Use the first thread ID obtained dynamically
 # reference pins the target repository to the PR-derived owner/repo (review
 # skill contract); omit it to use the current working directory's repository.
 if [ -n "$THREAD_IDS" ]; then
@@ -1211,7 +1211,7 @@ fi
 
 ```bash
 # Test: full state transition cycle
-# 動的取得したthread IDを使用
+# Use the thread ID obtained dynamically
 if [ -n "$THREAD_IDS" ]; then
   # 1. resolve → ok
   echo "{\"thread_id\":\"$THREAD_IDS\", \"grant\": \"sensitive-write\"}" | bash gh/scripts/gh.sh review-threads.resolve | jq -e '.status == "ok" and .data.resolved == true'
@@ -1440,15 +1440,15 @@ git status --porcelain
 
 ## Disposable Test Cleanup
 
-テスト終了後は以下のコマンドでクリーンアップする。
+Clean up with the following commands after the test run.
 
 ```bash
-# テスト用ブランチを削除し元のブランチに戻す
+# Delete the test branch and return to the original branch
 git checkout "$CURRENT_BRANCH"
 git branch -D "$TEST_BRANCH" 2>/dev/null || true
 git push origin --delete "$TEST_BRANCH" 2>/dev/null || true
 
-# PRをclose
+# Close the PR
 echo "{\"number\":$TEST_PR_NUMBER, \"grant\": \"sensitive-write\"}" \
   | bash gh/scripts/gh.sh pr.close | jq -e '.status == "ok"'
 ```
