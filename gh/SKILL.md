@@ -53,6 +53,8 @@ Select the smallest matching category set.
 
 `review-comments.reply` posts to `POST /repos/<owner>/<repo>/pulls/<number>/comments` with `in_reply_to` set to the thread root. GitHub records a body-less `COMMENTED` review for every reply, and `reviews.read` returns these records with `body: ""`. A measurement on 2026-10-10 showed that `POST /repos/<owner>/<repo>/pulls/<number>/comments/<comment-id>/replies` creates the same record, so the reply endpoint cannot avoid it. Never identify the latest review from review-list position or count; the review skill's re-check rule owns that selection ([recheck.md](../review/references/recheck.md)).
 
+Deleting that reply with `review-comments.delete` also deletes the empty review the reply created. A measurement on 2026-10-10 on PR #251 showed that deleting a reply attached to a body-ful review removed only the reply's own empty review and left the body-ful review in place — a reply never joins the review of its root comment, and two replies to one root do not share a review either. Whether a review survives depended on its body and on its remaining comments: an empty-body review disappeared when its last comment was deleted (a `body` of `" "` behaved the same way: it survived deleting one of two comments and disappeared with the last one), while a review with a body survived deleting its only comment — the measured case was that review's non-reply root comment.
+
 ## Targets
 
 Actions address an issue/PR by `number`, and may take a `reference` in one of these forms:
