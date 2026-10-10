@@ -146,5 +146,5 @@ After starting the agent, set the pane label to the same responsibility-based na
 
 - Keep shared work in the current workspace and worktree.
 - Create a Herdr worktree workspace only when the user explicitly requests it; ordinary independent-branch work stays in the current workspace and worktree (see [Worktree workspaces](#worktree-workspaces)).
-- Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested.
+- Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested. One standing exception: the pi-issue-pr-workflow closes the `ui-tester` pane it created and never delegated to when that workflow completes ([pi-issue-pr-workflow](../pi-issue-pr-workflow/SKILL.md#completion)).
 - Never prompt or start an agent across a workspace boundary directly; use the wrappers or `herdr/scripts/worktree-team-start.sh`, which classify the edge first, and stop on `scope-reject` instead of retrying around it.
