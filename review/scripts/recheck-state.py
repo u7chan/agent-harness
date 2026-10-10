@@ -203,7 +203,13 @@ def threads_from(value: Any) -> tuple[list[dict[str, Any]] | None, str | None, b
 
 
 def snapshot_from(value: Any) -> tuple[dict[str, Any] | None, str | None]:
-    """Normalize the read state into one canonical thread snapshot."""
+    """Normalize the read state into one canonical thread snapshot.
+
+    An empty ``threads`` array is a normal value: a review that posted no
+    inline finding leaves no thread behind.  Only the shape of the snapshot is
+    validated, so a silent read failure and a real empty list look the same to
+    the helper; the gate anchors reviewer identity differently in that case.
+    """
     if not isinstance(value, dict):
         return None, "snapshot is not an object"
     if "canonical" in value:
@@ -233,8 +239,6 @@ def snapshot_from(value: Any) -> tuple[dict[str, Any] | None, str | None]:
             return None, f"duplicate thread id {thread['thread_id']}"
         seen_threads.add(thread["thread_id"])
         threads.append(thread)
-    if not threads:
-        return None, "snapshot has no threads"
     return {"threads": threads}, None
 
 
@@ -381,6 +385,23 @@ def check_record(record: Any) -> tuple[dict[str, Any] | None, str | None]:
     return record, None
 
 
+def prior_review_from(value: Any) -> tuple[tuple[int, str] | None, str | None]:
+    """Validate the ``reviews.read`` projection used as the gate's identity
+    anchor when the snapshot has no thread (and therefore no root comment)."""
+    if not isinstance(value, dict):
+        return None, "prior_review is not an object"
+    review_id = value.get("review_id")
+    if not is_int(review_id) or review_id <= 0:
+        return None, "prior_review has an invalid review_id"
+    commit_id = value.get("commit_id")
+    if not isinstance(commit_id, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", commit_id):
+        return None, "prior_review has an invalid commit_id"
+    login = value.get("reviewer_login")
+    if not isinstance(login, str) or not login:
+        return None, "prior_review has an invalid reviewer_login"
+    return (review_id, login), None
+
+
 def operation_gate(input_data: dict[str, Any]) -> int:
     if "snapshot" not in input_data:
         return stop("gate", "snapshot_is_required")
@@ -392,20 +413,37 @@ def operation_gate(input_data: dict[str, Any]) -> int:
     if not isinstance(reviewer, str) or not reviewer:
         return stop("gate", "invalid_reviewer_login")
 
-    # Derive coverage from the complete initial snapshot, independently of the
-    # skill's record selection. Resolved roots still establish reviewer identity.
-    reviewer_has_root = False
+    root_count = 0
+    prior_review_id: int | None = None
     blocker_threads: dict[int, str] = {}
-    for thread in snapshot["threads"]:
-        root, _, error = root_and_tail(thread)
-        assert error is None and root is not None
-        if root["actor"] != reviewer:
-            continue
-        reviewer_has_root = True
-        if not thread["resolved"] and root["body"].startswith("**Blocker**: "):
-            blocker_threads[root["comment_id"]] = thread["thread_id"]
-    if not reviewer_has_root:
-        return stop("gate", "reviewer_root_missing")
+    if not snapshot["threads"]:
+        # Without a thread no root comment can establish reviewer identity, so
+        # the reviewer's own completed review anchors it instead.  An empty
+        # snapshot never short-circuits the record and full_review checks below.
+        if "prior_review" not in input_data:
+            return stop("gate", "prior_review_is_required")
+        prior_review, error = prior_review_from(input_data["prior_review"])
+        if error:
+            return stop("gate", "prior_review_invalid", detail=error)
+        assert prior_review is not None
+        prior_review_id, prior_login = prior_review
+        if prior_login != reviewer:
+            return stop("gate", "prior_review_reviewer_mismatch")
+    else:
+        # Derive coverage from the complete initial snapshot, independently of
+        # the skill's record selection. Resolved roots still establish reviewer
+        # identity.  A prior_review passed alongside a non-empty snapshot is not
+        # consulted, so an always-passing skill does not change the decision.
+        for thread in snapshot["threads"]:
+            root, _, error = root_and_tail(thread)
+            assert error is None and root is not None
+            if root["actor"] != reviewer:
+                continue
+            root_count += 1
+            if not thread["resolved"] and root["body"].startswith("**Blocker**: "):
+                blocker_threads[root["comment_id"]] = thread["thread_id"]
+        if root_count == 0:
+            return stop("gate", "reviewer_root_missing")
 
     records = input_data.get("records")
     if not isinstance(records, list):
@@ -451,13 +489,15 @@ def operation_gate(input_data: dict[str, Any]) -> int:
         return emit("gate", decision="blocked", eligible=False, reason="full_review_not_clean")
     if input_data.get("round") == 3 and input_data.get("blocker_remaining", False):
         return emit("gate", decision="blocked", eligible=False, reason="round_limit")
-    return emit(
-        "gate",
-        decision="lgtm_eligible",
-        eligible=True,
-        head_sha=head,
-        record_count=len(records),
-    )
+    eligible_fields: dict[str, Any] = {
+        "eligible": True,
+        "head_sha": head,
+        "root_count": root_count,
+        "record_count": len(records),
+    }
+    if prior_review_id is not None:
+        eligible_fields["prior_review_id"] = prior_review_id
+    return emit("gate", decision="lgtm_eligible", **eligible_fields)
 
 
 OPERATIONS = {

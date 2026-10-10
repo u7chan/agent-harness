@@ -9,9 +9,9 @@ Review skill は元 finding の再評価、分類理由、最新 head のレビ�
 helper の入力は次の操作を持つ JSON である。
 
 - `parse`: current output template の direct reply の strict header だけを `Resolved`、`Partial`、`Unresolved`、`Unknown` として認識する。
-- `reconcile`: `review-threads.read` の出力を正規化し、thread ごとの root、tail、コメント一覧を持つ canonical snapshot を返す。ID 欠落・重複、root が一意でない、直接 root への返信でない、pagination が不完全な場合は `stop` になる。REST との相互照合は行わない。
+- `reconcile`: `review-threads.read` の出力を正規化し、thread ごとの root、tail、コメント一覧を持つ canonical snapshot を返す。`threads` 0 件（インライン指摘を投稿しなかった初回レビューなど）は正常値として `threads: []` を返し、`stop` にしない。ID 欠落・重複、root が一意でない、直接 root への返信でない、pagination が不完全な場合は `stop` になる。REST との相互照合は行わない。canonical snapshot は pagination を保持しないため `gate` は読み取りの完全性を再検証しない。読み取りの完全性は、`review-threads.read` が全ページ取得後に `threads_complete` / `comments_complete` を true で返すことが担保する。
 - `plan`: 対象 thread の root が自分の指摘か、未 Resolve か、同じ分類の返信が既に tail にあるか（同 actor・同 root・同分類 = plan レベルの dedup）を判定し、`reuse`（投稿不要）か `post`（投稿する）を返す。対象の特定に失敗した場合は `stop` になる。
-- `gate`: 必須の `snapshot`、`reviewer_login` と元 Blocker の分類返信 `records` を照合し、最新 head の `full_review` 結果から LGTM 可否を判定する。入力不備・対象不一致は `stop`、判定結果は `lgtm_eligible` か `blocked` を返す。
+- `gate`: 必須の `snapshot`、`reviewer_login` と元 Blocker の分類返信 `records` を照合し、最新 head の `full_review` 結果から LGTM 可否を判定する。`threads` 0 件の snapshot（自分の root が存在しない）では、本人確認の anchor として `prior_review` を必須で受け取る。入力不備・対象不一致は `stop`、判定結果は `lgtm_eligible` か `blocked` を返す。`lgtm_eligible` は `head_sha` / `root_count` / `record_count` を返し、`threads` 0 件の場合は本人確認に使った `prior_review_id` も返す。
 
 各 record は実行中だけ次を保持し、ファイルや再起動後へ持ち越さない。
 
@@ -48,19 +48,20 @@ classification_reply_id, verification_head_sha
 - **already-applied**: `status=already_applied`。同 body・同 actor・同 root の返信が既に存在するため投稿しなかった（リトライや二重実行の結果）。返された既存コメント ID を `classification_reply_id` として採用してよい。
 - **stop**: `status=failed` / `unknown_outcome`（投稿失敗で再読取しても exact match を adopt できなかった場合など）。同じ run で retry せず、Resolve の対象にもしない。
 
-`plan` が `reuse` を返した場合は投稿せず、既存の tail 返信を今回の分類 anchor として記録する。`Partial`、`Unresolved`、`Unknown` の返信は分類として記録してもスレッドを Resolve しない。root の特定自体が曖昧な場合は `Unknown` として返信せず、Resolve もしない。
+`plan` が `reuse` を返した場合は投稿せず、既存の tail 返信を今回の分類 anchor として記録する。`Partial`、`Unresolved`、`Unknown` の返信は分類として記録してもスレッドを Resolve しない。root の特定自体が曖昧な場合は `Unknown` として返信せず、Resolve もしない。候補 root が 0 件（初期スナップショットのスレッド 0 件）の場合は対象 thread を選べないため、`plan` と分類返信の段を飛ばして `gate` に進む。
 
 ### gate に渡す分類 record
 
 再分類の候補は Blocker と Nit / Consider / FYI のすべてについて評価・返信し、確認できた分類 record を今回の実行中はすべて保持する。一方 `gate` の `records` には、元 root comment のラベルが **Blocker** のものだけを選んで渡す。root の本文と REST / GraphQL の ID の照合、分類返信・anchor の検証は引き続き skill が担当する。任意指摘の未解消だけでは LGTM を妨げないが、分類結果は報告し、`Partial` / `Unresolved` / `Unknown` の thread を自動 Resolve しない。
 
-`gate` には、今回の対象選定に使った初期 `reconcile` の `snapshot` 全体と `reviewer_login` を必須で渡す。snapshot を自分の指摘や Blocker だけに絞らず、返信や Resolve 後の取得結果で差し替えない。helper は次を検証し、不一致なら `stop` を返す。
+`gate` には、今回の対象選定に使った初期 `reconcile` の `snapshot` 全体と `reviewer_login` を必須で渡す。snapshot を自分の指摘や Blocker だけに絞らず、返信や Resolve 後の取得結果で差し替えない。`snapshot.threads` が 0 件のときは、「最新 head のレビュー範囲」節に従って `reviews.read` から一意に特定した自分の直近の完了済みレビューの射影（`id` / `commit_id` / `user.login`）を `prior_review`（`review_id` / `commit_id` / `reviewer_login`）として必須で渡す。helper は次を検証し、不一致なら `stop` を返す。
 
-- snapshot に、その `reviewer_login` が書いた root が少なくとも一つある（Resolve 済みも含む）。login の取り違えで空集合同士が一致するのを防ぐ。
+- snapshot に thread がある場合、その `reviewer_login` が書いた root が少なくとも一つある（Resolve 済みも含む）。login の取り違えで空集合同士が一致するのを防ぐ。
+- スレッド 0 件の snapshot では root が存在しないため、`prior_review` の `review_id`（正の整数）、`commit_id`（40 桁 hex）、`reviewer_login`（非空文字列）を検証し、`reviewer_login` との一致を要求する。root は要求しない。thread がある snapshot に `prior_review` が渡されても参照しないので、常時渡す実装でも判定は分岐しない。
 - 自分の未 Resolve の root のうち本文が `**Blocker**: ` で始まるものと、`records` の `root_comment_id` の集合が一致する。ラウンド開始前に Resolve 済みの Blocker は含めない。
 - record に重複がなく、thread・reviewer が snapshot の対象と一致し、分類返信 ID が正の整数で、`verification_head_sha` が gate の評価対象 head と一致する。
 
-元 Blocker がない場合だけ空の `records` が正当である。元 Blocker のラベルや対象を一意に確認できない、分類が `Unknown`、返信が未確認（投稿失敗・`stop`、または anchor を検証できない）なら、LGTM の判定を止めて理由を報告する。元 Blocker の `Partial` / `Unresolved` は `records` に含めて `blocked` とし、重要な unknown は `full_review.important_unknowns` に反映して LGTM を止める。任意指摘でも今回スコープの不具合・必須条件違反が確認された場合は、元ラベルに関係なく最新 head のレビューで Blocker として評価する。ラベルの妥当性や最新 head のレビュー範囲は helper で判断しない。
+元 Blocker がない場合だけ空の `records` が正当である。元 Blocker がない場合とは、自分の未 Resolve の root に `**Blocker**: ` で始まるものがない場合と、インライン指摘を投稿せず `snapshot.threads` が 0 件（スレッド 0 件）の場合の両方を指す。元 Blocker のラベルや対象を一意に確認できない、分類が `Unknown`、返信が未確認（投稿失敗・`stop`、または anchor を検証できない）なら、LGTM の判定を止めて理由を報告する。元 Blocker の `Partial` / `Unresolved` は `records` に含めて `blocked` とし、重要な unknown は `full_review.important_unknowns` に反映して LGTM を止める。任意指摘でも今回スコープの不具合・必須条件違反が確認された場合は、元ラベルに関係なく最新 head のレビューで Blocker として評価する。ラベルの妥当性や最新 head のレビュー範囲は helper で判断しない。
 
 ## 最新 head のレビュー範囲
 

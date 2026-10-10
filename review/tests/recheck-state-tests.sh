@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPER="$SCRIPT_DIR/../scripts/recheck-state.py"
 FIXTURE="$SCRIPT_DIR/fixtures/recheck-snapshot.json"
+NO_FINDINGS_SNAPSHOT="$SCRIPT_DIR/fixtures/no-findings-snapshot.json"
 TMP="$(mktemp -d /tmp/recheck-state-XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -74,6 +75,22 @@ assert_field "actor is normalized to user.login" "$base_reconcile" '.snapshot.th
 assert_field "reply target is the parent GraphQL node id" "$base_reconcile" '.snapshot.threads[0].comments[1].reply_to_comment_id' PRRC_root
 assert_field "canonical snapshot has no fingerprint key" "$base_reconcile" '.snapshot | has("fingerprint")' false
 
+# reconcile: a snapshot with no thread is a normal value (an initial review
+# with 0 findings posts no inline comment), not a read failure.  Incomplete
+# pagination still stops under the same rule as a non-empty snapshot.
+empty_reconcile="$(jq '. + {operation:"reconcile"}' "$NO_FINDINGS_SNAPSHOT" | "$HELPER")"
+assert_decision "reconcile empty snapshot" "$empty_reconcile" ok
+assert_field "reconcile empty snapshot stays canonical" "$empty_reconcile" '.snapshot.threads | length' 0
+assert_field "reconcile empty snapshot drops pagination" "$empty_reconcile" '.snapshot | has("pagination")' false
+empty_reconcile_bare="$(jq -nc '{operation:"reconcile",threads:[]}' | "$HELPER")"
+assert_decision "reconcile empty snapshot without pagination" "$empty_reconcile_bare" ok
+for invalid_pagination in '{"threads_complete":false,"comments_complete":true}' '{"threads_complete":true,"comments_complete":false}'; do
+  empty_pagination="$(jq -nc --argjson pagination "$invalid_pagination" \
+    '{operation:"reconcile",threads:[],pagination:$pagination}' | "$HELPER")"
+  assert_decision "empty snapshot with incomplete pagination $invalid_pagination stops" "$empty_pagination" stop
+  assert_field "empty snapshot pagination stop reason" "$empty_pagination" '.reason' snapshot_invalid
+done
+
 jq -n --slurpfile fixture "$FIXTURE" '{operation:"reconcile", threads: $fixture[0].graphql.threads, pagination: {threads_complete: true, comments_complete: false}}' > "$TMP/pagination-incomplete.json"
 if [ "$(jq -r '.decision // empty' <<< "$(run_helper "$TMP/pagination-incomplete.json")")" != "stop" ]; then
   echo "FAIL: incomplete pagination is not fail-closed" >&2
@@ -128,6 +145,14 @@ plan_no_head="$(json_input unused --argjson snapshot "$base_snapshot" \
   '{operation:"plan",snapshot:$snapshot,classification:"Resolved",reviewer_login:"reviewer",thread_id:"PRRT_kwDOtest1",root_comment_id:100}')"
 assert_decision "missing verification head stops" "$plan_no_head" stop
 
+# plan: an empty snapshot has no thread to select, so the skill skips this step
+# and goes to gate.  The stop reason is unchanged.
+plan_empty="$(json_input unused --arg head "$H" \
+  '{operation:"plan",snapshot:{threads:[]},classification:"Resolved",reviewer_login:"reviewer",verification_head_sha:$head}')"
+assert_decision "plan on an empty snapshot stops" "$plan_empty" stop
+assert_field "empty snapshot plan keeps its stop reason" "$plan_empty" '.reason' \
+  'thread_id is required when snapshot has multiple threads'
+
 # gate: derive the original Blocker set from the full initial snapshot, then
 # validate coverage and record identity before evaluating the LGTM policy.
 record="$(jq -nc --arg head "$H" '{thread_id:"PRRT_kwDOtest1",root_comment_id:100,reviewer_login:"reviewer",classification:"Resolved",classification_reply_id:101,verification_head_sha:$head}')"
@@ -159,15 +184,26 @@ gate_case() {
   fi
 }
 
+gate_case_from() {
+  local input="$1" name="$2" expected="$3" filter="$4" reason="${5:-}" output
+  output="$(jq "$filter" <<< "$input" | "$HELPER")"
+  assert_decision "$name" "$output" "$expected"
+  if [ -n "$reason" ]; then
+    assert_field "$name reason" "$output" '.reason' "$reason"
+  fi
+}
+
 gate_clean="$("$HELPER" <<< "$gate_input")"
 assert_decision "clean full review permits LGTM" "$gate_clean" lgtm_eligible
 assert_field "LGTM records the fixed head" "$gate_clean" '.head_sha' "$H"
+assert_field "LGTM records the reviewer root count" "$gate_clean" '.root_count' 1
 assert_field "LGTM records the complete Blocker count" "$gate_clean" '.record_count' 1
+assert_field "LGTM omits the prior review id without an empty snapshot" "$gate_clean" 'has("prior_review_id")' false
 
 gate_case "missing snapshot stops" stop 'del(.snapshot)' snapshot_is_required
 gate_case "missing reviewer stops" stop 'del(.reviewer_login)' invalid_reviewer_login
 gate_case "missing both required inputs stops" stop 'del(.snapshot, .reviewer_login)'
-for invalid_snapshot in 'null' '[]' '{}' '{threads:[]}' '{canonical:null}' '{canonical:[]}'; do
+for invalid_snapshot in 'null' '[]' '{}' '{canonical:null}' '{canonical:[]}'; do
   gate_case "invalid snapshot $invalid_snapshot stops" stop ".snapshot = $invalid_snapshot" snapshot_invalid
 done
 gate_case "incomplete snapshot stops" stop \
@@ -260,5 +296,54 @@ gate_case "invalid full review stops" stop '.full_review = []' full_review_is_in
 gate_case "clean Round 3 permits LGTM planning" lgtm_eligible '.round = 3'
 gate_case "Round 3 with a remaining Blocker blocks LGTM" blocked \
   '.round = 3 | .blocker_remaining = true' round_limit
+
+# gate: a snapshot with no thread is normal when the initial review posted no
+# inline finding (`0 findings`).  Reviewer identity then comes from the
+# reviews.read projection passed as prior_review, and the record and
+# full_review checks still run: an empty snapshot never short-circuits them.
+empty_gate_input="$(jq -nc --arg head "$H" \
+  '{operation:"gate",snapshot:{threads:[]},reviewer_login:"reviewer",records:[],verification_head_sha:$head,full_review:{clean:true,blockers:0,important_unknowns:0},prior_review:{review_id:5477253768,commit_id:$head,reviewer_login:"reviewer"}}')"
+empty_gate_clean="$("$HELPER" <<< "$empty_gate_input")"
+assert_decision "empty snapshot with a matching prior review permits LGTM" "$empty_gate_clean" lgtm_eligible
+assert_field "empty snapshot LGTM records the fixed head" "$empty_gate_clean" '.head_sha' "$H"
+assert_field "empty snapshot LGTM reports no reviewer root" "$empty_gate_clean" '.root_count' 0
+assert_field "empty snapshot LGTM reports no record" "$empty_gate_clean" '.record_count' 0
+assert_field "empty snapshot LGTM returns the prior review id" "$empty_gate_clean" '.prior_review_id' 5477253768
+
+gate_case_from "$empty_gate_input" "missing prior review stops" stop 'del(.prior_review)' prior_review_is_required
+gate_case_from "$empty_gate_input" "prior review must be an object" stop '.prior_review = []' prior_review_invalid
+gate_case_from "$empty_gate_input" "null prior review is not a prior review" stop '.prior_review = null' prior_review_invalid
+for invalid_review_id in '"5477253768"' '0' '-1' 'true' '5477253768.5' '[]' 'null'; do
+  gate_case_from "$empty_gate_input" "prior review_id=$invalid_review_id is invalid" stop \
+    ".prior_review.review_id = $invalid_review_id" prior_review_invalid
+done
+for invalid_commit in '""' '"547726035"' '"0123456789abcdef0123456789abcdef0123456z"' 'null' '[]'; do
+  gate_case_from "$empty_gate_input" "prior review commit_id=$invalid_commit is invalid" stop \
+    ".prior_review.commit_id = $invalid_commit" prior_review_invalid
+done
+for invalid_prior_login in '""' 'null' '[]'; do
+  gate_case_from "$empty_gate_input" "prior review reviewer_login=$invalid_prior_login is invalid" stop \
+    ".prior_review.reviewer_login = $invalid_prior_login" prior_review_invalid
+done
+gate_case_from "$empty_gate_input" "prior review login mismatch stops" stop \
+  '.prior_review.reviewer_login = "someone-else"' prior_review_reviewer_mismatch
+
+gate_case_from "$empty_gate_input" "missing records stops on an empty snapshot" stop 'del(.records)' records_are_required
+gate_case_from "$empty_gate_input" "records must be an array on an empty snapshot" stop '.records = {}' records_are_required
+gate_case_from "$empty_gate_input" "missing verification head stops on an empty snapshot" stop 'del(.verification_head_sha)' verification_head_sha_missing
+gate_case_from "$empty_gate_input" "unclean full review blocks on an empty snapshot" blocked '.full_review.clean = false' full_review_not_clean
+gate_case_from "$empty_gate_input" "remaining Blocker blocks on an empty snapshot" blocked '.full_review.blockers = 1' full_review_not_clean
+gate_case_from "$empty_gate_input" "important unknown blocks on an empty snapshot" blocked '.full_review.important_unknowns = 1' full_review_not_clean
+gate_case_from "$empty_gate_input" "round limit blocks on an empty snapshot" blocked '.round = 3 | .blocker_remaining = true' round_limit
+empty_gate_record="$(jq --argjson record "$record" '.records = [$record]' <<< "$empty_gate_input" | "$HELPER")"
+assert_decision "a record without a thread stops on an empty snapshot" "$empty_gate_record" stop
+assert_field "empty snapshot reports the record mismatch" "$empty_gate_record" '.reason' blocker_record_mismatch
+assert_field "empty snapshot reports the unexpected root id" "$empty_gate_record" '.unexpected_root_comment_ids | join(",")' 100
+assert_field "empty snapshot reports no missing root" "$empty_gate_record" '.missing_root_comment_ids | length' 0
+
+# A prior_review passed with a non-empty snapshot is not consulted, so a skill
+# that always sends it cannot change the decision.
+gate_case "prior review is ignored when the snapshot has threads" lgtm_eligible \
+  '.prior_review = {review_id:0,commit_id:"short",reviewer_login:"someone-else"}'
 
 echo "PASS: $pass_count recheck state helper cases"
