@@ -37,13 +37,13 @@ Stop on an ambiguous repository, unexpected worktree changes, or unavailable req
 
 ## Team specification
 
-The logical roles are `impl`, `review`, and `pr-fix`. `tester` is an optional extra role. Every physical agent is Pi. A complete physical agent specification contains all of:
+The logical roles are `impl`, `review`, and `pr-fix`. `ui-tester` is an optional extra role. Every physical agent is Pi. A complete physical agent specification contains all of:
 
 - the exact provider ID;
 - the exact model ID under that provider in `pi --list-models`;
 - one thinking level supported by that exact model: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`.
 
-`pr-fix` may be assigned to the `impl` agent instead of a distinct agent. The `review` role must always use a distinct agent and must not edit the implementation. `tester` is a distinct physical agent too, and is never started when the specification does not include it. A run without a tester keeps the behavior described here without an extra pane or condition. The tester does not edit the implementation, commit, edit the PR, or post GitHub reviews: its findings are triage input to the orchestrator, where reproducible functional defects are mandatory fixes and other findings may join the same fix round, while the `review` role remains the authority for Blocker determination. The tester's task text, re-verification, completion, and environment separation are in [the tester role reference](references/tester-role.md).
+`pr-fix` may be assigned to the `impl` agent instead of a distinct agent. The `review` role must always use a distinct agent and must not edit the implementation. `ui-tester` is a distinct physical agent too, and is never started when the specification does not include it. A run without a `ui-tester` keeps the behavior described here without an extra pane or condition. The `ui-tester` does not edit the implementation, commit, edit the PR, or post GitHub reviews: its findings are triage input to the orchestrator, where reproducible functional defects are mandatory fixes and other findings may join the same fix round, while the `review` role remains the authority for Blocker determination. The `ui-tester`'s task text, re-verification, completion, and environment separation are in [the ui-tester role reference](references/ui-tester-role.md).
 
 Use `pi --list-models` to validate every explicit provider/model pair, but do not treat its thinking yes/no column as level validation. Resolve each full specification through the helper, which asks the installed Pi runtime's public API for the exact model and the supported/clamped thinking levels:
 
@@ -56,7 +56,7 @@ It prints one key=value line with `provider`, `model`, `requested`, `supported`,
 
 ## Kickoff gate
 
-If any role assignment, agent specification, target PR determination, or tester task is unresolved, inspect the Issue and relevant repository context, then propose the complete team before continuing. Preserve every valid value the user supplied.
+If any role assignment, agent specification, target PR determination, or ui-tester task is unresolved, inspect the Issue and relevant repository context, then propose the complete team before continuing. Preserve every valid value the user supplied.
 
 Use a table containing:
 
@@ -79,9 +79,9 @@ Determine the target PR for this run from the Issue body and the repository conv
 
 State the close keyword decision in the same proposal, because GitHub interprets closing keywords in commit messages when they reach the default branch. A closing keyword (`close #<issue>`, `closes`, `fixes`, `resolves`, and their forms) is written in the PR body and in the commit messages only when this PR is the last PR of the plan and repository conventions require a closing keyword; otherwise both use a non-closing reference such as `Related to #<issue>`. A repository convention alone does not establish lastness: when the Issue describes no plan, default to no closing keyword and let the approved proposal establish otherwise. For a stacked PR whose base branch differs from the work branch, state the base difference and the merge-time keyword risk. Split and spelling examples are in [the multi-PR Issue reference](references/multi-pr-issue.md).
 
-When the specification includes a tester whose task is unspecified, propose the default task in the same proposal: E2E verification of the Issue's user-visible surface through the Playwright skill, or, when the Playwright skill is unavailable, the target application's existing tests plus a smoke check as a substitute unresolved item for this approval. A task supplied with the tester is preserved as-is and is not replaced by the default. The tester's task is written into the delegation body and does not add a column to the team table.
+When the specification includes a `ui-tester` whose task is unspecified, propose the default task in the same proposal: E2E verification of the Issue's user-visible surface through the Playwright skill, or, when the Playwright skill is unavailable, the target application's existing tests plus a smoke check as a substitute unresolved item for this approval. A task supplied with the `ui-tester` is preserved as-is and is not replaced by the default. The `ui-tester`'s task is written into the delegation body and does not add a column to the team table.
 
-Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. Only when all assignments are complete and valid, the target PR is determined, and no tester task waits on the default proposal, summarize the resolved team and proceed without an additional approval round.
+Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. Only when all assignments are complete and valid, the target PR is determined, and no ui-tester task waits on the default proposal, summarize the resolved team and proceed without an additional approval round.
 
 ## Start the team
 
@@ -104,9 +104,9 @@ After the team is settled:
 5. Apply responsibility-based agent names and pane labels.
 6. Inspect each started Pi pane's runtime status and verify that its effective provider, model, and thinking level exactly match the approved specification before sending work. If any value differs or cannot be verified, stop.
 
-Start both agents for a shared `impl`/`pr-fix` team, or all three agents when `pr-fix` is separate. When the team includes a tester, start three agents when `pr-fix` is shared and four agents when it is separate. If any startup result is failed or unknown, do not start implementation and do not automatically close the panes that were created. Report the observed state.
+Start both agents for a shared `impl`/`pr-fix` team, or all three agents when `pr-fix` is separate. When the team includes a `ui-tester`, start three agents when `pr-fix` is shared and four agents when it is separate. If any startup result is failed or unknown, do not start implementation and do not automatically close the panes that were created. Report the observed state.
 
-Only `impl` receives a task at kickoff. Leave `review` and a separate `pr-fix` idle until their phases. `tester` stays idle until the Draft PR as well.
+Only `impl` receives a task at kickoff. Leave `review` and a separate `pr-fix` idle until their phases. `ui-tester` stays idle until the Draft PR as well.
 
 ## Delegation contract
 
@@ -131,13 +131,13 @@ Ask `impl` to:
 
 Do not advance without successful required verification, a confirmed push, and a Draft PR. If required verification fails or cannot run, require `blocked` and stop before treating the implementation as complete. Do not treat an unknown Git or GitHub result as success or blindly repeat it.
 
-### Tester verification
+### ui-tester verification
 
-When the specification includes a tester, delegate its task after the confirmed Draft PR. The tester's task may run in parallel with the Round 1 review. Delegate the task approved at the Kickoff gate as-is; do not replace an explicitly supplied task with the default E2E task.
+When the specification includes a `ui-tester`, delegate its task after the confirmed Draft PR. The `ui-tester`'s task may run in parallel with the Round 1 review. Delegate the task approved at the Kickoff gate as-is; do not replace an explicitly supplied task with the default E2E task.
 
-The tester adds no review round. The tester's findings are triage input: reproducible functional defects are mandatory fixes, other findings may join the same fix round, and the `review` role remains the authority for Blocker determination. The tester's fixes are routed to the assigned `pr-fix` agent; a fix push that addresses tester findings is a normal fix push and consumes the existing three-round review budget. After Round 3, a mandatory tester finding stops the run and is reported without extra rounds.
+The `ui-tester` adds no review round. The `ui-tester`'s findings are triage input: reproducible functional defects are mandatory fixes, other findings may join the same fix round, and the `review` role remains the authority for Blocker determination. The `ui-tester`'s fixes are routed to the assigned `pr-fix` agent; a fix push that addresses `ui-tester` findings is a normal fix push and consumes the existing three-round review budget. After Round 3, a mandatory `ui-tester` finding stops the run and is reported without extra rounds.
 
-After every fix push, the tester re-verifies on the latest head, limited to the reported items and the affected scope, and reports each as pass or unverified. Paid-API verification for the tester is off by default and the Issue's verification policy wins. The tester's task text, re-verification checklist, and environment separation values are in [the tester role reference](references/tester-role.md).
+After every fix push, the `ui-tester` re-verifies on the latest head, limited to the reported items and the affected scope, and reports each as pass or unverified. Paid-API verification for the `ui-tester` is off by default and the Issue's verification policy wins. The `ui-tester`'s task text, re-verification checklist, and environment separation values are in [the ui-tester role reference](references/ui-tester-role.md).
 
 ### Initial review
 
@@ -187,7 +187,7 @@ Complete only when all of the following are confirmed:
 - the current PR head matches the commit covered by the latest verified Review-skill LGTM review (including a recheck's latest-head review under its canonical scope), with no Blocker;
 - the PR body and the commit messages follow the close keyword decision for the target PR determined at the Kickoff gate;
 - no required review fix remains unaddressed;
-- when a tester is specified only, every item it took on is either verified as passing on the current PR head or reported as unverified with its reason; the tester condition adds to, and never replaces, the review LGTM requirement;
+- when a ui-tester is specified only, every item it took on is either verified as passing on the current PR head or reported as unverified with its reason; the ui-tester condition adds to, and never replaces, the review LGTM requirement;
 - every thread the latest recheck classified `Resolved` has been resolved after reply confirmation and the lightweight checks (this workflow's auto-resolve), while `Partial`, `Unresolved`, `Unknown`, other authors' threads, and user-decision discussions remain open.
 
 Conversation resolution follows the Review skill's Resolve policy, which is canonical in its recheck reference (`references/recheck.md`). Outside this workflow it remains explicit instruction only. Within the fix → recheck loop, auto-resolve is delegated: the recheck carries the workflow's auto-resolve designation, and after a verified LGTM the threads it classified `Resolved` are resolved by the reviewer or, on handoff, by the orchestrator using the reported verified target set, each confirmed by a `review-threads.read` re-check of `resolved=true` with the reply confirmation and lightweight checks that recheck.md defines. Every thread the latest recheck did not classify `Resolved` remains open. A verified LGTM never auto-resolves a thread by itself. Do not automatically mark the PR ready, close panes, merge the PR, or close the Issue.

@@ -86,7 +86,7 @@ team, and the parent creates no team panes.
 3. The orchestrator owns the team inside the worktree workspace: creating
    panes (`herdr/scripts/pane-layout.sh apply`), starting agents (`herdr agent
    start`), and delegating tasks (`herdr/scripts/parent-delegate-async.sh`).
-   The parent must not pre-create role panes — `impl`, `review`, `tester`, or
+   The parent must not pre-create role panes — `impl`, `review`, `ui-tester`, or
    any other team member — or start those agents; one writer per team.
 
 #### Worktree environment block
