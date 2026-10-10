@@ -86,7 +86,7 @@ pi-issue-pr-workflow/scripts/team-record.sh write --repo-root <repository root> 
 
 ## Kickoff gate
 
-Decide whether a `ui-tester` joins using the [ui-tester participation](references/ui-tester-role.md#participation) rule, state the decision as its fixed one line (`ui-tester: 同梱（<根拠>）` or `ui-tester: 除外（<根拠>）`) in every kickoff reply, and continue. The decision is automatic and adds no approval wait; the user can override it in the same reply.
+Decide whether a `ui-tester` joins using the [ui-tester participation](references/ui-tester-role.md#participation) rule, state the decision as its fixed one line in every kickoff reply, and continue. That reference owns the line's wording; this gate keeps only the rule that every kickoff reply prints one of its forms and never restates them. The decision is automatic and adds no approval wait; the user can override it in the same reply.
 
 If any role assignment, agent specification, or target PR determination is unresolved, inspect the Issue and relevant repository context, then propose the complete team before continuing. Preserve every valid value the user supplied.
 
