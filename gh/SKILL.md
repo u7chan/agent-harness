@@ -51,7 +51,7 @@ Select the smallest matching category set.
 
 ## Review comment replies
 
-`review-comments.reply` posts to `POST /repos/<owner>/<repo>/pulls/<number>/comments` with `in_reply_to` set to the thread root. GitHub records a body-less `COMMENTED` review for every reply, and `reviews.read` returns these records with `body: ""`. A measurement on 2026-10-10 showed that `POST /repos/<owner>/<repo>/pulls/<number>/comments/<comment-id>/replies` creates the same record, so the reply endpoint cannot avoid it. Never identify the latest review from review-list position or count; select it by author, body format, and submission time.
+`review-comments.reply` posts to `POST /repos/<owner>/<repo>/pulls/<number>/comments` with `in_reply_to` set to the thread root. GitHub records a body-less `COMMENTED` review for every reply, and `reviews.read` returns these records with `body: ""`. A measurement on 2026-10-10 showed that `POST /repos/<owner>/<repo>/pulls/<number>/comments/<comment-id>/replies` creates the same record, so the reply endpoint cannot avoid it. Never identify the latest review from review-list position or count; the review skill's re-check rule owns that selection ([recheck.md](../review/references/recheck.md)).
 
 ## Targets
 
