@@ -119,6 +119,9 @@ expect_valid reviews.create "$FIXTURES/blocker.json"
 jq '.body = "**LGTM**\n\n前提: 運用中の公開 API 互換性を維持します。\n\n前回の指摘が解消され、最新 head に今回スコープの Blocker はありません。\n\n## 別 Issue 候補\n\n- 旧ログの誤表記が残っています。既存ログで今回の変更に影響しません。別 Issue への切り出しを提案します。"' \
   "$FIXTURES/no-findings.json" > "$TEST_TMP/issue-candidate.json"
 expect_valid reviews.create "$TEST_TMP/issue-candidate.json"
+jq '.body = "**LGTM**\n\n前提: 公開契約・互換・移行の明示要件はなく、旧実装・旧形式の維持は要求しません。\n\n前回レビュー 5477253768（commit `0123456789abcdef0123456789abcdef01234567`）ではインライン指摘は 0 件（スレッド 0 件）で、前回レビューとその後の変更確認を合わせた最新 head に今回スコープの Blocker がないことを確認しました。"' \
+  "$FIXTURES/no-findings.json" > "$TEST_TMP/recheck-no-findings.json"
+expect_valid reviews.create "$TEST_TMP/recheck-no-findings.json"
 expect_valid review-comments.reply "$FIXTURES/recheck-resolved.json"
 expect_valid review-comments.reply "$FIXTURES/recheck-unresolved.json"
 jq '.body = "**Partial** (**Blocker**): 一部の入力経路に失敗条件が残っています。"' \
@@ -173,6 +176,12 @@ expect_invalid unresolved-scope-variable reviews.create \
 expect_invalid unresolved-legacy-scope-variable reviews.create \
   '.body += "\n\n{意味で要約した確認範囲}"' \
   "$FIXTURES/no-findings.json"
+expect_invalid unresolved-prior-review-id reviews.create \
+  '.body += "\n\n前回レビュー {前回レビューの review_id} を基準にしました。"' \
+  "$TEST_TMP/recheck-no-findings.json"
+expect_invalid unresolved-prior-review-commit reviews.create \
+  '.body += "\n\n前回レビューの commit は {前回レビューの commit} です。"' \
+  "$TEST_TMP/recheck-no-findings.json"
 expect_invalid literal-backslash-n reviews.create \
   '.body += "\\\\n壊れた改行"' \
   "$FIXTURES/no-findings.json"
@@ -200,9 +209,12 @@ expect_invalid invalid-recheck-label review-comments.reply \
 expect_doc_contains recheck-head-scope "$RECHECK_REFERENCE" '## 最新 head のレビュー範囲'
 # Blocker coverage is verified by RECHECK_STATE_TEST; only the input contract
 # tokens are pinned here, not the prose explaining the selection policy.
-expect_doc_keywords gate-input-contract "$RECHECK_REFERENCE" '`snapshot`' '`reviewer_login`' '`records`' '`full_review`'
+expect_doc_keywords gate-input-contract "$RECHECK_REFERENCE" '`snapshot`' '`reviewer_login`' '`records`' '`full_review`' '`prior_review`'
 expect_doc_keywords gate-fails-closed "$RECHECK_REFERENCE" '返信が未確認' '重要な unknown' 'LGTM'
 expect_doc_keywords recheck-template-required "$OUTPUT_TEMPLATES" '前回の必須指摘が解消' '任意指摘' '未解消'
+expect_doc_keywords recheck-no-findings-template "$OUTPUT_TEMPLATES" 'インライン指摘は 0 件' 'スレッド 0 件'
+expect_doc_keywords recheck-no-findings-placeholders "$OUTPUT_TEMPLATES" '{前回レビューの review_id}' '{前回レビューの commit}'
+expect_doc_keywords recheck-empty-snapshot-contract "$RECHECK_REFERENCE" 'スレッド 0 件' '`prior_review_id`'
 expect_doc_contains candidate-section "$OUTPUT_TEMPLATES" '## 別 Issue 候補'
 expect_doc_keywords recheck-baseline "$RECHECK_REFERENCE" 'reviews.read' 'commit_id' '投稿日時'
 expect_doc_keywords recheck-diff "$RECHECK_REFERENCE" 'git merge-base --is-ancestor' 'git diff' '差分が空'

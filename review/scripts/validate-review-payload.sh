@@ -43,7 +43,7 @@ if grep -Eq '\((Optional|Required)\)|（(任意|必須)）' <<<"$texts"; then
   fail "severity labels must not include requirement supplements"
 fi
 
-if grep -Eq '\{(Blocker\|Nit\|Consider\|FYI|問題と根拠|発生条件と影響|必要な場合だけ修正案|件数|解消を確認できた根拠|元のラベル|残っている条件と影響|判定できない理由|full SHA|n|意味で要約した確認範囲|確認範囲の要約|適用した互換・移行要件または明示要件なしの前提|今回と無関係な理由)\}' <<<"$texts"; then
+if grep -Eq '\{(Blocker\|Nit\|Consider\|FYI|問題と根拠|発生条件と影響|必要な場合だけ修正案|件数|解消を確認できた根拠|元のラベル|残っている条件と影響|判定できない理由|full SHA|n|意味で要約した確認範囲|確認範囲の要約|適用した互換・移行要件または明示要件なしの前提|前回レビューの review_id|前回レビューの commit|今回と無関係な理由)\}' <<<"$texts"; then
   fail "body contains an unresolved template variable"
 fi
 
