@@ -1,9 +1,9 @@
-# Tester role
+# ui-tester role
 
-Record formats for the optional `tester` role: the body it receives, the
+Record formats for the optional `ui-tester` role: the body it receives, the
 return it writes, and the environment separation values it uses. The rules are
 in [Team specification](../SKILL.md#team-specification) and
-[Tester verification](../SKILL.md#tester-verification); this file fixes shapes
+[ui-tester verification](../SKILL.md#ui-tester-verification); this file fixes shapes
 only and adds no rule or condition of its own.
 
 ## Delegation body
@@ -30,14 +30,14 @@ reason: <required for unverified>
 
 After a fix push, the same block is used for the re-verified items; the
 re-verification scope is fixed in
-[Tester verification](../SKILL.md#tester-verification). Per-item findings stay
+[ui-tester verification](../SKILL.md#ui-tester-verification). Per-item findings stay
 in the report for the orchestrator's triage, and the mandatory-check rule for
 `completed` is the one that applies to every role
 ([Delegation contract](../SKILL.md#delegation-contract)).
 
 ## Environment separation
 
-Take the values from the target repository's conventions. Keep the tester's
+Take the values from the target repository's conventions. Keep the ui-tester's
 state away from the implementation agent's state:
 
 | State | Variable | Note |
