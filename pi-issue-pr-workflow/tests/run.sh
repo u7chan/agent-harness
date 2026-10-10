@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Hermetic tests for the model-spec classification helper. These tests do not
-# require pi: they import the pure module directly and drive the wrapper only
-# with an unresolved pi package root.
+# Hermetic tests for the pi-issue-pr-workflow helpers. These tests do not
+# require pi and do not touch the network: the model-spec classification module
+# is imported directly, the wrapper is driven only with an unresolved pi
+# package root, and tests/team-record.sh replaces the model-spec resolver with a
+# stub through --resolver while it exercises the approved-team-record helper.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MODULE="$SKILL_DIR/scripts/lib/model-spec.mjs"
 HELPER="$SKILL_DIR/scripts/resolve-model-spec.sh"
+TEAM_RECORD_TEST="$SCRIPT_DIR/team-record.sh"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/model-spec-test-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -149,6 +152,15 @@ out="$("$HELPER" --provider opencode-go --model deepseek-v4.1-flash \
   --thinking "$(printf 'max\012extra')" 2>"$WORK/newline-thinking.err")"
 rc=$?
 check_unknown_record "newline thinking" "$rc" "$out"
+
+# The approved-team-record helper has its own hermetic suite; it runs here so
+# the existing CI job covers it without a new step.
+printf '\n== team-record helper ==\n'
+if "$TEAM_RECORD_TEST"; then
+  ok "team-record helper tests"
+else
+  ng "team-record helper tests" "see the failing cases above"
+fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

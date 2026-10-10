@@ -15,7 +15,7 @@ Load and follow the existing skills instead of duplicating their behavior:
 - [GH](../gh/SKILL.md) for every GitHub read and write.
 - [Review](../review/SKILL.md) for full PR reviews, rechecks, and the conversation-resolution policy.
 
-Those skills are authoritative for their safety and operation rules. Keep all agents in the current Herdr workspace and worktree. Do not add a workflow runtime, persistent state, or a static provider/model catalog.
+Those skills are authoritative for their safety and operation rules. Keep all agents in the current Herdr workspace and worktree. Do not add a workflow runtime, persistent state, or a static provider/model catalog. The persistent state this rules out is the process state of a run, such as the current phase, the review round, the reviewed head, and unresolved Blockers. The [approved team record](#approved-team-record) is the one exception, because the Issue requires it: it holds the last approved team specification only, never the process state of a run.
 
 ## Preflight
 
@@ -54,9 +54,49 @@ pi-issue-pr-workflow/scripts/resolve-model-spec.sh \
 
 It prints one key=value line with `provider`, `model`, `requested`, `supported`, `effective`, `result`, and `thinking_level_map`, and exits nonzero unless `result=ok`. Only `result=ok` (the effective level equals the requested level) resolves the specification; every other result is unresolved, so stop instead of silently choosing a Pi default, accepting a clamped level, maintaining aliases, or inferring an unavailable ID. Treat a partial, invalid, ambiguous, unsupported, or clamped specification as unresolved.
 
+## Approved team record
+
+A team the user approved is recorded outside the repository, so a later kickoff for the same repository can reuse it instead of asking for the same approval again. The record is a user asset and is never part of the skill distribution:
+
+- Path: `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow/teams/<key>.json`.
+- Key: `<owner>__<repo>` from `origin`, or the repository root path when the remote does not name exactly `owner/repo`.
+- Content: `{"version": 1, "pr_fix_shared_with_impl": <boolean>, "roles": {"impl": {...}, "review": {...}, "pr-fix": {...} [,"tester": {...}]}}`, where each role holds `provider`, `model`, and `thinking`.
+- Write: atomically (temporary file plus rename) with mode `0600`.
+
+The reader ignores unknown keys, so roles added later do not break it. A role key follows this skill's role names: a record written under another name does not resolve that role, and the run returns to the proposal path. An unknown `version`, a missing role, a missing `pr_fix_shared_with_impl`, or a shared flag whose `pr-fix` differs from `impl` all make the record unresolvable.
+
+Read and write it with the helper:
+
+```bash
+# Reuse check: every recorded role is re-resolved through the model-spec helper,
+# and only result=ok may be reused.
+pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root> \
+  [--require-role <role>]
+
+# After the team is settled, record the settled specification.
+pi-issue-pr-workflow/scripts/team-record.sh write --repo-root <repository root> \
+  --pr-fix-shared-with-impl <true|false> \
+  --role impl=<provider>/<model>/<thinking> --role review=<provider>/<model>/<thinking> \
+  --role pr-fix=<provider>/<model>/<thinking> [--role tester=<provider>/<model>/<thinking>]
+```
+
+`resolve` prints one key=value line with `record`, `present`, `result` (`ok`, `missing`, `invalid`, or `unresolved`), `pr_fix_shared_with_impl`, and one field per recorded role; an `invalid` result adds a `reason`, and an `unresolved` one names the failing `unresolved` role and its `unresolved_result`. `--require-role <role>` adds a role this run needs: when the record does not provide it, the result is `unresolved` instead of a silently omitted role. `write` prints one line and rejects every specification it cannot resolve, so the record only ever holds specifications that resolved at write time.
+
 ## Kickoff gate
 
 If any role assignment, agent specification, target PR determination, or ui-tester task is unresolved, inspect the Issue and relevant repository context, then propose the complete team before continuing. Preserve every valid value the user supplied.
+
+Reuse the [approved team record](#approved-team-record) before proposing:
+
+1. Resolve it with `pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root>`, adding `--require-role tester` when the user asks for a tester in this run.
+2. Skip the table and the approval wait only when all of these hold: `result=ok`; this run supplies no explicit provider, model, or thinking value; the target PR is determined; and no tester task is unresolved. Print exactly one line and continue to [Start the team](#start-the-team):
+
+   ```text
+   前回承認編成を使用: impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [tester=<provider>/<model>/<thinking>]
+   ```
+
+   A record that includes a tester carries no tester task: reuse needs the task supplied in this run, and otherwise the default-task proposal below applies.
+3. Otherwise propose the complete team as described in this section and wait for approval, keeping every rule below unchanged.
 
 Use a table containing:
 
@@ -82,6 +122,8 @@ State the close keyword decision in the same proposal, because GitHub interprets
 When the specification includes a `ui-tester` whose task is unspecified, propose the default task in the same proposal: E2E verification of the Issue's user-visible surface through the Playwright skill, or, when the Playwright skill is unavailable, the target application's existing tests plus a smoke check as a substitute unresolved item for this approval. A task supplied with the `ui-tester` is preserved as-is and is not replaced by the default. The `ui-tester`'s task is written into the delegation body and does not add a column to the team table.
 
 Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. Only when all assignments are complete and valid, the target PR is determined, and no ui-tester task waits on the default proposal, summarize the resolved team and proceed without an additional approval round.
+
+Once the team is settled, write it to the [approved team record](#approved-team-record) with `team-record.sh write` using exactly the settled values. A value supplied in this run wins over the record: never silently keep a recorded value the user overrode, and never write a value that does not resolve. When the user asks to see the team (`編成見せて`), print the table from the `resolve` output without waiting for approval; displaying the record is not an approval and does not change it.
 
 ## Start the team
 
@@ -116,7 +158,7 @@ Each role must return `completed` or `blocked` through the direct-parent result 
 
 `completed` requires every verification mandated by the Issue and repository instructions to have run and succeeded. A failed, skipped, or unavailable required check must return `blocked` with its command and result; never advance merely because verification finished.
 
-Track the Issue, team assignments and pane IDs, base and work branches, current phase, PR, reviewed head, review round, and unresolved Blockers only in the current conversation. Do not write workflow state to disk.
+Track the Issue, team assignments and pane IDs, base and work branches, current phase, PR, reviewed head, review round, and unresolved Blockers only in the current conversation. Do not write this process state to disk; the [approved team record](#approved-team-record) holds the last approved team specification only.
 
 ### Implementation
 
@@ -192,4 +234,4 @@ Complete only when all of the following are confirmed:
 
 Conversation resolution follows the Review skill's Resolve policy, which is canonical in its recheck reference (`references/recheck.md`). Outside this workflow it remains explicit instruction only. Within the fix → recheck loop, auto-resolve is delegated: the recheck carries the workflow's auto-resolve designation, and after a verified LGTM the threads it classified `Resolved` are resolved by the reviewer or, on handoff, by the orchestrator using the reported verified target set, each confirmed by a `review-threads.read` re-check of `resolved=true` with the reply confirmation and lightweight checks that recheck.md defines. Every thread the latest recheck did not classify `Resolved` remains open. A verified LGTM never auto-resolves a thread by itself. Do not automatically mark the PR ready, close panes, merge the PR, or close the Issue.
 
-Report the Issue, the target PR position (`対象 PR: 1/2` or `対象 PR: single`, with the base branch difference when the PR is stacked), base and work branches, Draft PR, latest commit, verification, review round count, separate Issue candidates if any, unresolved optional feedback or conversations, and every created pane's role and observed state. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup.
+Report the Issue, the origin of the used team specification (the [approved team record](#approved-team-record) or this run's approval), the target PR position (`対象 PR: 1/2` or `対象 PR: single`, with the base branch difference when the PR is stacked), base and work branches, Draft PR, latest commit, verification, review round count, separate Issue candidates if any, unresolved optional feedback or conversations, and every created pane's role and observed state. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup.
