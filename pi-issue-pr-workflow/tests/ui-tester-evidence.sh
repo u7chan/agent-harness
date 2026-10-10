@@ -87,6 +87,49 @@ check_contains "the orchestrator checks sizes before posting" "$ROLE_TEXT" \
 check_contains "SKILL.md defers to the evidence contract" "$SKILL_TEXT" \
   'references/ui-tester-role.md#evidence'
 
+# --- evidence posting ------------------------------------------------------
+
+# The comment shape the orchestrator builds from the return: the marker keys
+# the head, images carry alt text, videos stay standalone, and every
+# attachment is referenced so the post-write check stays decidable.
+check_contains "the marker carries the full head SHA" "$ROLE_TEXT" \
+  '<!-- pi-issue-pr-workflow:ui-evidence head=<head SHA> -->'
+check_contains "the orchestrator posts the returned artifacts" "$ROLE_TEXT" \
+  'The orchestrator posts the returned artifacts'
+check_contains "the evidence never goes into the PR body" "$ROLE_TEXT" \
+  'never into the'
+check_contains "one comment carries one head" "$ROLE_TEXT" \
+  'One comment carries one head'
+check_contains "images are inline references with alt text" "$ROLE_TEXT" \
+  'an image is an inline reference with its alt text'
+check_contains "videos render as standalone players" "$ROLE_TEXT" \
+  'a video is a standalone paragraph'
+check_contains "every attachment is referenced" "$ROLE_TEXT" \
+  'every attachment is referenced'
+check_contains "comments.update cannot add attachments" "$ROLE_TEXT" \
+  'because `comments.update` cannot add attachments'
+
+# The orchestrator's posting procedure: one comment per head, an explicit
+# grant, a pre-post existence and size check, and no guessing on failures.
+check_contains "the orchestrator posts the returned evidence" "$SKILL_TEXT" \
+  'Post the evidence the return carries'
+check_contains "posting uses comments.create" "$SKILL_TEXT" 'comments.create'
+check_contains "posting carries an explicit grant" "$SKILL_TEXT" 'explicit `grant`'
+check_contains "a same-head comment is reused only when covered" "$SKILL_TEXT" \
+  'already names every item this return passes'
+check_contains "a fix push posts a new comment" "$SKILL_TEXT" \
+  'A fix push moves the head'
+check_contains "artifacts are checked before posting" "$SKILL_TEXT" \
+  'Before posting, check every artifact exists'
+check_contains "ATTACH_UNSUPPORTED is a pre-write error" "$SKILL_TEXT" \
+  '`ATTACH_UNSUPPORTED`'
+check_contains "unknown_outcome is not guessed" "$SKILL_TEXT" \
+  'Treat `unknown_outcome` as unknown'
+check_contains "completion requires the attached evidence" "$SKILL_TEXT" \
+  'has its evidence attached in that head'
+check_contains "completion never ignores a passed item" "$SKILL_TEXT" \
+  'Never report completion while an item the return passed has no attached evidence'
+
 # --- dependencies ----------------------------------------------------------
 
 # ffmpeg stays optional: it is not a prerequisite command of this repository.

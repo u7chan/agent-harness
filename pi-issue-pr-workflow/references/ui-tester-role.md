@@ -4,8 +4,8 @@ Record formats for the optional `ui-tester` role, the rules that decide
 whether it joins a run, and the environment separation values it uses. The
 role rules are in [Team specification](../SKILL.md#team-specification) and
 [ui-tester verification](../SKILL.md#ui-tester-verification); this file owns
-the participation decision, the default task, the evidence contract, and the
-one-line report forms.
+the participation decision, the default task, the evidence contract, its
+posting shape, and the one-line report forms.
 
 ## Participation
 
@@ -71,6 +71,45 @@ items, and posting belongs to the orchestrator
   return instead of handing over a file over the limit.
 
 The orchestrator checks the size of every artifact before it posts one.
+
+## Evidence posting
+
+The orchestrator posts the returned artifacts to a PR comment, never into the
+PR body; this section fixes the comment shape it builds from the return.
+
+The first line is the marker that identifies the head, with the full SHA:
+
+```text
+<!-- pi-issue-pr-workflow:ui-evidence head=<head SHA> -->
+```
+
+The body then names every item the return passed and references each artifact
+next to the item it proves, using the artifact's absolute path exactly as the
+return gives it:
+
+- an image is an inline reference with its alt text,
+  `![<what it shows>](<absolute path>)`, and the same path goes into
+  `attachments` as `<absolute path>#<what it shows>`;
+- a video is a standalone paragraph `![](<absolute path>)` so it renders as a
+  player, with the return's timeline below it, because a video has no alt
+  text;
+- every attachment is referenced: a file the body does not reference is
+  appended by the gh CLI and makes the post-write check undecidable.
+
+One comment carries one head. The same head reuses its comment only when the
+body already names every item the new return passes; a missing item means a
+new comment, because `comments.update` cannot add attachments.
+
+```text
+<!-- pi-issue-pr-workflow:ui-evidence head=<head SHA> -->
+
+- <item>: ![<what it shows>](<absolute path>)
+- <item>: <description>
+
+![](<absolute path to the video>)
+
+<timeline from the return>
+```
 
 ## Draft PR re-judgment
 
