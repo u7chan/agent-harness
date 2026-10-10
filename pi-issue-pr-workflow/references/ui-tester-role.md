@@ -4,7 +4,8 @@ Record formats for the optional `ui-tester` role, the rules that decide
 whether it joins a run, and the environment separation values it uses. The
 role rules are in [Team specification](../SKILL.md#team-specification) and
 [ui-tester verification](../SKILL.md#ui-tester-verification); this file owns
-the participation decision, the default task, and the one-line report forms.
+the participation decision, the default task, the evidence contract, and the
+one-line report forms.
 
 ## Participation
 
@@ -45,6 +46,32 @@ Playwright skill. It is the task whenever this run supplies no other one, so it
 never waits for approval; a task this run supplies is preserved as-is and is
 never replaced by the default.
 
+## Evidence
+
+The evidence proves the acceptance surface the task names, and the orchestrator
+posts it to the PR comment. The `ui-tester` never posts it and never comments
+on GitHub itself: it returns the files and their mapping to the verification
+items, and posting belongs to the orchestrator
+([ui-tester verification](../SKILL.md#ui-tester-verification)).
+
+- Default to screenshots: the smallest count that proves the surface — the
+  before and after states, or the completed state.
+- Record a video only for a claim that lives in time (an animation, a drag, a
+  multi-step flow). The format is WebM, the playwright-cli default.
+- Never produce a GIF and never add text overlays with ffmpeg drawtext.
+  Explain a video in the PR comment instead, by returning a short timeline with
+  clip times (`0:00-0:05 <step> / 0:05-0:12 <step>`).
+- Keep every artifact under `PW_ARTIFACT_DIR` and name it after its content,
+  because a post needs the body reference and the attachment path to be the
+  same literal string, and a video has no alt text.
+- The attachment size limit is 10 MB. A larger video is re-encoded with ffmpeg
+  by adjusting resolution and CRF until it fits; ffmpeg is optional and is not
+  a repository dependency. When it is unavailable or the re-encoded video is
+  still over 10 MB, fall back to screenshots and record the fallback in the
+  return instead of handing over a file over the limit.
+
+The orchestrator checks the size of every artifact before it posts one.
+
 ## Draft PR re-judgment
 
 After the Draft PR exists and before delegating, re-decide participation from
@@ -75,20 +102,34 @@ The body uses the delegation contract that applies to every role and records:
 - the task set at the Kickoff gate (this run's task, or the default);
 - the target PR and its head SHA;
 - the scope the task names (the user-visible surface for a default E2E task);
+- the [evidence](#evidence) contract: the artifacts to return, their location
+  under `PW_ARTIFACT_DIR`, the 10 MB limit, and the video conditions;
 - the environment separation block below;
-- the expected return: one line per verification item.
+- the expected return: one line per verification item, each with its artifact
+  lines.
 
 ## Return report
 
-The return states the head SHA and one line per item:
+The return states the head SHA and one line per item; every artifact line
+belongs to the item above it, so the item-to-artifact mapping is positional:
 
 ```text
 item: <verification item>
 head: <head SHA>
 result: pass | fail | unverified
 evidence: <command or observation>
+artifact: <absolute path> | <media type> | <bytes> | screenshot | video
+timeline: <start>-<end> <step> / <start>-<end> <step>
 reason: <required for unverified>
+fallback: video -> screenshots; <reason>
 ```
+
+- `artifact:` repeats once per file and is required for every item whose
+  acceptance surface is visual.
+- `timeline:` is optional, video-only, and written for the orchestrator to
+  quote in the PR comment.
+- `fallback:` is optional and records evidence that was replaced, such as a
+  video over the 10 MB limit.
 
 After a fix push, the same block is used for the re-verified items; the
 re-verification scope is fixed in
