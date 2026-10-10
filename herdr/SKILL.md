@@ -46,7 +46,7 @@ Select a candidate only when exactly one pane satisfies the explicitly stated co
 
 ### Spatial neighbors
 
-For 左, 右, 上, 下, ask exactly the requested direction:
+For "左", "右", "上", "下", ask exactly the requested direction:
 
 ```bash
 herdr pane neighbor \
