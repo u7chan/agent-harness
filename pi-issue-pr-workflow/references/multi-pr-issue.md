@@ -20,7 +20,9 @@ branch, and ② starts only after ①'s PR exists. In the example both PRs keep 
 non-closing reference, so ①'s merge cannot close the Issue before ② lands.
 
 Each run writes its own kickoff and report; the Issue is completed by the
-sequence of runs, not by one run.
+sequence of runs, not by one run. A later run can keep the previous run's role
+panes and compact them for its own tasks; that procedure is in
+[Sequential runs](sequential-runs.md).
 
 ## Per-run completion report
 

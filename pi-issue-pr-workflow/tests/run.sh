@@ -15,6 +15,7 @@ HELPER="$SKILL_DIR/scripts/resolve-model-spec.sh"
 TEAM_RECORD_TEST="$SCRIPT_DIR/team-record.sh"
 UI_TESTER_EVIDENCE_TEST="$SCRIPT_DIR/ui-tester-evidence.sh"
 FIXED_LINES_TEST="$SCRIPT_DIR/fixed-lines.sh"
+SEQUENTIAL_RUNS_TEST="$SCRIPT_DIR/sequential-runs.sh"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/model-spec-test-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -182,6 +183,15 @@ if "$FIXED_LINES_TEST"; then
   ok "fixed line tests"
 else
   ng "fixed line tests" "see the failing cases above"
+fi
+
+# The sequential-run pane reuse contract is a documentation contract; it runs
+# here for the same reason.
+printf '\n== sequential runs contract ==\n'
+if "$SEQUENTIAL_RUNS_TEST"; then
+  ok "sequential runs contract tests"
+else
+  ng "sequential runs contract tests" "see the failing cases above"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
