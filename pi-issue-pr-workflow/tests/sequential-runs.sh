@@ -76,6 +76,8 @@ check_contains "a failed compaction adds an error line" "$REFERENCE_TEXT" \
   'Compaction failed: <reason>'
 check_contains "the indicator line is not the completion test" "$REFERENCE_TEXT" \
   'never judge the outcome by searching'
+check_contains "completion compares against the pre-send read" "$REFERENCE_TEXT" \
+  'that read did not have'
 check_contains "agent_status is never a completion signal" "$REFERENCE_TEXT" \
   'never a completion signal'
 check_contains "reuse covers panes from an earlier run" "$REFERENCE_TEXT" \

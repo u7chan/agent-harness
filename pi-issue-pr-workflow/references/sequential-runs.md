@@ -56,18 +56,21 @@ before this run's first task reaches it:
    command ends by adding one result line to the pane: on success
    `Compacted from <N> tokens`, on failure `Compaction failed: <reason>`.
    `herdr agent get` reports `agent_status: idle` throughout the compaction,
-   so the status is never a completion signal.
+   so the status is never a completion signal. A result line the pane already
+   showed before the command is not its outcome: a reused pane can still show
+   an earlier compaction's line.
 
-3. Re-read the pane in short bounded steps until it shows this command's result
-   line, and send the next task only then. Never send a task, a return, or any
-   other command while the compaction is running, and do not hold the
-   orchestrator pane with long `sleep`-based polling
+3. Base the judgment on a read taken before the command: re-read the pane in
+   short bounded steps until it shows a result line that read did not have, and
+   send the next task only then. Never send a task, a return, or any other
+   command while the compaction is running, and do not hold the orchestrator
+   pane with long `sleep`-based polling
    ([Async delegation](../../herdr/SKILL.md#async-delegation)).
 
 The transient indicator line `Compacting context... (escape to cancel)` shows
 while the compaction runs, but never judge the outcome by searching the pane
 for it: the pane's own transcript can contain the same phrase for unrelated
-reasons. The result line is the authority.
+reasons. The result line the command adds is the authority.
 
 A compaction that fails, reported by a `Compaction failed: <reason>` line,
 fails the reuse: the pane receives no task for this run and a new pane is
