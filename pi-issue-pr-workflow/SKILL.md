@@ -117,7 +117,7 @@ Assign `pr-fix` to `impl` by default. Propose a distinct fixer only when there i
 
 Determine the target PR for this run from the Issue body and the repository conventions, and state it in the proposal:
 
-- When they describe a multi-PR plan (for example an infrastructure PR ① and a UI PR ② built on ①'s branch), state the PR this run produces as `対象 PR: <position>/<total>` (for example `対象 PR: 1/2`). Each run produces exactly one PR; a multi-PR Issue is completed by sequential runs.
+- When they describe a multi-PR plan (for example an infrastructure PR ① and a UI PR ② built on ①'s branch), state the PR this run produces as `対象 PR: <position>/<total>` (for example `対象 PR: 1/2`). Each run produces exactly one PR; a multi-PR Issue is completed by sequential runs, whose later runs reuse the previous run's role panes ([Sequential runs](references/sequential-runs.md)).
 - Otherwise state `対象 PR: single`.
 - If a plan exists but this run's position cannot be determined, do not guess: keep the target unresolved in this proposal and wait for the existing approval instead of adding a separate stop or approval loop.
 
@@ -135,28 +135,31 @@ After the team is settled:
 
 1. Determine the base branch from the current repository context and its instructions.
 2. Create the dedicated work branch required by those instructions. Use an existing work branch only when the user explicitly selected it. Do not push directly to a protected base branch.
-3. Obtain one shell pane for each physical agent with the Herdr layout planner, which keeps the team in one planned grid and returns the created pane IDs in cell order:
+3. Decide per joining role whether this run reuses the pane this orchestrator has used for that role since an earlier run of the same Issue. Reuse it only under every condition in [Sequential runs](references/sequential-runs.md); when a condition fails or cannot be checked, treat the role as needing a new pane. This decision uses the current conversation only.
+4. Obtain one shell pane for each physical agent that needs one with the Herdr layout planner, which keeps the new panes in one planned grid and returns the created pane IDs in cell order:
 
    ```bash
-   herdr/scripts/pane-layout.sh apply --count <physical agents> --label <team label>
+   herdr/scripts/pane-layout.sh apply --count <new physical agents> --label <team label>
    ```
-4. Start every selected agent with the validated values:
+
+   The count is the new panes only, never the reused ones, and it is never 0: when every joining role is reused, this step creates nothing and the planner is not called. A single new pane cannot use the planner, whose minimum count is 2: split it from the orchestrator pane with the Herdr skill's single-pane rules instead.
+5. Start an agent in every new pane with the validated values:
 
    ```bash
    herdr agent start <name> --kind pi --pane <pane-id> -- \
      --provider <provider> --model <model> --thinking <thinking>
    ```
 
-5. Apply responsibility-based agent names and pane labels.
-6. Inspect each started Pi pane's runtime status and verify that its effective provider, model, and thinking level exactly match the approved specification before sending work. If any value differs or cannot be verified, stop.
+6. Apply responsibility-based agent names and pane labels to the new panes; a reused pane keeps the name and label it already carries.
+7. Inspect each started Pi pane's runtime status and verify that its effective provider, model, and thinking level exactly match the approved specification before sending work. If any value differs or cannot be verified, stop.
 
-Start only the roles that joined: the `impl` agent (which carries `pr-fix` unless it is separate) and the `review` agent always, plus a `ui-tester` when the participation decision includes one. Pass that physical agent count to `pane-layout.sh apply --count <physical agents>`: two for a shared `impl`/`pr-fix` team, three when either `pr-fix` is separate or the `ui-tester` joins the shared team, and four when both. The planner keeps the team in one planned grid and creates a new labelled tab when the plan does not fit the caller's pane ([pane layout](../herdr/references/pane-layout.md#tab-policy)); a four-agent team can therefore open a new tab instead of staying in the current one. If any startup result is failed or unknown, do not start implementation and do not automatically close the panes that were created. Report the observed state.
+Start only the roles that joined: the `impl` agent (which carries `pr-fix` unless it is separate) and the `review` agent always, plus a `ui-tester` when the participation decision includes one. Pass the number of new panes to `pane-layout.sh apply --count <new physical agents>`, never the whole team count: a run without reuse passes the same count as before — two for a shared `impl`/`pr-fix` team, three when either `pr-fix` is separate or the `ui-tester` joins the shared team, and four when both — and a partial reuse lowers it, down to none when every role is reused. The planner keeps the new panes in one planned grid and creates a new labelled tab when the plan does not fit the caller's pane ([pane layout](../herdr/references/pane-layout.md#tab-policy)); a four-pane team can therefore open a new tab instead of staying in the current one. If any startup result is failed or unknown, do not start implementation and do not automatically close the panes that were created. Report the observed state.
 
-Only `impl` receives a task at kickoff. Leave `review` and a separate `pr-fix` idle until their phases. `ui-tester` stays idle until the Draft PR as well.
+Only `impl` receives a task at kickoff. Leave `review` and a separate `pr-fix` idle until their phases. `ui-tester` stays idle until the Draft PR as well. Compact every reused pane before this run's first delegation to it ([Sequential runs](references/sequential-runs.md)); compaction is a TUI command, not a task, so it does not change which role receives work when.
 
 ## Delegation contract
 
-Use the Herdr skill's asynchronous parent-to-child wrapper for each task. Include the role, Issue, base and work branches, current PR when available, repository instructions, phase-specific scope, and expected report. Never assume that agents share conversation context merely because they share a worktree.
+Use the Herdr skill's asynchronous parent-to-child wrapper for each task. Include the role, Issue, base and work branches, current PR when available, repository instructions, phase-specific scope, and expected report. Never assume that agents share conversation context merely because they share a worktree, and never because a pane is reused: compaction does not carry the previous run's facts, so the task text does ([Sequential runs](references/sequential-runs.md)).
 
 Each role must return `completed` or `blocked` through the direct-parent result helper. Its report must identify the work performed, verification, relevant commit or PR, and any unresolved condition. A submitted prompt is not proof of completion; inspect agent state and output before advancing. Await returns without blocking the orchestrator pane: a return is queued while the pane is executing tool calls, so do not hold the pane in long foreground commands such as `sleep`-based polling (see the Herdr skill's async delegation rules).
 
