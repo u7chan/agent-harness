@@ -1174,21 +1174,85 @@ pane_layout_apply_stops_on_mismatch() {
   [ "$(grep -c '^pane split ' "$HERDR_TEST_LAYOUT_CALLS")" -eq 1 ]
 }
 
+# GitHub-compatible heading slugs.  Headings in this repository are ASCII, so
+# LC_ALL=C keeps the character class deterministic across environments.  The
+# rules match GitHub's anchor generation closely enough for this check:
+# lowercase, drop characters outside \w, hyphen and space, then space to
+# hyphen.  Markdown markup that renders to plain text is unwrapped first.
+markdown_slugs() {
+  local file="$1"
+  LC_ALL=C sed -E \
+    -e '/^#{1,6}[[:space:]]/!d' \
+    -e 's/^#{1,6}[[:space:]]+//' \
+    -e 's/[[:space:]]+#+[[:space:]]*$//' \
+    -e 's/[[:space:]]+$//' \
+    -e 's/<[^>]*>//g' \
+    -e 's/\[([^]]*)\]\([^)]*\)/\1/g' \
+    -e 's/\[([^]]*)\]\[[^]]*\]/\1/g' \
+    -e 's/[*`]//g' \
+    "$file" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed -E \
+    -e 's/[^a-z0-9 _-]//g' \
+    -e 's/ /-/g'
+}
+
+# Emit the slugs of one file, suffixing duplicates with -1, -2, ... like
+# GitHub does.  A space-separated list keeps this free of bash 4 features.
+markdown_anchors() {
+  local file="$1" slug base suffix seen=""
+  while IFS= read -r slug; do
+    base="$slug"
+    suffix=0
+    while [[ " $seen " == *" $slug "* ]]; do
+      suffix=$((suffix + 1))
+      slug="$base-$suffix"
+    done
+    seen="$seen $slug"
+    printf '%s\n' "$slug"
+  done < <(markdown_slugs "$file")
+}
+
+markdown_anchor_exists() {
+  local file="$1" wanted="$2" slug
+  while IFS= read -r slug; do
+    [ "$slug" = "$wanted" ] && return 0
+  done < <(markdown_anchors "$file")
+  return 1
+}
+
+# Resolve every relative link in one skill directory: file-only links by
+# existence, links with a fragment against the target file's heading slugs,
+# and same-file anchors against the linking file.  The optional root argument
+# exists for the negative tests; production calls use $HERDR_DIR.
 markdown_links_resolve() {
-  local file link target dir checked=0
-  for file in "$HERDR_DIR"/*.md "$HERDR_DIR"/references/*.md; do
+  local root="${1:-$HERDR_DIR}"
+  local file link target fragment target_file dir checked=0
+  for file in "$root"/*.md "$root"/references/*.md; do
     dir="$(dirname "$file")"
     while IFS= read -r link; do
       case "$link" in
-        http://*|https://*|mailto:*|'#'*) continue ;;
+        http://*|https://*|mailto:*) continue ;;
       esac
       target="${link%%#*}"
+      fragment=""
+      case "$link" in
+        *'#'*) fragment="${link#*#}" ;;
+      esac
       target="${target%%[[:space:]]*}"
       target="${target#<}"
       target="${target%>}"
-      [ -n "$target" ] || continue
-      if [ ! -f "$dir/$target" ]; then
-        printf 'FAIL: %s: relative link does not resolve: %s\n' "$file" "$link" >&2
+      fragment="${fragment%%[[:space:]]*}"
+      [ -n "$target$fragment" ] || continue
+      if [ -n "$target" ]; then
+        target_file="$dir/$target"
+        if [ ! -f "$target_file" ]; then
+          printf 'FAIL: %s: relative link does not resolve: %s\n' "$file" "$link" >&2
+          return 1
+        fi
+      else
+        target_file="$file"
+      fi
+      if [ -n "$fragment" ] && ! markdown_anchor_exists "$target_file" "$fragment"; then
+        printf 'FAIL: %s: anchor does not resolve: %s\n' "$file" "$link" >&2
         return 1
       fi
       checked=$((checked + 1))
@@ -1198,13 +1262,81 @@ markdown_links_resolve() {
   [ "$checked" -gt 0 ]
 }
 
+# A copy of the skill markdown plus the one other-skill file that herdr/SKILL.md
+# links to.  The negative tests mutate a link here so the real tree stays clean.
+MARKDOWN_FIXTURE_ROOT="$TEST_TMP/markdown-fixture"
+
+setup_markdown_fixture() {
+  rm -rf "$MARKDOWN_FIXTURE_ROOT"
+  mkdir -p "$MARKDOWN_FIXTURE_ROOT/herdr/references" "$MARKDOWN_FIXTURE_ROOT/pi-issue-pr-workflow"
+  cp "$HERDR_DIR/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/herdr/SKILL.md"
+  cp "$HERDR_DIR"/references/*.md "$MARKDOWN_FIXTURE_ROOT/herdr/references/"
+  cp "$HERDR_DIR/../pi-issue-pr-workflow/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/pi-issue-pr-workflow/SKILL.md"
+}
+
+replace_in_file() {
+  local file="$1"
+  sed "$2" "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+}
+
+expect_markdown_failure() {
+  local root="$1" pattern="$2" output status
+  set +e
+  output="$(markdown_links_resolve "$root" 2>&1)"
+  status=$?
+  set -e
+  [ "$status" -ne 0 ] || {
+    printf 'expected the markdown link check to fail for %s\n' "$root" >&2
+    return 1
+  }
+  case "$output" in
+    *"$pattern"*) ;;
+    *)
+      printf 'expected %s, got: %s\n' "$pattern" "$output" >&2
+      return 1
+      ;;
+  esac
+}
+
+markdown_missing_file_is_rejected() {
+  setup_markdown_fixture
+  markdown_links_resolve "$MARKDOWN_FIXTURE_ROOT/herdr" || return 1
+  replace_in_file "$MARKDOWN_FIXTURE_ROOT/herdr/SKILL.md" \
+    's|references/worktree-workspace-teams\.md#orchestrator-first|references/worktree-workspace-teams-missing.md#orchestrator-first|'
+  expect_markdown_failure "$MARKDOWN_FIXTURE_ROOT/herdr" 'relative link does not resolve'
+}
+
+markdown_same_file_anchor_is_checked() {
+  setup_markdown_fixture
+  markdown_links_resolve "$MARKDOWN_FIXTURE_ROOT/herdr" || return 1
+  replace_in_file "$MARKDOWN_FIXTURE_ROOT/herdr/SKILL.md" 's|](#worktree-workspaces)|](#worktree-workspaces-missing)|'
+  expect_markdown_failure "$MARKDOWN_FIXTURE_ROOT/herdr" 'anchor does not resolve'
+}
+
+markdown_file_anchor_is_checked() {
+  setup_markdown_fixture
+  markdown_links_resolve "$MARKDOWN_FIXTURE_ROOT/herdr" || return 1
+  replace_in_file "$MARKDOWN_FIXTURE_ROOT/herdr/SKILL.md" \
+    's|references/worktree-workspace-teams\.md#orchestrator-first|references/worktree-workspace-teams.md#orchestrator-first-missing|'
+  expect_markdown_failure "$MARKDOWN_FIXTURE_ROOT/herdr" 'anchor does not resolve'
+}
+
+markdown_cross_skill_anchor_is_checked() {
+  setup_markdown_fixture
+  markdown_links_resolve "$MARKDOWN_FIXTURE_ROOT/herdr" || return 1
+  replace_in_file "$MARKDOWN_FIXTURE_ROOT/herdr/SKILL.md" \
+    's|\.\./pi-issue-pr-workflow/SKILL\.md#completion|\.\./pi-issue-pr-workflow/SKILL.md#completion-missing|'
+  expect_markdown_failure "$MARKDOWN_FIXTURE_ROOT/herdr" 'anchor does not resolve'
+}
+
+
 run_test() {
   local test_name="$1"
   "$test_name"
   pass "$test_name"
 }
 
-expected_count=28
+expected_count=32
 
 run_test parent_success
 run_test child_success
@@ -1234,6 +1366,10 @@ run_test pane_layout_apply_current_tab
 run_test pane_layout_apply_new_tabs
 run_test pane_layout_apply_stops_on_mismatch
 run_test markdown_links_resolve
+run_test markdown_missing_file_is_rejected
+run_test markdown_same_file_anchor_is_checked
+run_test markdown_file_anchor_is_checked
+run_test markdown_cross_skill_anchor_is_checked
 
 [ "$pass_count" -eq "$expected_count" ] || {
   printf 'FAIL: expected %s tests, got %s\n' "$expected_count" "$pass_count" >&2
