@@ -594,6 +594,27 @@ grants_allow_undecidable_edges() {
   HERDR_TEST_RC=0 "$PARENT_SCRIPT" wD:p2 'repo grant for wG'
   assert_file_eq wD:p2 "$HERDR_TEST_TARGET"
 
+  # A workspace without worktree information is not covered by that repo
+  # grant: the classifier matches it against a known repo_root, which wF does
+  # not report.
+  reset_logs
+  expect_scope_reject repo-mismatch "$PARENT_SCRIPT" wF:p2 'prompt'
+  expect_scope_reject repo-mismatch env HERDR_WORKSPACE_ID=wF HERDR_PANE_ID=wF:p1 \
+    "$CHILD_SCRIPT" wG:p2 completed 'body'
+  [ ! -e "$HERDR_TEST_TARGET" ]
+  ! grep -q '^agent prompt' "$HERDR_TEST_CALLS"
+
+  # A pair grant on the workspace IDs covers the same edge in both
+  # directions.
+  "$GRANT_SCRIPT" grant --source wG --target wF --by reviewer --task '#270' >/dev/null
+  reset_logs
+  HERDR_TEST_RC=0 "$PARENT_SCRIPT" wF:p2 'pair grant'
+  assert_file_eq wF:p2 "$HERDR_TEST_TARGET"
+  reset_logs
+  HERDR_TEST_RC=0 env HERDR_WORKSPACE_ID=wF HERDR_PANE_ID=wF:p1 \
+    "$CHILD_SCRIPT" wG:p2 completed 'pair grant return'
+  assert_file_eq wG:p2 "$HERDR_TEST_TARGET"
+
   # A malformed scope file fails closed instead of falling back to a shape.
   printf 'not json' > "$HERDR_SCOPE_FILE"
   expect_scope_reject scope-file-invalid "$PARENT_SCRIPT" wD:p2 'prompt'
