@@ -42,6 +42,8 @@ result.root_pane.pane_id             root pane, at an interactive shell
 
 Do not guess these IDs from display order, labels, or a later `worktree list`.
 
+Create the destination as a worktree, so the parent and the team workspace share a relation the shape rules derive. A plain workspace made with `herdr workspace create --cwd <path>` has no worktree information, so no edge is derivable for it; see [Workspaces without worktree information](async-delegation.md#workspaces-without-worktree-information).
+
 ## Starting and coordinating the team
 
 The parent may start and prompt the team when the edge from the parent
@@ -254,7 +256,10 @@ Removing by path is an upstream dependency: herdr 0.9.0 accepts only
 - Do not bypass a rejected edge with a raw cross-workspace
   `herdr agent prompt` or `herdr agent start`. That is exactly the
   model-compliance dependence the boundary document rejects: a non-conforming
-  model would succeed where a conforming one stops.
+  model would succeed where a conforming one stops. An intended crossing is
+  recorded as a grant through `herdr/scripts/scope-grant.sh` or run by the
+  user ([Fallback: user-started teams](#fallback-user-started-teams)), never by
+  a raw prompt.
 - Do not hand a user-started fallback team's work back to the wrapper path by
   targeting its workspace directly, and do not prompt a fallback team from the
   parent.

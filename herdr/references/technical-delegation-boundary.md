@@ -36,6 +36,10 @@ guarantee must be enforced by the component that ultimately dispatches input
 or mutates the target. A skill instruction, wrapper, environment variable,
 pane label, model name, grant file, or UI focus is not caller authentication.
 
+The edge rule reduces accidents; it does not forbid an intended crossing. An
+intended crossing is expressed as a recorded grant or as a command a human
+runs, so a raw prompt that bypasses the check is not one of its forms.
+
 ## Threat model
 
 Assume a same-user agent process can bypass the wrapper, invoke a raw writable

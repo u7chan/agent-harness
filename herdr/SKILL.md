@@ -126,8 +126,20 @@ The wrappers classify every edge with `herdr/scripts/lib/scope.sh` immediately b
 
 Read-only discovery (`herdr workspace list`, `herdr worktree list --cwd "$PWD"`, `herdr pane list --workspace <linked-workspace-id>`) stays allowed, and the worktree lifecycle commands stay available when the user explicitly requests them.
 
+A workspace created with `herdr workspace create --cwd <path>` carries no worktree information, so the shape rules derive no edge for it; see [Workspaces without worktree information](references/async-delegation.md#workspaces-without-worktree-information).
+
 When the user asks for a team to run self-contained in a worktree workspace, start and coordinate it as described in [Worktree workspace teams](references/worktree-workspace-teams.md).
 In the orchestrator-first composition the parent creates the worktree, starts exactly one orchestrator in its root pane with `worktree-team-start.sh`, and passes the worktree environment block; the orchestrator then creates and starts the team ([Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)).
+
+### Scope intent and intended crossings
+
+The scope guard prevents mistakes — an unintended write into an unrelated workspace or pane — rather than forbidding an intended crossing. A `scope-reject` is a checkpoint that asks the caller to stop and verify the edge, not a prohibition of the act, and the guard stays the operational safeguard of [Technical delegation boundary](references/technical-delegation-boundary.md), not a permission boundary. Complete an intended crossing through one of these routes:
+
+1. Match the target against live state: resolve the workspace and pane with `herdr workspace list` and `herdr pane list --workspace <workspace-id>`, and confirm that they are the ones the user named.
+2. Record the reason and prefer a grant: a human records the edge with `herdr/scripts/scope-grant.sh grant --source <workspace> --target <workspace>|--target-repo <path> --by <name> --task <issue-or-pr>`, and the normal wrapper path crosses it. Both wrappers check the grant immediately before they write, so this is the preferred route.
+3. Let the user drive: when the rules derive no allowed edge, a grant does not cover the edge, the user prefers to drive the team, or the parent must not write into the target workspace, the user runs the commands, as in [Fallback: user-started teams](references/worktree-workspace-teams.md#fallback-user-started-teams). The human is then the writing party.
+
+Bypassing the check after a reject stays prohibited. A raw cross-workspace `herdr agent prompt` or `herdr agent start`, and a hand-rebuilt wrapper prompt, are not routes; "the user asked for it" is not a reason for a raw prompt, because that request completes through route 2 or route 3.
 
 ## Pane operations
 
@@ -147,4 +159,4 @@ After starting the agent, set the pane label to the same responsibility-based na
 - Keep shared work in the current workspace and worktree.
 - Create a Herdr worktree workspace only when the user explicitly requests it; ordinary independent-branch work stays in the current workspace and worktree (see [Worktree workspaces](#worktree-workspaces)).
 - Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested. One standing exception: the pi-issue-pr-workflow closes the `ui-tester` pane it created and never delegated to with `herdr pane close <pane-id>` when that workflow completes ([pi-issue-pr-workflow](../pi-issue-pr-workflow/SKILL.md#completion)).
-- Never prompt or start an agent across a workspace boundary directly; use the wrappers or `herdr/scripts/worktree-team-start.sh`, which classify the edge first, and stop on `scope-reject` instead of retrying around it.
+- Never prompt or start an agent across a workspace boundary directly; use the wrappers or `herdr/scripts/worktree-team-start.sh`, which classify the edge first, and stop on `scope-reject` instead of retrying around it ([Scope intent and intended crossings](#scope-intent-and-intended-crossings)).
