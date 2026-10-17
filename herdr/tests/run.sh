@@ -594,9 +594,10 @@ grants_allow_undecidable_edges() {
   HERDR_TEST_RC=0 "$PARENT_SCRIPT" wD:p2 'repo grant for wG'
   assert_file_eq wD:p2 "$HERDR_TEST_TARGET"
 
-  # A workspace without worktree information is not covered by that repo
-  # grant: the classifier matches it against a known repo_root, which wF does
-  # not report.
+  # A workspace without worktree information (wF) is not covered by a
+  # --target-repo grant whose source is the repository-side workspace: the
+  # classifier matches the grant against the repo_root the counterpart side
+  # reports, and wF reports none. The wG repo grant above is active here.
   reset_logs
   expect_scope_reject repo-mismatch "$PARENT_SCRIPT" wF:p2 'prompt'
   expect_scope_reject repo-mismatch env HERDR_WORKSPACE_ID=wF HERDR_PANE_ID=wF:p1 \
@@ -604,8 +605,22 @@ grants_allow_undecidable_edges() {
   [ ! -e "$HERDR_TEST_TARGET" ]
   ! grep -q '^agent prompt' "$HERDR_TEST_CALLS"
 
+  # The same --target-repo grant covers both directions once the plain
+  # workspace is its source: then the counterpart side reports the granted
+  # repo_root, from either end of the edge.
+  rm -f "$HERDR_SCOPE_FILE"
+  "$GRANT_SCRIPT" grant --source wF --target-repo "$REPO_ALPHA" --by reviewer --task '#270' >/dev/null
+  reset_logs
+  HERDR_TEST_RC=0 "$PARENT_SCRIPT" wF:p2 'plain-source repo grant'
+  assert_file_eq wF:p2 "$HERDR_TEST_TARGET"
+  reset_logs
+  HERDR_TEST_RC=0 env HERDR_WORKSPACE_ID=wF HERDR_PANE_ID=wF:p1 \
+    "$CHILD_SCRIPT" wG:p2 completed 'plain-source repo grant return'
+  assert_file_eq wG:p2 "$HERDR_TEST_TARGET"
+
   # A pair grant on the workspace IDs covers the same edge in both
-  # directions.
+  # directions without any repository knowledge.
+  rm -f "$HERDR_SCOPE_FILE"
   "$GRANT_SCRIPT" grant --source wG --target wF --by reviewer --task '#270' >/dev/null
   reset_logs
   HERDR_TEST_RC=0 "$PARENT_SCRIPT" wF:p2 'pair grant'

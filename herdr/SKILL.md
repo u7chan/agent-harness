@@ -137,7 +137,7 @@ The scope guard prevents mistakes — an unintended write into an unrelated work
 
 1. Match the target against live state: resolve the workspace and pane with `herdr workspace list` and `herdr pane list --workspace <workspace-id>`, and confirm that they are the ones the user named.
 2. Record the reason and prefer a grant: a human records the edge with `herdr/scripts/scope-grant.sh grant --source <workspace> --target <workspace>|--target-repo <path> --by <name> --task <issue-or-pr>`, and the normal wrapper path crosses it. Both wrappers check the grant immediately before they write, so this is the preferred route.
-3. Let the user drive: an edge a grant cannot express is run by the user, as in [Fallback: user-started teams](references/worktree-workspace-teams.md#fallback-user-started-teams). The human is then the writing party.
+3. Let the user drive: when the rules derive no allowed edge, a grant does not cover the edge, the user prefers to drive the team, or the parent must not write into the target workspace, the user runs the commands, as in [Fallback: user-started teams](references/worktree-workspace-teams.md#fallback-user-started-teams). The human is then the writing party.
 
 Bypassing the check after a reject stays prohibited. A raw cross-workspace `herdr agent prompt` or `herdr agent start`, and a hand-rebuilt wrapper prompt, are not routes; "the user asked for it" is not a reason for a raw prompt, because that request completes through route 2 or route 3.
 
