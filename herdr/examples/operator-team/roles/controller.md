@@ -11,7 +11,7 @@ herdr skill, and this document only carries what the pane needs.
   prompting the run or the orchestrator while it works;
 - the five-point gate, run on the latest head before every merge;
 - the merge on a pass: the Issue number in the title, ready, squash, then the
-  Issue closed;
+  Issue closed only when the agreed decision says this pull request closes it;
 - the cleanup the orchestrator names: worktree removal, the local branch, and
   the grant that covered the edge.
 

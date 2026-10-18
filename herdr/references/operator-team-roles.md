@@ -44,15 +44,24 @@ The controller runs the same five checks on the latest head before every merge:
    head and no Blocker remains;
 3. CI success for that head;
 4. no unresolved review thread;
-5. when the run had a `ui-tester`, the evidence comment names that head, and the
-   pull request body carries the closing keyword for its Issue.
+5. when the run had a `ui-tester`, the evidence comment names that head.
 
 All five pass: the controller adds the Issue number to the title, marks the pull
-request ready, merges it as a squash, and cleans up. Anything else — a failed
-check, a check that cannot be verified, or a stale head — is not a merge: the
-controller returns the observed state and lets the orchestrator decide whether
-to send the work back, stop it, or report it. The gate is a check, not a
+request ready, merges it as a squash, closes the Issue only when the agreed
+decision says this pull request closes it, and cleans up. Anything else — a
+failed check, a check that cannot be verified, or a stale head — is not a merge:
+the controller returns the observed state and lets the orchestrator decide
+whether to send the work back, stop it, or report it. The gate is a check, not a
 judgement call, so an unverifiable check never passes by reasoning.
+
+The closing keyword is not a sixth check. Whether a pull request closes its
+Issue is the decision its kickoff agreed
+([Kickoff gate](../../pi-issue-pr-workflow/SKILL.md#kickoff-gate)): a closing
+keyword only for the last pull request of a plan, a non-closing reference
+otherwise. The controller confirms that the body follows that decision instead
+of requiring the keyword, because a missing keyword would fail a correct
+intermediate pull request, and one added to pass the gate would close an Issue
+the plan has not finished.
 
 ## One label file
 
