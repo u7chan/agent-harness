@@ -86,3 +86,28 @@ about a current task: a task belongs to a delegation, not to a role document.
 The scripts share three rules: every literal comes from the label file, a write
 is reported as done only when the command's response confirms it, and a failure
 names the role and the step it occurred in.
+
+## Reporting
+
+Every role return and every user-facing report has the same shape:
+
+- Conclusion first: the answer in the first one or two lines, then headings with
+  bullet lists for the detail. A role return stays within a few lines and drops
+  the narrative its reader cannot act on.
+- One screen: the report stays readable without scrolling, so detail moves behind
+  a path or a link instead of growing the message.
+- A question for a human is appended to a durable list — for example
+  `PENDING.md`, with an id, the question, and its state — instead of being left
+  in the conversation, and it stays in the list after it is answered so the same
+  question is not asked twice. Confirming it in chat alone loses it: the next
+  reader of the list never sees it.
+- The report opens with the count of items waiting on a decision, so what the
+  user owes is visible before the detail.
+- No report carries a secret or environment-specific network information: tokens
+  and keys never appear, and a path is written relative to its root.
+
+The orchestrator's report is the composition's only user-facing message; the
+other roles return to the orchestrator. The controller is the one role whose
+return repeats observed values — the reviewed commit, the CI conclusion, the
+unresolved thread count, and the merged commit — so the orchestrator can report
+them without reading GitHub again.
