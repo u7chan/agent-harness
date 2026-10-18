@@ -52,6 +52,7 @@ Add supporting files only when they have a concrete responsibility:
   SKILL.md
   actions.json
   references/
+  examples/
   scripts/
   tests/
 ```
@@ -59,6 +60,8 @@ Add supporting files only when they have a concrete responsibility:
 Instruction-only skills use natural-language judgment and existing tools directly. Tool harnesses add schemas, validation, and constrained dispatch for operations whose results must be predictable.
 
 Checks that span every skill live at the repository root under `scripts/` rather than inside one skill (for example `scripts/check-markdown-links.sh`), and CI runs them directly over the skill directories.
+
+An `examples/` directory holds the generalized, read-only shape of a user-owned setup that a skill describes (for example `herdr/examples/operator-team/`). Its values are placeholders, it is not runnable as shipped, and it carries no code the harness executes.
 
 ## Design constraints
 
