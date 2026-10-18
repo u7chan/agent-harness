@@ -19,10 +19,8 @@ Those skills are authoritative for their safety and operation rules. Keep all ag
 
 ## Local review before filing an Issue
 
-An Issue that starts a run is worth one local review before it is filed, because
-a wrong Issue spends a whole run. The procedure is the
-[`issue-review`](../issue-review/SKILL.md) skill; this section fixes only when
-it is required.
+Apply the table below before filing an Issue; follow
+[`issue-review`](../issue-review/SKILL.md) for the procedure.
 
 | Change | Local review before filing |
 |---|---|
@@ -35,8 +33,7 @@ new contract, an interface change, and a change to an existing behavior are
 large even when only a few lines move, because the run they start is sized to
 them. The skip is for a change whose fix and verification are already obvious
 from the report — a typo, a broken link, a failure with one identified cause —
-where the review only delays the work. When in doubt, review: the cost is one
-round trip against a whole run.
+where the review only delays the work. When in doubt, review.
 
 This rule covers every Issue filed from this workflow's work, including a
 separate Issue candidate it reports at review time ([Initial review](#initial-review)).
