@@ -9,7 +9,7 @@ roles outlive any single task, unlike a per-task team in a worktree workspace
 The composition is a user-owned asset, not part of this skill: the user decides
 whether to run it and owns the workspace, the labels, the role documents, and
 the scripts. This reference fixes the shape those pieces have, so the team can
-be rebuilt (the session restore procedure of this skill) and its reports stay
+be rebuilt ([Session restore](session-restore.md)) and its reports stay
 readable. The generalized shape of the files is in
 [the operator team example](../examples/operator-team/README.md): values are
 placeholders and the scripts show the split of responsibility, not a supported
@@ -61,7 +61,7 @@ optional plugin id and entrypoint — lives in one file, and every script and ro
 document reads it from there ([the label file](../examples/operator-team/panes.conf)).
 A label has the form `<role> (<name>)`: the role part is stable and the name part
 is the user's display name for that pane. One pane carries each label, and the
-label is what a restore looks for (the session restore procedure of this skill).
+label is what a restore looks for ([Session restore](session-restore.md)).
 
 A label is display state: it narrows a restore to the pane the composition
 expects, and it never authenticates a caller or selects a delegation target
@@ -78,7 +78,7 @@ about a current task: a task belongs to a delegation, not to a role document.
 
 | Script | Responsibility |
 |---|---|
-| `restore-session.sh` | rebuild the panes, agents, and role documents from the labels |
+| [`restore-session.sh`](../examples/operator-team/bin/restore-session.sh) | rebuild the panes, agents, and role documents from the labels ([Session restore](session-restore.md)) |
 | `sync.sh` | fast-forward the standing checkouts to the remote `main`; a checkout with local changes is skipped and the others continue |
 | `size-check.sh` | report the records that outgrew their line or entry limit and the relative links that no longer resolve; it only reports |
 | `runs.sh` | print the live workspaces by display name with their pane and agent state, for reports |

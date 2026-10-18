@@ -95,7 +95,7 @@ Two exceptions apply to a planned layout, and only there:
 
 ## Standing teams
 
-A long-lived composition — one request pane with read-only, record, and delivery roles beside it — is described in [Operator team roles](references/operator-team-roles.md). Keep it a user-owned composition: the workspace, the labels, the role documents, and the scripts belong to the user, and this skill only fixes their shape.
+A long-lived composition — one request pane with read-only, record, and delivery roles beside it — is described in [Operator team roles](references/operator-team-roles.md), and the procedure that rebuilds it after its panes die is in [Session restore](references/session-restore.md). Keep it a user-owned composition: the workspace, the labels, the role documents, and the scripts belong to the user, and this skill only fixes their shape.
 
 ## Async delegation
 
