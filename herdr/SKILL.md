@@ -93,6 +93,10 @@ Two exceptions apply to a planned layout, and only there:
   tab cannot hold the team. Creating a workspace or worktree still requires an
   explicit user request.
 
+## Standing teams
+
+A long-lived composition — one request pane with read-only, record, and delivery roles beside it — is described in [Operator team roles](references/operator-team-roles.md). Keep it a user-owned composition: the workspace, the labels, the role documents, and the scripts belong to the user, and this skill only fixes their shape.
+
 ## Async delegation
 
 Normal delegation is fire-and-forget. Do not use `--wait`. Send the task to an existing agent, then inspect its state and terminal output on a later turn with `herdr agent get` and `herdr agent read`.
