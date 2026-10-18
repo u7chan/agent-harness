@@ -17,6 +17,32 @@ Load and follow the existing skills instead of duplicating their behavior:
 
 Those skills are authoritative for their safety and operation rules. Keep all agents in the current Herdr workspace and worktree. Do not add a workflow runtime, persistent state, or a static provider/model catalog. The persistent state this rules out is the process state of a run, such as the current phase, the review round, the reviewed head, and unresolved Blockers. The [approved team record](#approved-team-record) is the one exception, because the Issue requires it: it holds the last approved team specification only, never the process state of a run.
 
+## Local review before filing an Issue
+
+An Issue that starts a run is worth one local review before it is filed, because
+a wrong Issue spends a whole run. The procedure is the
+[`issue-review`](../issue-review/SKILL.md) skill; this section fixes only when
+it is required.
+
+| Change | Local review before filing |
+|---|---|
+| New feature or large change | Required |
+| Obvious bug fix or small change | May be skipped |
+| Not clearly either | Required |
+
+Weight is the change's size and uncertainty, not its diff size: a new feature, a
+new contract, an interface change, and a change to an existing behavior are
+large even when only a few lines move, because the run they start is sized to
+them. The skip is for a change whose fix and verification are already obvious
+from the report — a typo, a broken link, a failure with one identified cause —
+where the review only delays the work. When in doubt, review: the cost is one
+round trip against a whole run.
+
+This rule covers every Issue filed from this workflow's work, including a
+separate Issue candidate it reports at review time ([Initial review](#initial-review)).
+A local review is not the pull request review: the `review` role still reviews
+the pull request, and this requirement never replaces it.
+
 ## Preflight
 
 Before any workflow side effect:
