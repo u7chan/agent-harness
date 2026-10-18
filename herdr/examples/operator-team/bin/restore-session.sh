@@ -65,6 +65,12 @@ raise SystemExit(1)
 ' "$1"
 }
 
+# A restore writes only inside the caller's workspace, so this fails closed when
+# the label resolves to another workspace instead of writing across the boundary.
+[ "${HERDR_ENV:-}" = 1 ] || fail 'run this inside a Herdr pane (HERDR_ENV=1)'
+[ -n "${HERDR_WORKSPACE_ID:-}" ] && [ -n "${HERDR_PANE_ID:-}" ] ||
+  fail 'HERDR_WORKSPACE_ID and HERDR_PANE_ID must both be set'
+
 workspace_id="$(herdr workspace list | python3 -I -c '
 import json, sys
 wanted = sys.argv[1]
@@ -73,6 +79,12 @@ found = [w["workspace_id"] for w in json.load(sys.stdin)["result"]["workspaces"]
 print(found[0] if len(found) == 1 else "")
 ' "$WORKSPACE_LABEL")"
 [ -n "$workspace_id" ] || fail "no single workspace carries the label '$WORKSPACE_LABEL'"
+[ "$workspace_id" = "$HERDR_WORKSPACE_ID" ] ||
+  fail "the label '$WORKSPACE_LABEL' resolves to workspace $workspace_id, not the caller's $HERDR_WORKSPACE_ID; restore never writes outside the caller's workspace"
+case "$HERDR_PANE_ID" in
+  "$workspace_id":*) ;;
+  *) fail "HERDR_PANE_ID '$HERDR_PANE_ID' does not belong to workspace $workspace_id" ;;
+esac
 
 table="$(pane_table "$workspace_id")"
 pane_by_label() { printf '%s\n' "$table" | awk -F'\t' -v want="$1" '$3 == want { print $1 }'; }

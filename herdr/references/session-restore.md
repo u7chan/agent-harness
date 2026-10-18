@@ -28,7 +28,10 @@ a label never authenticates a caller and never selects a delegation target
 
 1. Resolve the workspace by its label in `herdr workspace list` and keep the
    workspace ID. No match, or more than one, stops the restore with a question:
-   restore never creates a workspace.
+   restore never creates a workspace. The resolved ID must equal the caller's
+   `$HERDR_WORKSPACE_ID`, and the caller's `$HERDR_PANE_ID` must belong to it:
+   the steps below write into the panes they find, so a mismatch stops before the
+   first write.
 2. Read the live state of that workspace once, with
    `herdr pane list --workspace <workspace-id>` and
    `herdr tab list --workspace <workspace-id>`. Both are read-only and stay
