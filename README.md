@@ -34,6 +34,8 @@ Commands used by the harnesses and by this repository's documented procedures:
 
 `curl` is not a dependency: no script in this repository invokes it. The gh dispatcher talks to the GitHub API through the gh CLI, and the only `curl` occurrence in harness code is a retry-classification pattern in `gh/scripts/common/http.sh` that matches gh CLI error text.
 
+Only [explain-video](explain-video/SKILL.md#prerequisites) additionally requires Node.js, FFmpeg/ffprobe, the Playwright/Chromium environment, and fonts covering the caption language. FFmpeg remains optional for other workflows; it is not a repository-wide prerequisite.
+
 ## Install
 
 Install as a pi package pinned to a merged revision:
