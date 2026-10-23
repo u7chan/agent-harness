@@ -1,8 +1,11 @@
 # agent-harness
 
 [![Bash](https://badgen.net/static/Shell/Bash/4EAA25)](https://www.gnu.org/software/bash/)
+[![git](https://badgen.net/static/VCS/git/F05032?icon=git)](https://git-scm.com/)
 [![GitHub CLI](https://badgen.net/static/GitHub%20CLI/gh/181717?icon=github)](https://cli.github.com/)
 [![jq](https://badgen.net/static/JSON/jq/0C7BDC)](https://jqlang.org/)
+[![Python 3](https://badgen.net/static/Language/Python%203/3776AB?icon=python)](https://www.python.org/)
+[![Playwright](https://badgen.net/static/Browser/Playwright/2EAD33)](https://playwright.dev/)
 [![Herdr](https://badgen.net/static/Agent%20Runtime/Herdr/4A9EFF)](https://herdr.dev/)
 [![Pi](https://badgen.net/static/Agent/Pi/6A9FCC)](https://pi.dev/)
 
@@ -33,6 +36,8 @@ Commands used by the harnesses and by this repository's documented procedures:
 | GNU coreutils and text tools (`sed`, `grep`, `head`, `cat`, `mktemp`, `sleep`, `unlink`, `ln`, ...) | shared plumbing across scripts; the Uninstall block below removes links with `unlink`, and Migration step 6 in `_docs/skill-distribution.md` creates them with `ln -s` | every scripted harness |
 
 `curl` is not a dependency: no script in this repository invokes it. The gh dispatcher talks to the GitHub API through the gh CLI, and the only `curl` occurrence in harness code is a retry-classification pattern in `gh/scripts/common/http.sh` that matches gh CLI error text.
+
+Only [explain-video](explain-video/SKILL.md#prerequisites) additionally requires Node.js, FFmpeg/ffprobe, the Playwright/Chromium environment, and fonts covering the caption language. FFmpeg remains optional for other workflows; it is not a repository-wide prerequisite.
 
 ## Install
 

@@ -4,6 +4,7 @@
   "description": "Minimal, reusable skills and constrained tool harnesses for coding agents.",
   "pi": {
     "skills": [
+      "explain-video",
       "gh",
       "herdr",
       "issue-review",
