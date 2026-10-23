@@ -1,8 +1,11 @@
 # agent-harness
 
 [![Bash](https://badgen.net/static/Shell/Bash/4EAA25)](https://www.gnu.org/software/bash/)
+[![git](https://badgen.net/static/VCS/git/F05032?icon=git)](https://git-scm.com/)
 [![GitHub CLI](https://badgen.net/static/GitHub%20CLI/gh/181717?icon=github)](https://cli.github.com/)
 [![jq](https://badgen.net/static/JSON/jq/0C7BDC)](https://jqlang.org/)
+[![Python 3](https://badgen.net/static/Language/Python%203/3776AB?icon=python)](https://www.python.org/)
+[![Playwright](https://badgen.net/static/Browser/Playwright/2EAD33)](https://playwright.dev/)
 [![Herdr](https://badgen.net/static/Agent%20Runtime/Herdr/4A9EFF)](https://herdr.dev/)
 [![Pi](https://badgen.net/static/Agent/Pi/6A9FCC)](https://pi.dev/)
 
