@@ -12,6 +12,7 @@ POSTING_REFERENCE="$SCRIPT_DIR/../references/posting-api.md"
 OUTPUT_TEMPLATES="$SCRIPT_DIR/../references/output-templates.md"
 WORKFLOW_SKILL="$SCRIPT_DIR/../../pi-issue-pr-workflow/SKILL.md"
 RECHECK_STATE_TEST="$SCRIPT_DIR/recheck-state-tests.sh"
+REPLY_SMOKE="$SCRIPT_DIR/reply-invocation-smoke.sh"
 TEST_TMP="$(mktemp -d /tmp/review-validator-XXXXXX)"
 trap 'rm -rf "$TEST_TMP"' EXIT
 
@@ -133,6 +134,14 @@ expect_valid review-comments.reply "$TEST_TMP/recheck-unknown.json"
 
 if ! "$RECHECK_STATE_TEST" >/dev/null; then
   echo "FAIL: recheck state helper executable tests" >&2
+  exit 1
+fi
+pass_count=$((pass_count + 1))
+
+# The smoke runs the documented reply examples against a fixture dispatcher.
+# It does not replace the payload validator or dispatcher contract suites.
+if ! "$REPLY_SMOKE" >/dev/null; then
+  echo "FAIL: reply invocation example smoke" >&2
   exit 1
 fi
 pass_count=$((pass_count + 1))
@@ -284,6 +293,21 @@ expect_doc_keywords skill-no-approve "$REVIEW_SKILL" 'マージ' 'クローズ' 
 expect_doc_keywords workflow-requires-recheck "$WORKFLOW_SKILL" 'recheck all prior unresolved findings' 'latest-head review'
 expect_doc_keywords posting-order "$POSTING_REFERENCE" '再チェック返信' '最新 head のレビュー' 'LGTM' '順序'
 expect_doc_keywords posting-verifies-lgtm-head "$POSTING_REFERENCE" '明示指示'
+
+# --- 返信呼び出し例の固定 ---
+# smoke はマーカーで例を抽出し、下の行で例の存在と validator の要否を固定する。
+expect_doc_contains reply-example-normal-marker "$POSTING_REFERENCE" '# 通常のフィードバック返信（再チェック分類ではない）'
+expect_doc_contains reply-example-recheck-marker "$POSTING_REFERENCE" '# 再チェック分類返信（テンプレート検査あり）'
+expect_doc_contains reply-example-rawfile "$POSTING_REFERENCE" 'jq -n --rawfile body /tmp/reply.md \'
+expect_doc_contains reply-example-normal-dispatch "$POSTING_REFERENCE" '| bash gh/scripts/gh.sh review-comments.reply \'
+expect_doc_contains reply-example-recheck-validator "$POSTING_REFERENCE" 'review/scripts/validate-review-payload.sh review-comments.reply /tmp/reply.json'
+expect_doc_contains reply-example-projection "$POSTING_REFERENCE" "jq -c '{status, id: .data.id, url: .data.html_url, error}'"
+expect_doc_contains reply-example-validator-difference "$POSTING_REFERENCE" '通常のフィードバック返信は再チェック分類ではないため、`validate-review-payload.sh` を通さない。'
+expect_doc_contains reply-example-unknown-outcome "$POSTING_REFERENCE" '`unknown_outcome` は `id` と `url` を持たず、`ok` と同じ形では表示されない。'
+expect_doc_contains skill-post-write-verified-property "$REVIEW_SKILL" '`ok` が投稿後検証済みを意味するかで分ける'
+expect_doc_contains skill-post-write-no-duplicate "$REVIEW_SKILL" '呼び出し側で同じ内容を再取得・照合しない'
+expect_doc_contains skill-reply-position-commit "$REVIEW_SKILL" '返信には「コメント位置」と `commit_id` の照合を求めない'
+expect_doc_contains skill-unknown-no-retry "$REVIEW_SKILL" '`unknown_outcome` は成功として扱わず、同じ run で自動再投稿しない'
 expect_doc_keywords workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'explicit instruction only'
 expect_doc_keywords workflow-resolve-scoped-auto "$WORKFLOW_SKILL" 'auto-resolve' 'Resolved'
 expect_doc_keywords workflow-resolve-reply-first "$WORKFLOW_SKILL" 'confirmation' 'resolve'

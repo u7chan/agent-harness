@@ -29,7 +29,8 @@ Pull Request またはローカル変更について、差分によって生じ�
 - Resolve は LGTM と独立した「会話を閉じる」記録であり、LGTM から自動的に行わない。Resolve できるのは、明示指示があった場合（手動フロー）、または委譲タスクで自動 Resolve を明示指定された場合（workflow コンテキスト）だけで、`Partial`、`Unresolved`、`Unknown`、他者の root、ユーザー判断待ちの会話は対象にしない。対象の特定、閉会コメント、`review-threads.resolve` の前後確認を含む手順の正本は [recheck.md](references/recheck.md) である。
 - 再チェックでは [recheck.md](references/recheck.md) に従い、分類パース・thread snapshot の正規化・`post|reuse|stop`・LGTM policy を `review/scripts/recheck-state.py` に入力する。返信結果は「投稿成功 / already-applied / stop」の 3 種だけを扱い、skill は元 finding の再評価と LGTM policy だけを判断し、Action に分類判断を移さない。
 - LGTM の投稿と本文・head の検証が成功して初めて LGTM と報告する。
-- 投稿後はレスポンスを再取得し、対象、本文、コメント位置、`commit_id` が意図どおりか確認する。
+- 投稿後の確認は、envelope の `ok` が投稿後検証済みを意味するかで分ける。`review-comments.reply` や `review-comments.create` のように Action が投稿後に再取得して対象・本文・所属を照合してから `ok` を返す投稿では、呼び出し側で同じ内容を再取得・照合しない。それ以外の投稿は、従来どおりレスポンスを再取得し、対象、本文、コメント位置、`commit_id` が意図どおりか確認する。返信には「コメント位置」と `commit_id` の照合を求めない。
+- `unknown_outcome` は成功として扱わず、同じ run で自動再投稿しない。失敗・結果不明時の判断は [posting-api.md](references/posting-api.md) の status 定義に従う。
 
 ## 手順
 
