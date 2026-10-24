@@ -43,7 +43,9 @@ teardown_fixture() {
 }
 
 fixture_gh() {
-  "$FIXTURE_DIR/scripts/gh.sh" "$@"
+  # Keep interpreter-specific runs (notably macOS /bin/bash 3.2) on the
+  # selected Bash even when PATH contains another bash for the shebang.
+  "$BASH" "$FIXTURE_DIR/scripts/gh.sh" "$@"
 }
 
 add_mock_action() {

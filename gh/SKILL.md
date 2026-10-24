@@ -11,6 +11,8 @@ Use `gh.sh` as the single dispatcher for all GitHub operations.
 gh/scripts/gh.sh <action-name> [json-input-file]
 ```
 
+Runtime prerequisites, macOS setup boundaries, and validation scope: [Runtime compatibility](references/runtime-compatibility.md).
+
 ## Action Selection
 
 Select the smallest matching category set.
@@ -82,4 +84,4 @@ Target resolution (`gh/scripts/common/target.sh`) enforces a positive-integer co
 - A body reference to an attached path is rewritten in place to the uploaded URL (a video referenced as a standalone paragraph `![](path)` renders as a player; in a sentence it renders as a link). Attachments the body does not reference are appended to the end of the body.
 - Post-write verification cannot compare uploaded URLs, so it checks: identity match; referenced path literals are gone from the stored body; and, when unreferenced attachments were appended, the submitted body is an exact prefix of the stored body. Do not mix referenced and unreferenced attachments in one command: the prefix check cannot hold and the result reports `unknown_outcome`.
 - Comments created with attachments never return `already_applied`; retries or re-runs create duplicate comments, so check the comment list for an existing comment before retrying or re-running.
-- Errors: `ATTACH_UNSUPPORTED` (gh version below 2.99.0, non-github.com host, or more than 50 files), `ATTACH_INVALID` (bad item format, unsupported extension, missing or empty file, size over the limit, video alt text, duplicate file, or `maintainer_can_modify` combined with `attachments` on `pr.update` because `gh pr edit` has no maintainer flag). To change `maintainer_can_modify`, first run an attachments-less update, then run the attachments update.
+- Errors: `MISSING_DEPENDENCY` (attachment preflight cannot use `sort -V` or `stat -c%s`; no upload is attempted), `ATTACH_UNSUPPORTED` (gh version below 2.99.0, non-github.com host, or more than 50 files), `ATTACH_INVALID` (bad item format, unsupported extension, missing or empty file, size over the limit, video alt text, duplicate file, or `maintainer_can_modify` combined with `attachments` on `pr.update` because `gh pr edit` has no maintainer flag). To change `maintainer_can_modify`, first run an attachments-less update, then run the attachments update.

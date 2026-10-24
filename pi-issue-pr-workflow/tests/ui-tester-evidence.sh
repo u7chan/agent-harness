@@ -121,8 +121,8 @@ check_contains "a fix push posts a new comment" "$SKILL_TEXT" \
   'A fix push moves the head'
 check_contains "artifacts are checked before posting" "$SKILL_TEXT" \
   'Before posting, check every artifact exists'
-check_contains "ATTACH_UNSUPPORTED is a pre-write error" "$SKILL_TEXT" \
-  '`ATTACH_UNSUPPORTED`'
+check_contains "attachment pre-write errors stop without retrying" "$SKILL_TEXT" \
+  'Treat `MISSING_DEPENDENCY`, `ATTACH_UNSUPPORTED`, and `ATTACH_INVALID` as deterministic pre-write errors (`retryable=false`): report the cause and stop before completion instead of retrying.'
 check_contains "unknown_outcome is not guessed" "$SKILL_TEXT" \
   'Treat `unknown_outcome` as unknown'
 check_contains "completion requires the attached evidence" "$SKILL_TEXT" \
