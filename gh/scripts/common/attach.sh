@@ -38,12 +38,38 @@ attach_version_ge() {
   [ "$(printf '%s\n%s\n' "$minimum" "$current" | sort -V | head -n1)" = "$minimum" ]
 }
 
+# Read byte sizes using the GNU stat interface. Reject missing/incompatible
+# tools and malformed output instead of letting an empty size bypass a limit.
+attach_file_size() {
+  local size
+  size="$(stat -c%s "$1" 2>/dev/null)" || return 1
+  case "$size" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$size"
+}
+
 # attach_gate <action> <count>
-# Gh CLI / host / count gates. On violation prints envelope_fail
-# (ATTACH_UNSUPPORTED) and returns 1.
+# Tool capability / gh CLI / host / count gates. On violation prints
+# envelope_fail (MISSING_DEPENDENCY or ATTACH_UNSUPPORTED) and returns 1.
 attach_gate() {
   local action="$1"
   local count="$2"
+
+  # Check only the required interfaces; never select a package-manager path
+  # or change PATH here. Linux/WSL keep their existing command resolution.
+  local sorted
+  sorted="$(printf '%s\n' '2.10.0' '2.9.0' | sort -V 2>/dev/null)" || sorted=""
+  if [ "$sorted" != $'2.9.0\n2.10.0' ]; then
+    envelope_fail "$action" "MISSING_DEPENDENCY" \
+      "Attachments require sort -V (GNU coreutils); provide compatible tools on the harness process PATH" false
+    return 1
+  fi
+  if ! attach_file_size "$ATTACH_DIR/attach.sh" >/dev/null; then
+    envelope_fail "$action" "MISSING_DEPENDENCY" \
+      "Attachments require stat -c%s (GNU coreutils); provide compatible tools on the harness process PATH" false
+    return 1
+  fi
 
   local version
   version="$(gh --version 2>/dev/null | head -n1 | awk '{print $3}')" || version=""
@@ -72,8 +98,8 @@ attach_gate() {
 
 # attach_prepare <action> <attachments_json>
 # Validates the attachments array and fills ATTACH_FLAGS / ATTACH_PATHS.
-# On violation prints envelope_fail (ATTACH_UNSUPPORTED for gates,
-# ATTACH_INVALID for path validation) and returns 1.
+# On violation prints envelope_fail (MISSING_DEPENDENCY / ATTACH_UNSUPPORTED
+# for gates, ATTACH_INVALID for path validation) and returns 1.
 attach_prepare() {
   local action="$1"
   local attachments_json="$2"
@@ -139,7 +165,10 @@ attach_prepare() {
       return 1
     fi
 
-    size="$(stat -c%s "$path")"
+    size="$(attach_file_size "$path")" || {
+      envelope_fail "$action" "ATTACH_INVALID" "Could not determine attachment size: $path" false
+      return 1
+    }
     if [ "$kind" = "image" ] && [ "$size" -gt "$ATTACH_IMAGE_MAX_BYTES" ]; then
       envelope_fail "$action" "ATTACH_INVALID" \
         "Image attachment exceeds the 10 MB limit: $path" false
@@ -151,7 +180,9 @@ attach_prepare() {
       return 1
     fi
 
-    for prev in "${ATTACH_PATHS[@]}"; do
+    # Bash 3.2 treats an empty array as unset under nounset. The + expansion
+    # preserves each path verbatim and yields zero arguments for an empty array.
+    for prev in ${ATTACH_PATHS[@]+"${ATTACH_PATHS[@]}"}; do
       if [ "$prev" = "$path" ]; then
         envelope_fail "$action" "ATTACH_INVALID" "Duplicate attachment: $path" false
         return 1
@@ -179,7 +210,7 @@ attach_verify() {
 
   local unreferenced=0 path expected_size fetched_size
 
-  for path in "${ATTACH_PATHS[@]}"; do
+  for path in ${ATTACH_PATHS[@]+"${ATTACH_PATHS[@]}"}; do
     if grep -Fq -- "$path" "$expected_body_file"; then
       if grep -Fq -- "$path" "$fetched_body_file"; then
         echo "attachment reference was not rewritten: $path" >&2
@@ -191,8 +222,8 @@ attach_verify() {
   done
 
   if [ "$unreferenced" = "1" ]; then
-    expected_size="$(stat -c%s "$expected_body_file")"
-    fetched_size="$(stat -c%s "$fetched_body_file")"
+    expected_size="$(attach_file_size "$expected_body_file")" || return 1
+    fetched_size="$(attach_file_size "$fetched_body_file")" || return 1
     if [ "$fetched_size" -le "$expected_size" ]; then
       echo "appended attachments are missing from the stored body" >&2
       return 1

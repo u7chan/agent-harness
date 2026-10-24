@@ -19,13 +19,15 @@ Each top-level skill directory contains a `SKILL.md` file that describes when an
 
 ## Prerequisites
 
-Verified scope: Linux. The measurements in [_docs/skill-distribution.md](_docs/skill-distribution.md) were taken on the reference machine (Linux), and the repository's CI workflow ([contract-tests](.github/workflows/contract-tests.yml)) runs on `ubuntu-latest`. macOS and other operating systems are not verified and are not supported: the harnesses assume GNU Bash and GNU command-line tools, so BSD and other toolchains are out of scope.
+Linux remains the full CI baseline: the measurements in [_docs/skill-distribution.md](_docs/skill-distribution.md) were taken on Linux, and the existing [contract-tests](.github/workflows/contract-tests.yml) job runs on `ubuntu-latest`. Linux and WSL keep their existing Bash/GNU-tool invocation and PATH; there is no automatic macOS setup applied to other platforms. WSL has not been separately real-machine tested for this change, and native Windows shells (PowerShell/cmd) are outside the support scope.
+
+The gh shared attachment path additionally accommodates macOS system Bash 3.2 when the required GNU tools are supplied to the harness process. Its [runtime compatibility notes](gh/references/runtime-compatibility.md) distinguish macOS mock CI, real upload evidence, and remaining verification limits. This is not blanket macOS support for every harness or for a BSD-only toolchain.
 
 Commands used by the harnesses and by this repository's documented procedures:
 
 | Command | Used for | Required by |
 | --- | --- | --- |
-| GNU Bash | running every harness script (`#!/usr/bin/env bash` with `set -euo pipefail`) | every scripted harness (gh, herdr, review) |
+| GNU Bash | running every harness script (`#!/usr/bin/env bash` with `set -euo pipefail`); the gh attachment path handles Bash 3.2 empty arrays without requiring Bash 5; developer checks may need newer Bash | every scripted harness (gh, herdr, review) |
 | git | the rollout gate, revision confirmation, rollback, and smoke procedures; pi clones git packages with it | the distribution procedures in `_docs/skill-distribution.md` |
 | jq | JSON parsing and validation | the gh and review harness scripts and the smoke test's manifest check |
 | gh CLI | GitHub API access (`gh api`, `gh auth status`) | the gh skill dispatcher; version 2.99.0 or later for attachments |
@@ -33,7 +35,7 @@ Commands used by the harnesses and by this repository's documented procedures:
 | herdr | delegating prompts to other panes (`herdr agent prompt`) | the herdr skill scripts |
 | python3 | the review skill's recheck harness (`review/scripts/recheck-state.sh`); optional for the herdr delegation scripts, which use it only for a cosmetic pane label and fall back gracefully without it | the review skill; optional for the herdr skill |
 | playwright-cli | browser automation for the playwright skill through its `scripts/pw.sh` wrapper (installed separately, e.g. `npm install -g @playwright/cli`; `PW_BIN` can point at an equivalent binary such as `npx @playwright/cli`) | the playwright skill |
-| GNU coreutils and text tools (`sed`, `grep`, `head`, `cat`, `mktemp`, `sleep`, `unlink`, `ln`, ...) | shared plumbing across scripts; the Uninstall block below removes links with `unlink`, and Migration step 6 in `_docs/skill-distribution.md` creates them with `ln -s` | every scripted harness |
+| GNU coreutils and text tools (`stat -c%s`, `sort -V`, `mktemp -p`, GNU `grep -P`, `sed`, `head`, `cat`, `sleep`, `unlink`, `ln`, ...) | shared plumbing across scripts; GNU tools must be available under the unprefixed command names within the harness process; the Uninstall block below removes links with `unlink`, and Migration step 6 in `_docs/skill-distribution.md` creates them with `ln -s` | every scripted harness |
 
 `curl` is not a dependency: no script in this repository invokes it. The gh dispatcher talks to the GitHub API through the gh CLI, and the only `curl` occurrence in harness code is a retry-classification pattern in `gh/scripts/common/http.sh` that matches gh CLI error text.
 

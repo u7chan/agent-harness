@@ -342,6 +342,11 @@ seed_pr() {
 request_file() {
   printf '%s\n' "$FIXTURE_DIR/request.json"
 }
+
+assert_no_attach_writes() {
+  assert_eq "$(jq '[.issues[], .prs[], .comments[]] | length' "$MOCK_GH_STATE")" 0
+}
+
 # --- Dispatcher-level input validation -------------------------------------
 
 test_attach_schema_type_mismatch() {
@@ -359,6 +364,47 @@ test_attach_schema_type_mismatch() {
   assert_eq "$rc" "1" || return 1
   assert_json_eq "$output" '.error.code' "TYPE_MISMATCH" || return 1
 }
+
+# --- Tool preflight (MISSING_DEPENDENCY, before any upload) ------------------
+
+test_attach_incompatible_sort() (
+  setup_attach_fixture issue.create
+  trap teardown_fixture EXIT
+  make_attachment shot.png
+
+  # A command that exits zero but does not version-sort is also unsupported.
+  printf '#!/usr/bin/env bash\ncat\n' > "$FIXTURE_DIR/bin/sort"
+  chmod +x "$FIXTURE_DIR/bin/sort"
+  jq -n '{title: "t", attachments: ["shot.png"], grant: "write"}' > "$(request_file)"
+  local output rc
+  output="$(fixture_gh issue.create "$(request_file)" 2>"$FIXTURE_DIR/stderr")"
+  rc=$?
+  assert_eq "$rc" 1 || return 1
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' MISSING_DEPENDENCY || return 1
+  assert_contains "$output" 'sort -V' || return 1
+  assert_eq "$(wc -c < "$FIXTURE_DIR/stderr")" 0 || return 1
+  assert_no_attach_writes || return 1
+)
+
+test_attach_incompatible_stat() (
+  setup_attach_fixture pr.create
+  trap teardown_fixture EXIT
+  make_attachment shot.png
+
+  printf '#!/usr/bin/env bash\necho "stat: illegal option -- c" >&2\nexit 1\n' > "$FIXTURE_DIR/bin/stat"
+  chmod +x "$FIXTURE_DIR/bin/stat"
+  jq -n '{title: "t", base: "main", head: "feat/x", attachments: ["shot.png"], grant: "write"}' > "$(request_file)"
+  local output rc
+  output="$(fixture_gh pr.create "$(request_file)" 2>"$FIXTURE_DIR/stderr")"
+  rc=$?
+  assert_eq "$rc" 1 || return 1
+  assert_json_eq "$output" '.status' failed || return 1
+  assert_json_eq "$output" '.error.code' MISSING_DEPENDENCY || return 1
+  assert_contains "$output" 'stat -c%s' || return 1
+  assert_eq "$(wc -c < "$FIXTURE_DIR/stderr")" 0 || return 1
+  assert_no_attach_writes || return 1
+)
 
 # --- Gates (ATTACH_UNSUPPORTED) ---------------------------------------------
 
@@ -422,6 +468,55 @@ test_attach_max_count_boundary() (
 )
 
 # --- Path validation (ATTACH_INVALID) ---------------------------------------
+
+test_attach_invalid_item() (
+  setup_attach_fixture issue.create
+  trap teardown_fixture EXIT
+
+  jq -n '{title: "t", attachments: [42], grant: "write"}' > "$(request_file)"
+  local output
+  output="$(fixture_gh issue.create "$(request_file)" 2>/dev/null)" || true
+  assert_json_eq "$output" '.error.code' ATTACH_INVALID || return 1
+  assert_contains "$output" 'must be strings' || return 1
+  assert_no_attach_writes || return 1
+)
+
+test_attach_empty_path() (
+  setup_attach_fixture issue.create
+  trap teardown_fixture EXIT
+
+  jq -n '{title: "t", attachments: ["#alt"], grant: "write"}' > "$(request_file)"
+  local output
+  output="$(fixture_gh issue.create "$(request_file)" 2>/dev/null)" || true
+  assert_json_eq "$output" '.error.code' ATTACH_INVALID || return 1
+  assert_contains "$output" 'path must not be empty' || return 1
+  assert_no_attach_writes || return 1
+)
+
+test_attach_invalid_size_output() (
+  setup_attach_fixture issue.create
+  trap teardown_fixture EXIT
+  make_attachment shot.png
+
+  local stat_bin
+  stat_bin="$(command -v stat)"
+  cat > "$FIXTURE_DIR/bin/stat" <<EOF
+#!/usr/bin/env bash
+if [ "\${2:-}" = shot.png ]; then
+  echo invalid-size
+  exit 0
+fi
+exec "$stat_bin" "\$@"
+EOF
+  chmod +x "$FIXTURE_DIR/bin/stat"
+  jq -n '{title: "t", attachments: ["shot.png"], grant: "write"}' > "$(request_file)"
+  local output
+  output="$(fixture_gh issue.create "$(request_file)" 2>"$FIXTURE_DIR/stderr")" || true
+  assert_json_eq "$output" '.error.code' ATTACH_INVALID || return 1
+  assert_contains "$output" 'Could not determine attachment size' || return 1
+  assert_eq "$(wc -c < "$FIXTURE_DIR/stderr")" 0 || return 1
+  assert_no_attach_writes || return 1
+)
 
 test_attach_invalid_extension() (
   setup_attach_fixture issue.create
@@ -492,9 +587,71 @@ test_attach_duplicate() (
   output="$(fixture_gh issue.create "$(request_file)" 2>/dev/null)" || true
   assert_json_eq "$output" '.error.code' ATTACH_INVALID || return 1
   assert_contains "$output" "Duplicate" || return 1
+  assert_no_attach_writes || return 1
+)
+
+test_attach_duplicate_with_alt() (
+  setup_attach_fixture issue.create
+  trap teardown_fixture EXIT
+  make_attachment 'one shot.png'
+
+  jq -n '{title: "t", attachments: ["one shot.png#before", "one shot.png#after"], grant: "write"}' > "$(request_file)"
+  local output
+  output="$(fixture_gh issue.create "$(request_file)" 2>/dev/null)" || true
+  assert_json_eq "$output" '.error.code' ATTACH_INVALID || return 1
+  assert_contains "$output" 'Duplicate' || return 1
+  assert_no_attach_writes || return 1
 )
 
 # --- Happy paths: gh CLI split + post-write verification --------------------
+
+test_attach_empty_arrays_under_nounset() (
+  setup_attach_fixture issue.create
+  trap teardown_fixture EXIT
+  source "$FIXTURE_DIR/scripts/common/attach.sh"
+
+  # Exercise zero-argument expansion, not a dummy empty path, on Bash 3.2.
+  attach_prepare issue.create '[]' || return 1
+  assert_eq "${#ATTACH_PATHS[@]}" 0 || return 1
+  assert_eq "${#ATTACH_FLAGS[@]}" 0 || return 1
+  printf 'unchanged' > "$FIXTURE_DIR/body"
+  attach_verify "$FIXTURE_DIR/body" "$FIXTURE_DIR/body" || return 1
+  assert_no_attach_writes || return 1
+)
+
+test_attach_pr_create_multiple_referenced() (
+  setup_attach_fixture pr.create
+  trap teardown_fixture EXIT
+  make_attachment 'first shot.png'
+  make_attachment 'second[shot]*.png'
+
+  jq -n '{title: "Two images", base: "main", head: "feat/x", grant: "write",
+          body: "![first](./first shot.png) and ![second](./second[shot]*.png)",
+          attachments: ["./first shot.png#before / after", "./second[shot]*.png#second"]}' > "$(request_file)"
+  local output
+  output="$(fixture_gh pr.create "$(request_file)" 2>/dev/null)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  assert_json_eq "$output" '.data.body' '![first](https://attachments.example/0.png) and ![second](https://attachments.example/1.png)' || return 1
+  assert_eq "$(jq '.prs | length' "$MOCK_GH_STATE")" 1 || return 1
+)
+
+test_attach_issue_create_multiple_appended() (
+  setup_attach_fixture issue.create
+  trap teardown_fixture EXIT
+  make_attachment a.png
+  make_attachment b.png
+
+  jq -n '{title: "t", body: "hello", attachments: ["a.png#first", "b.png#second"], grant: "write"}' > "$(request_file)"
+  local output
+  output="$(fixture_gh issue.create "$(request_file)" 2>/dev/null)" || return 1
+  assert_json_eq "$output" '.status' ok || return 1
+  local stored
+  stored="$(jq -r '.issues[0].body' "$MOCK_GH_STATE")"
+  assert_eq "$(jq '.issues[0].body | startswith("hello")' "$MOCK_GH_STATE")" true || return 1
+  assert_contains "$stored" 'https://attachments.example/0.png' || return 1
+  assert_contains "$stored" 'https://attachments.example/1.png' || return 1
+  assert_eq "$(jq '.issues | length' "$MOCK_GH_STATE")" 1 || return 1
+)
 
 test_attach_issue_create_referenced() (
   setup_attach_fixture issue.create
@@ -693,6 +850,29 @@ test_attach_verify_no_rewrite() (
   assert_json_eq "$output" '.status' unknown_outcome || return 1
 )
 
+test_attach_verify_size_failure() (
+  setup_attach_fixture issue.create
+  trap teardown_fixture EXIT
+  make_attachment shot.png
+
+  local stat_bin
+  stat_bin="$(command -v stat)"
+  cat > "$FIXTURE_DIR/bin/stat" <<EOF
+#!/usr/bin/env bash
+case "\${2##*/}" in
+  gh-*) exit 1 ;;
+esac
+exec "$stat_bin" "\$@"
+EOF
+  chmod +x "$FIXTURE_DIR/bin/stat"
+  jq -n '{title: "t", body: "hello", attachments: ["shot.png"], grant: "write"}' > "$(request_file)"
+  local output
+  output="$(fixture_gh issue.create "$(request_file)" 2>/dev/null)" || true
+  assert_json_eq "$output" '.status' unknown_outcome || return 1
+  # A verification failure must not resend a possibly successful write.
+  assert_eq "$(jq '.next_issue' "$MOCK_GH_STATE")" 2 || return 1
+)
+
 test_attach_verify_no_append() (
   export MOCK_ATTACH_MODE=noappend
   setup_attach_fixture issue.create
@@ -741,18 +921,28 @@ test_attach_pr_update_maintainer_conflict() (
 
 main() {
   echo "=== attach contract tests ==="
+  echo "Bash: $BASH_VERSION ($BASH)"
 
   run_test test_attach_schema_type_mismatch
+  run_test test_attach_incompatible_sort
+  run_test test_attach_incompatible_stat
   run_test test_attach_unsupported_version
   run_test test_attach_unsupported_host
   run_test test_attach_too_many
   run_test test_attach_max_count_boundary
+  run_test test_attach_invalid_item
+  run_test test_attach_empty_path
+  run_test test_attach_invalid_size_output
   run_test test_attach_invalid_extension
   run_test test_attach_missing_file
   run_test test_attach_empty_file
   run_test test_attach_oversize_image
   run_test test_attach_video_alt
   run_test test_attach_duplicate
+  run_test test_attach_duplicate_with_alt
+  run_test test_attach_empty_arrays_under_nounset
+  run_test test_attach_pr_create_multiple_referenced
+  run_test test_attach_issue_create_multiple_appended
   run_test test_attach_issue_create_referenced
   run_test test_attach_issue_create_appended
   run_test test_attach_issue_create_video
@@ -762,6 +952,7 @@ main() {
   run_test test_attach_comments_create_issue
   run_test test_attach_comments_create_pr
   run_test test_attach_verify_no_rewrite
+  run_test test_attach_verify_size_failure
   run_test test_attach_verify_no_append
   run_test test_attach_mixed_unknown_outcome
   run_test test_attach_pr_update_maintainer_conflict

@@ -12,7 +12,9 @@ name: contract-tests
 # supplies a fake herdr CLI), and no installed pi (the model-spec suite loads
 # the pure classification module only, and the team-record suite replaces the
 # model-spec resolver with a stub through --resolver). The markdown check reads
-# only local files and resolves nothing over the network.
+# only local files and resolves nothing over the network. A separate macOS job
+# exercises the shared attachment path with the system Bash 3.2 and GNU
+# coreutils; it also uses only the mock gh CLI (no uploads or credentials).
 
 on:
   push:
@@ -55,3 +57,25 @@ jobs:
       # this workflow.
       - name: Run markdown link and anchor check
         run: scripts/check-markdown-links.sh $(jq -r '.pi.skills[]' package.json)
+
+  macos-attachments:
+    name: macOS attachments (system Bash 3.2, mock gh)
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Ensure GNU coreutils for the test process
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew list --versions coreutils || brew install coreutils
+
+      # The fixture runs the dispatcher with the test's $BASH, so Homebrew
+      # cannot silently replace the system interpreter selected here. GNU
+      # tools apply only to this test process, not to the Ubuntu/WSL flow.
+      - name: Run attachment contracts with macOS system Bash
+        run: |
+          env PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH" \
+            /bin/bash gh/tests/contract/attach.sh
