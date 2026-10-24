@@ -12,6 +12,7 @@ POSTING_REFERENCE="$SCRIPT_DIR/../references/posting-api.md"
 OUTPUT_TEMPLATES="$SCRIPT_DIR/../references/output-templates.md"
 WORKFLOW_SKILL="$SCRIPT_DIR/../../pi-issue-pr-workflow/SKILL.md"
 RECHECK_STATE_TEST="$SCRIPT_DIR/recheck-state-tests.sh"
+REPLY_SMOKE="$SCRIPT_DIR/reply-invocation-smoke.sh"
 TEST_TMP="$(mktemp -d /tmp/review-validator-XXXXXX)"
 trap 'rm -rf "$TEST_TMP"' EXIT
 
@@ -133,6 +134,14 @@ expect_valid review-comments.reply "$TEST_TMP/recheck-unknown.json"
 
 if ! "$RECHECK_STATE_TEST" >/dev/null; then
   echo "FAIL: recheck state helper executable tests" >&2
+  exit 1
+fi
+pass_count=$((pass_count + 1))
+
+# The smoke runs the documented reply examples against a mock gh fixture.
+# It does not replace the payload validator or dispatcher contract suites.
+if ! "$REPLY_SMOKE" >/dev/null; then
+  echo "FAIL: reply invocation example smoke" >&2
   exit 1
 fi
 pass_count=$((pass_count + 1))
@@ -284,6 +293,15 @@ expect_doc_keywords skill-no-approve "$REVIEW_SKILL" 'マージ' 'クローズ' 
 expect_doc_keywords workflow-requires-recheck "$WORKFLOW_SKILL" 'recheck all prior unresolved findings' 'latest-head review'
 expect_doc_keywords posting-order "$POSTING_REFERENCE" '再チェック返信' '最新 head のレビュー' 'LGTM' '順序'
 expect_doc_keywords posting-verifies-lgtm-head "$POSTING_REFERENCE" '明示指示'
+
+# --- 返信呼び出し例の固定 ---
+# 例の行は固定せず、smoke が使うマーカーと validator / status の扱いだけを確認する。
+expect_doc_contains reply-example-normal-marker "$POSTING_REFERENCE" '# 通常のフィードバック返信（再チェック分類ではない）'
+expect_doc_contains reply-example-recheck-marker "$POSTING_REFERENCE" '# 再チェック分類返信（テンプレート検査あり）'
+expect_doc_keywords reply-example-validator-difference "$POSTING_REFERENCE" '通常のフィードバック返信' '`validate-review-payload.sh`' '通さない'
+expect_doc_keywords reply-example-status "$POSTING_REFERENCE" '成功判定は `status`' '`unknown_outcome`' '成功として扱わない'
+expect_doc_keywords skill-post-write-verification "$REVIEW_SKILL" 'id・URL・本文' '`review-comments.reply`' 'PR 所属' '`in_reply_to_id`'
+expect_doc_keywords skill-unknown-outcome "$REVIEW_SKILL" '`unknown_outcome`' '成功として扱わず' '同じ run で自動再投稿しない'
 expect_doc_keywords workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'explicit instruction only'
 expect_doc_keywords workflow-resolve-scoped-auto "$WORKFLOW_SKILL" 'auto-resolve' 'Resolved'
 expect_doc_keywords workflow-resolve-reply-first "$WORKFLOW_SKILL" 'confirmation' 'resolve'

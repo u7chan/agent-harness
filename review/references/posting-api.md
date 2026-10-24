@@ -14,6 +14,37 @@ GitHub Action の入力、出力、`permission` は `gh/actions.json` を正本�
 - 再チェック返信は `review/scripts/validate-review-payload.sh review-comments.reply <payload-file>` で検査してから投稿する。
 - 投稿直前と投稿後の確認は、`SKILL.md` の安全条件に従う。
 
+### インライン返信の呼び出し例
+
+どちらの例も `reference`、`number`、`reply_to`、`body`、`grant: write` を明示する。`reference` には対象 PR から特定した URL、`reply_to` には `review-comments.read` で得た root の REST 数値 ID を渡す。本文は Markdown ファイルに保存し、`jq --rawfile` で読み込む。`grant` は引数の指定を承認の代替にせず、`write` を明示したままにする。`<topic>` はタスクごとに一意な名前に置き換える。
+
+通常のフィードバック返信は再チェック分類ではないため、`validate-review-payload.sh` を通さない。
+
+```bash
+# 通常のフィードバック返信（再チェック分類ではない）
+jq -n --rawfile body /tmp/<topic>-reply.md \
+  --arg reference 'https://github.com/<owner>/<repo>/pull/<number>' \
+  --argjson number <number> --argjson reply_to <root-comment-id> \
+  '{reference: $reference, number: $number, reply_to: $reply_to, body: $body, grant: "write"}' \
+  | bash gh/scripts/gh.sh review-comments.reply \
+  | jq -c '{status, id: .data.id, url: .data.html_url, error}'
+```
+
+再チェック分類返信はテンプレート検査があるため、`validate-review-payload.sh` を通してから投稿する。通常返信と再チェック返信で validator の要否が異なる。
+
+```bash
+# 再チェック分類返信（テンプレート検査あり）
+jq -n --rawfile body /tmp/<topic>-recheck.md \
+  --arg reference 'https://github.com/<owner>/<repo>/pull/<number>' \
+  --argjson number <number> --argjson reply_to <root-comment-id> \
+  '{reference: $reference, number: $number, reply_to: $reply_to, body: $body, grant: "write"}' > /tmp/<topic>-reply.json
+review/scripts/validate-review-payload.sh review-comments.reply /tmp/<topic>-reply.json
+bash gh/scripts/gh.sh review-comments.reply /tmp/<topic>-reply.json \
+  | jq -c '{status, id: .data.id, url: .data.html_url, error}'
+```
+
+どちらの例も `status`、コメント ID、URL、`error` に射影する。成功判定は `status` で行う。`unknown_outcome` は data に `id` や `url` を含むことがあるが、投稿後の検証が完了していないため成功として扱わない。結果の意味は下記の定義を参照し、例の中で再定義しない。
+
 再チェック分類返信の `review-comments.reply` には `number`、`reply_to`（root の REST 数値 ID）、`body`、`grant` を渡す。Action の結果は次の意味で扱う。
 
 - `ok`: root への返信を投稿し、再取得で ID・URL・PR 所属・本文・actor・`in_reply_to_id` を検証できた。
@@ -34,4 +65,4 @@ baseline 入力（`baseline_comment_ids` 等）や thread 入力は渡さない�
 
 - インラインコメントの `position` はハンクをまたいで数える従来形式の差分位置であり、ハンクごとにリセットしない。
 - 返信の `reply_to` には `review-comments.read` の REST 数値 ID を使う。`review-threads.read` の GraphQL ノード ID は使わない。
-- 一時ファイルはワーキングディレクトリ内に置き、不要になったら削除する。
+- 一時ファイルはワーキングディレクトリ内または `/tmp` に、タスク固有名で置き、不要になったら削除する。
