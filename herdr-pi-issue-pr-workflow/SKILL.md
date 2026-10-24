@@ -1,6 +1,9 @@
 ---
 name: herdr-pi-issue-pr-workflow
-description: Orchestrate a GitHub Issue from implementation through final review of a Draft PR using role-specific Pi agents in Herdr panes. Use when the user asks to run this Pi-only Issue-to-PR workflow, including kickoff team selection, implementation, review, and review fixes. Requires Herdr: every role agent runs in a pane of the current Herdr workspace.
+description: >
+  Orchestrate a GitHub Issue from implementation through final review of a Draft PR using role-specific Pi agents in Herdr panes.
+  Use when the user asks to run this Pi-only Issue-to-PR workflow, including kickoff team selection, implementation, review, and review fixes.
+  Requires Herdr: every role agent runs in a pane of the current Herdr workspace.
 ---
 
 # Pi Issue PR Workflow
