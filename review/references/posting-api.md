@@ -22,7 +22,7 @@ GitHub Action の入力、出力、`permission` は `gh/actions.json` を正本�
 
 ```bash
 # 通常のフィードバック返信（再チェック分類ではない）
-jq -n --rawfile body /tmp/reply.md \
+jq -n --rawfile body /tmp/<topic>-reply.md \
   --arg reference 'https://github.com/<owner>/<repo>/pull/<number>' \
   --argjson number <number> --argjson reply_to <root-comment-id> \
   '{reference: $reference, number: $number, reply_to: $reply_to, body: $body, grant: "write"}' \
@@ -34,16 +34,16 @@ jq -n --rawfile body /tmp/reply.md \
 
 ```bash
 # 再チェック分類返信（テンプレート検査あり）
-jq -n --rawfile body /tmp/recheck.md \
+jq -n --rawfile body /tmp/<topic>-recheck.md \
   --arg reference 'https://github.com/<owner>/<repo>/pull/<number>' \
   --argjson number <number> --argjson reply_to <root-comment-id> \
-  '{reference: $reference, number: $number, reply_to: $reply_to, body: $body, grant: "write"}' > /tmp/reply.json
-review/scripts/validate-review-payload.sh review-comments.reply /tmp/reply.json
-bash gh/scripts/gh.sh review-comments.reply /tmp/reply.json \
+  '{reference: $reference, number: $number, reply_to: $reply_to, body: $body, grant: "write"}' > /tmp/<topic>-reply.json
+review/scripts/validate-review-payload.sh review-comments.reply /tmp/<topic>-reply.json
+bash gh/scripts/gh.sh review-comments.reply /tmp/<topic>-reply.json \
   | jq -c '{status, id: .data.id, url: .data.html_url, error}'
 ```
 
-どちらの例も `status`、コメント ID、URL、`error` に射影する。`unknown_outcome` は `id` と `url` を持たず、`ok` と同じ形では表示されない。結果の意味は下記の定義を参照し、例の中で再定義しない。
+どちらの例も `status`、コメント ID、URL、`error` に射影する。成功判定は `status` で行う。`unknown_outcome` は data に `id` や `url` を含むことがあるが、投稿後の検証が完了していないため成功として扱わない。結果の意味は下記の定義を参照し、例の中で再定義しない。
 
 再チェック分類返信の `review-comments.reply` には `number`、`reply_to`（root の REST 数値 ID）、`body`、`grant` を渡す。Action の結果は次の意味で扱う。
 
