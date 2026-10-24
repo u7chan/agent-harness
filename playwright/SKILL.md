@@ -1,6 +1,6 @@
 ---
 name: playwright
-description: Automate browser operations with Playwright. Use for web navigation, form filling, screenshots, data extraction, and web app testing.
+description: Automate browser operations with Playwright. Use for web navigation, form filling, screenshots, data extraction, and web app testing. Requires an already installed playwright-cli with Chromium.
 ---
 
 # Browser automation with playwright-cli
