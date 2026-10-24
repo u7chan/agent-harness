@@ -2,7 +2,7 @@
 
 Format of the task text the parent hands to the orchestrator in an
 orchestrator-first worktree team. The team table, the approval rules, and the
-procedure remain authoritative in [pi-issue-pr-workflow/SKILL.md](../SKILL.md);
+procedure remain authoritative in [herdr-pi-issue-pr-workflow/SKILL.md](../SKILL.md);
 this template fixes the shape of the task text only and does not restate or
 change them.
 
@@ -50,7 +50,7 @@ scope: <Issue scope the orchestrator must not exceed>
 
 ## Workflow procedure
 
-Run [pi-issue-pr-workflow](../SKILL.md) from
+Run [herdr-pi-issue-pr-workflow](../SKILL.md) from
 [Start the team](../SKILL.md#start-the-team) through
 [Completion](../SKILL.md#completion): start the approved team, hand `impl` the
 kickoff task, and follow the Delegation contract, Implementation, Initial

@@ -6,7 +6,7 @@
 # resolver is replaced through --resolver (a stub that reports the result the
 # case needs), every record lives under a temporary PI_CODING_AGENT_DIR, and
 # the path-derivation cases use repositories created by `git init` alone.
-# pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
+# herdr-pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

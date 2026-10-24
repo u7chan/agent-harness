@@ -83,6 +83,11 @@ The first line is the marker that identifies the head, with the full SHA:
 <!-- pi-issue-pr-workflow:ui-evidence head=<head SHA> -->
 ```
 
+The marker's `pi-issue-pr-workflow` prefix is an existing-comment identifier, not
+this skill's distribution path: comments already posted under it are searched
+for before posting, so keep the literal prefix unchanged even though the skill
+directory was renamed.
+
 The body then names every item the return passed and references each artifact
 next to the item it proves, using the artifact's absolute path exactly as the
 return gives it:

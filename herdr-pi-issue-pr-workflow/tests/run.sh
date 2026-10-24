@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hermetic tests for the pi-issue-pr-workflow helpers. These tests do not
+# Hermetic tests for the herdr-pi-issue-pr-workflow helpers. These tests do not
 # require pi and do not touch the network: the model-spec classification module
 # is imported directly, the wrapper is driven only with an unresolved pi
 # package root, and tests/team-record.sh replaces the model-spec resolver with a

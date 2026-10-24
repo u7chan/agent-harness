@@ -207,6 +207,9 @@ function recordPath(options) {
   }
   const repoRoot = options.repoRoot ? path.resolve(options.repoRoot) : process.cwd();
   const key = parseOriginKey(options.originUrl ?? "") ?? recordKeyFromPath(repoRoot);
+  // "pi-issue-pr-workflow" is the user asset's stable identifier, not this
+  // skill's distribution path: records written before the skill directory was
+  // renamed stay readable, so renaming it requires a migration.
   return path.join(piAgentDir(), "pi-issue-pr-workflow", "teams", recordFileName(key));
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hermetic documentation contract for the issue-review start gate: the gate
+# Hermetic documentation contract for the herdr-issue-review start gate: the gate
 # runs before any side effect, it defers to the herdr skill for the conditions
 # themselves, and it states the stop and the no-substitution rules.
 #

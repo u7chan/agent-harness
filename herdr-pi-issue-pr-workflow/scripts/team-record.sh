@@ -21,6 +21,8 @@ Resolves the repository root (git toplevel of the current directory, or
 --repo-root) and its `origin` remote URL, then runs team-record.mjs, which
 reads, validates, and writes the approved team record at
 ${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow/teams/<key>.json.
+That directory name is the user asset's stable identifier, not this skill's
+distribution path, so it stays unchanged after the skill directory rename.
 
 Options are documented in team-record.mjs; --repo-root and --record skip the
 git lookup, and --resolver replaces the model-spec resolver.

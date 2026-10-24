@@ -1,6 +1,9 @@
 ---
-name: pi-issue-pr-workflow
-description: Orchestrate a GitHub Issue from implementation through final review of a Draft PR using role-specific Pi agents in Herdr panes. Use when the user asks to run this Pi-only Issue-to-PR workflow, including kickoff team selection, implementation, review, and review fixes. Requires Herdr.
+name: herdr-pi-issue-pr-workflow
+description: >
+  Orchestrate a GitHub Issue from implementation through final review of a Draft PR using role-specific Pi agents in Herdr panes.
+  Use when the user asks to run this Pi-only Issue-to-PR workflow, including kickoff team selection, implementation, review, and review fixes.
+  Requires Herdr: every role agent runs in a pane of the current Herdr workspace.
 ---
 
 # Pi Issue PR Workflow
@@ -20,7 +23,7 @@ Those skills are authoritative for their safety and operation rules. Keep all ag
 ## Local review before filing an Issue
 
 Apply the table below before filing an Issue; follow
-[`issue-review`](../issue-review/SKILL.md) for the procedure.
+[`herdr-issue-review`](../herdr-issue-review/SKILL.md) for the procedure.
 
 | Change | Local review before filing |
 |---|---|
@@ -71,7 +74,7 @@ The logical roles are `impl`, `review`, and `pr-fix`. `ui-tester` is an optional
 Use `pi --list-models` to validate every explicit provider/model pair, but do not treat its thinking yes/no column as level validation. Resolve each full specification through the helper, which asks the installed Pi runtime's public API for the exact model and the supported/clamped thinking levels:
 
 ```bash
-pi-issue-pr-workflow/scripts/resolve-model-spec.sh \
+herdr-pi-issue-pr-workflow/scripts/resolve-model-spec.sh \
   --provider <provider> --model <model> --thinking <level>
 ```
 
@@ -82,6 +85,7 @@ It prints one key=value line with `provider`, `model`, `requested`, `supported`,
 A team the user approved is recorded outside the repository, so a later kickoff for the same repository can reuse it instead of asking for the same approval again. The record is a user asset and is never part of the skill distribution:
 
 - Path: `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow/teams/<key>.json`.
+- The directory name in that path is the user asset's identifier, not this skill's distribution path: it stays `pi-issue-pr-workflow` so an existing record remains readable after the skill directory was renamed, and changing it would require a migration. Do not rename it with the skill.
 - Key: `<owner>__<repo>` from `origin`, or the repository root path when the remote does not name exactly `owner/repo`.
 - Content: `{"version": 1, "pr_fix_shared_with_impl": <boolean>, "roles": {"impl": {...}, "review": {...}, "pr-fix": {...} [,"ui-tester": {...}]}}`, where each role holds `provider`, `model`, and `thinking`.
 - Write: atomically (temporary file plus rename) with mode `0600`.
@@ -95,11 +99,11 @@ Read and write it with the helper:
 ```bash
 # Reuse check: every recorded role is re-resolved through the model-spec helper,
 # and only result=ok may be reused.
-pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root> \
+herdr-pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root> \
   [--require-role <role>]
 
 # After the team is settled, record the settled specification.
-pi-issue-pr-workflow/scripts/team-record.sh write --repo-root <repository root> \
+herdr-pi-issue-pr-workflow/scripts/team-record.sh write --repo-root <repository root> \
   --pr-fix-shared-with-impl <true|false> \
   --role impl=<provider>/<model>/<thinking> --role review=<provider>/<model>/<thinking> \
   --role pr-fix=<provider>/<model>/<thinking> [--role ui-tester=<provider>/<model>/<thinking>]
@@ -115,7 +119,7 @@ If any role assignment, agent specification, or target PR determination is unres
 
 Reuse the [approved team record](#approved-team-record) before proposing:
 
-1. Resolve it with `pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root>`, adding `--require-role ui-tester` when the participation decision includes a `ui-tester`.
+1. Resolve it with `herdr-pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root>`, adding `--require-role ui-tester` when the participation decision includes a `ui-tester`.
 2. Skip the table and the approval wait only when all of these hold: `result=ok`; this run supplies no explicit provider, model, or thinking value; this run states no composition itself, meaning neither whether `pr-fix` shares the `impl` agent nor a `ui-tester` composition of its own (the participation decision, derived from the Issue or overridden by the user in the same reply, decides this run's team only and never states the composition); and the target PR is determined. Print exactly one line, listing the roles that join, and the participation line, then continue to [Start the team](#start-the-team):
 
    ```text

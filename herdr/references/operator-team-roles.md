@@ -56,7 +56,7 @@ judgement call, so an unverifiable check never passes by reasoning.
 
 The closing keyword is not a sixth check. Whether a pull request closes its
 Issue is the decision its kickoff agreed
-([Kickoff gate](../../pi-issue-pr-workflow/SKILL.md#kickoff-gate)): a closing
+([Kickoff gate](../../herdr-pi-issue-pr-workflow/SKILL.md#kickoff-gate)): a closing
 keyword only for the last pull request of a plan, a non-closing reference
 otherwise. The controller confirms that the body follows that decision instead
 of requiring the keyword, because a missing keyword would fail a correct

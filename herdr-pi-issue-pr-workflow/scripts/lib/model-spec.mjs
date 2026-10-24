@@ -1,7 +1,7 @@
 /**
  * Pure thinking-level classification for the model-spec resolver.
  *
- * This module must not import pi: `pi-issue-pr-workflow/tests/run.sh` loads it
+ * This module must not import pi: `herdr-pi-issue-pr-workflow/tests/run.sh` loads it
  * on machines without an installed pi. It never computes supported levels or
  * clamp results itself; the caller passes the values that Pi's public API
  * (`getSupportedThinkingLevels`, `clampThinkingLevel`) produced, and this

@@ -1,9 +1,9 @@
 ---
-name: issue-review
+name: herdr-issue-review
 description: >
   合意済みの設計から Issue 本文を作り、別ペインのレビューで収束させてから起票・更新する。
   ユーザーが「この内容で Issue を作って」「ローカルでレビューして Issue を確定して」と依頼した時に使う。
-  Requires HERDR_ENV=1.
+  Requires Herdr: the reviewer runs in a separate Herdr pane, so pass HERDR_ENV=1.
 ---
 
 # Issue ローカルレビューと確定
@@ -51,8 +51,8 @@ description: >
 ### 1. レビュアーのペインを用意する
 
 - `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` で空きの対話シェルを探し、あれば使う。無ければ `herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus`（再利用するペインの cwd は親と同じとは限らないため、レビュアーへ渡すリポジトリのルートはプロンプト側で指定する）
-- `herdr agent start issue-review --kind pi --pane <pane-id>`（モデルと thinking は付けない = 実行環境の既定。ユーザーが指定した時だけ引数で渡す）
-- 応答の `pane_id` を読み、`herdr pane rename <pane-id> issue-review` と `herdr pane get <pane-id>` で label を確認する
+- `herdr agent start herdr-issue-review --kind pi --pane <pane-id>`（モデルと thinking は付けない = 実行環境の既定。ユーザーが指定した時だけ引数で渡す）
+- 応答の `pane_id` を読み、`herdr pane rename <pane-id> herdr-issue-review` と `herdr pane get <pane-id>` で label を確認する
 - 収束まで同じペインを使い回す（レビューのたびに増やさない）
 
 ### 2. 1 回目を委譲する

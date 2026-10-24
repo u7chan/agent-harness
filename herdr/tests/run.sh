@@ -1227,11 +1227,11 @@ MARKDOWN_FIXTURE_ROOT="$TEST_TMP/markdown-fixture"
 
 setup_markdown_fixture() {
   rm -rf "$MARKDOWN_FIXTURE_ROOT"
-  mkdir -p "$MARKDOWN_FIXTURE_ROOT/herdr/references" "$MARKDOWN_FIXTURE_ROOT/pi-issue-pr-workflow"
+  mkdir -p "$MARKDOWN_FIXTURE_ROOT/herdr/references" "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow"
   cp "$HERDR_DIR/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/herdr/SKILL.md"
   cp "$HERDR_DIR"/references/*.md "$MARKDOWN_FIXTURE_ROOT/herdr/references/"
   cp -R "$HERDR_DIR/examples" "$MARKDOWN_FIXTURE_ROOT/herdr/examples"
-  cp "$HERDR_DIR/../pi-issue-pr-workflow/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/pi-issue-pr-workflow/SKILL.md"
+  cp "$HERDR_DIR/../herdr-pi-issue-pr-workflow/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow/SKILL.md"
 }
 
 replace_in_file() {
@@ -1292,7 +1292,7 @@ markdown_file_anchor_is_checked() {
 markdown_other_skill_heading_rename_is_rejected() {
   setup_markdown_fixture
   markdown_check "$MARKDOWN_FIXTURE_ROOT/herdr" || return 1
-  replace_in_file "$MARKDOWN_FIXTURE_ROOT/pi-issue-pr-workflow/SKILL.md" \
+  replace_in_file "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow/SKILL.md" \
     's|^## Completion$|## Completion Renamed|'
   expect_markdown_failure "$MARKDOWN_FIXTURE_ROOT/herdr" 'anchor does not resolve'
 }
