@@ -9,6 +9,17 @@ Run every operation through `scripts/pw.sh` next to this SKILL.md (below: `pw.sh
 
 `pw.sh` is a wrapper around the plain CLI that pins the session name, strips the update banner, **inlines snapshots** (the plain CLI returns only a path), and adds an `open` preflight.
 
+## Prerequisites
+
+An already installed `playwright-cli` with its Chromium, and `PW_BIN`, when set, naming an already
+installed binary. The first `open` is the check: it stops with the missing item instead of starting a
+session. If anything is missing, stop and report it. Do not install the CLI, the browser, or any other
+dependency, and do not change global settings; providing them is the user's task. A caller may
+explicitly select an already installed binary for this run.
+
+A package downloader (for example `npx @playwright/cli`) installs the package when it is absent, so
+`PW_BIN` must not point at one unless the caller has already provided it.
+
 ## Basic loop
 
 ```bash
