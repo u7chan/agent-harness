@@ -16,7 +16,7 @@ GitHub Action の入力、出力、`permission` は `gh/actions.json` を正本�
 
 ### インライン返信の呼び出し例
 
-どちらの例も `reference`、`number`、`reply_to`、`body`、`grant: write` を明示する。`reference` には対象 PR から特定した URL、`reply_to` には `review-comments.read` で得た root の REST 数値 ID を渡す。本文は Markdown ファイルに保存し、`jq --rawfile` で読み込む。`grant` は引数の指定を承認の代替にせず、`write` を明示したままにする。
+どちらの例も `reference`、`number`、`reply_to`、`body`、`grant: write` を明示する。`reference` には対象 PR から特定した URL、`reply_to` には `review-comments.read` で得た root の REST 数値 ID を渡す。本文は Markdown ファイルに保存し、`jq --rawfile` で読み込む。`grant` は引数の指定を承認の代替にせず、`write` を明示したままにする。`<topic>` はタスクごとに一意な名前に置き換える。
 
 通常のフィードバック返信は再チェック分類ではないため、`validate-review-payload.sh` を通さない。
 
@@ -65,4 +65,4 @@ baseline 入力（`baseline_comment_ids` 等）や thread 入力は渡さない�
 
 - インラインコメントの `position` はハンクをまたいで数える従来形式の差分位置であり、ハンクごとにリセットしない。
 - 返信の `reply_to` には `review-comments.read` の REST 数値 ID を使う。`review-threads.read` の GraphQL ノード ID は使わない。
-- 一時ファイルはワーキングディレクトリ内に置き、不要になったら削除する。
+- 一時ファイルはワーキングディレクトリ内または `/tmp` に、タスク固有名で置き、不要になったら削除する。
