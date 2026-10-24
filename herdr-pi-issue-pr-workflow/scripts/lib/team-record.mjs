@@ -9,7 +9,7 @@
  * This module must not import pi and must not perform I/O. The wrapper
  * (`team-record.sh`) resolves the repository root and its `origin` URL, and
  * the CLI (`team-record.mjs`) reads and writes the record file and calls the
- * model-spec resolver; `pi-issue-pr-workflow/tests/team-record.sh` imports this
+ * model-spec resolver; `herdr-pi-issue-pr-workflow/tests/team-record.sh` imports this
  * module directly, on machines without an installed pi.
  */
 

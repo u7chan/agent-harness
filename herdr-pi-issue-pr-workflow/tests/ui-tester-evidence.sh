@@ -5,7 +5,7 @@
 # optional, and posting the evidence belongs to the orchestrator.
 #
 # These tests read the skill's Markdown only: no pi, no network, no browser.
-# pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
+# herdr-pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

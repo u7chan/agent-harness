@@ -2,8 +2,8 @@ name: contract-tests
 
 # Runs the gh dispatcher contract suite, the action catalog consistency
 # check, the review payload and recheck tests, the playwright skill mock tests,
-# the Herdr async wrapper tests, the pi-issue-pr-workflow model-spec and
-# approved-team-record tests, the issue-review start-gate documentation
+# the Herdr async wrapper tests, the herdr-pi-issue-pr-workflow model-spec and
+# approved-team-record tests, the herdr-issue-review start-gate documentation
 # contract, and the markdown link and anchor check over every
 # skill's SKILL.md and references on every push and pull request. All checks are
 # hermetic: they run unauthenticated with no credentials, no network access, no
@@ -50,13 +50,13 @@ jobs:
       - name: Run Herdr async wrapper tests
         run: herdr/tests/run.sh
 
-      - name: Run pi-issue-pr-workflow model-spec tests
-        run: pi-issue-pr-workflow/tests/run.sh
+      - name: Run herdr-pi-issue-pr-workflow model-spec tests
+        run: herdr-pi-issue-pr-workflow/tests/run.sh
 
-      # The start-gate suite reads issue-review/SKILL.md only; it needs neither
+      # The start-gate suite reads herdr-issue-review/SKILL.md only; it needs neither
       # Herdr nor pi, so it runs in the same hermetic job.
-      - name: Run issue-review start-gate contract tests
-        run: issue-review/tests/run.sh
+      - name: Run herdr-issue-review start-gate contract tests
+        run: herdr-issue-review/tests/run.sh
 
       # The skill list comes from package.json, the manifest that defines the
       # served skill set, so a newly added skill is checked without editing
