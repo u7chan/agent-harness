@@ -236,7 +236,8 @@ check_eq "5i explicit --headed with PW_HEADED=1 is not duplicated" \
 out="$(PW_BIN=playwright-cli-absent PW_SESSION=t bash "$PW" open 2>&1)"
 rc=$?
 [ "$rc" -eq 1 ] && ok "6a exits 1 when playwright-cli is absent" || ng "6a exits 1 when absent" "rc=$rc"
-check_contains "6b shows install hint" "$out" 'npm install -g @playwright/cli'
+check_contains "6b names the missing binary" "$out" 'playwright-cli-absent not found'
+check_not_contains "6c ... without an install hint" "$out" 'npm install'
 
 # --- 7. --json output form ------------------------------------------------
 out="$(PW_SESSION=t bash "$PW" click e2 --json 2>/dev/null)"
@@ -293,12 +294,13 @@ out="$(SHIM_BODY='- paragraph: Chromium is not installed on this machine' \
   PW_SESSION=t bash "$PW" click e2 2>&1)"
 rc=$?
 check_eq "10a page text 'is not installed' does not fail the run" "$rc" "0"
-check_not_contains "10b ... and prints no browser-missing note" "$out" 'browser missing'
+check_not_contains "10b ... and prints no prerequisite-missing note" "$out" 'prerequisite missing'
 
 out="$(SHIM_STDERR='Browser "chromium" is not installed' PW_SESSION=t bash "$PW" click e2 2>&1)"
 rc=$?
 check_eq "10c stderr 'is not installed' fails the run" "$rc" "1"
-check_contains "10d ... and prints the install-browser note" "$out" 'install-browser chromium'
+check_contains "10d ... and says the prerequisite is missing" "$out" 'Chromium is not installed'
+check_not_contains "10e ... without an install hint" "$out" 'install-browser'
 
 # --- 11. snapshot link line is dropped (N2) -------------------------------
 out="$(PW_SESSION=t bash "$PW" click e2 2>/dev/null)"

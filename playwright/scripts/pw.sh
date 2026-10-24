@@ -10,7 +10,8 @@ set -euo pipefail
 umask 077
 
 PW_BIN="${PW_BIN:-playwright-cli}"
-# PW_BIN may hold extra words (e.g. "npx @playwright/cli"); keep it as an array.
+# PW_BIN may hold extra words; keep it as an array. It must name an already
+# installed binary: this wrapper never installs anything.
 read -r -a PW_CMD <<< "$PW_BIN"
 PW_SESSION="${PW_SESSION:-playwright}"
 PW_SNAPSHOT_MAX="${PW_SNAPSHOT_MAX:-12000}"
@@ -107,8 +108,8 @@ drop_snapshot_link() {
 
 require_bin() {
   command -v "${PW_CMD[0]}" >/dev/null 2>&1 || fail "$PW_BIN not found.
-  install globally: npm install -g @playwright/cli
-  or one-off:       PW_BIN='npx @playwright/cli' $0 ..."
+  prerequisite missing: stop and report it. This skill does not install dependencies.
+  ask the user to provide the CLI, then rerun."
 }
 
 # tokenize <line> -> TOKENS array. Interprets '...' and "..." quoting only;
@@ -182,7 +183,7 @@ run_one() {
   # Only trust stderr, or an "### Error"/"Error" line on stdout: page text can
   # legitimately contain the phrase.
   if grep -q 'is not installed' "$err" || grep -q '^\(###[[:space:]]*\)\?Error.*is not installed' "$out"; then
-    note "browser missing. run: $PW_BIN install-browser chromium"
+    note "prerequisite missing: Chromium is not installed for $PW_BIN. Stop and report it; do not install the browser."
     return 1
   fi
   [ "$inline" = 1 ] && inline_snapshot "$out"

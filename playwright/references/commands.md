@@ -270,10 +270,14 @@ playwright-cli close-all
 playwright-cli kill-all
 ```
 
-## Local installation
+## Binary location
 
-If running the global `playwright-cli` binary fails, use `npx @playwright/cli`. With `pw.sh`, swap the binary via `PW_BIN`.
+`PW_BIN` selects the binary `pw.sh` runs. It must name an already installed `playwright-cli`; use it to
+point at another installed binary when the global one is unusable.
 
 ```bash
-PW_BIN='npx @playwright/cli' pw.sh open https://example.com
+PW_BIN="$HOME/.local/bin/playwright-cli" pw.sh open https://example.com
 ```
+
+A package downloader such as `npx @playwright/cli` installs the package when it is absent. That is the
+user's decision, made outside the skill, so do not set `PW_BIN` to one yourself.

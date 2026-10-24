@@ -1,6 +1,6 @@
 ---
 name: explain-video
-description: Explain an agreed design or implemented functionality in a short, captioned animated-diagram video. Use for design explainers, PR walkthroughs, or visual explanations of code changes; produces local artifacts without publishing them.
+description: Explain an agreed design or implemented functionality in a short, captioned animated-diagram video. Use for design explainers, PR walkthroughs, or visual explanations of code changes; produces local artifacts without publishing them. Requires FFmpeg with libx264, ffprobe, and the Playwright skill's Chromium.
 ---
 
 # Explain Video

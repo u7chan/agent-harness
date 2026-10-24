@@ -1,6 +1,6 @@
 ---
 name: playwright
-description: Automate browser operations with Playwright. Use for web navigation, form filling, screenshots, data extraction, and web app testing.
+description: Automate browser operations with Playwright. Use for web navigation, form filling, screenshots, data extraction, and web app testing. Requires an already installed playwright-cli with Chromium.
 ---
 
 # Browser automation with playwright-cli
@@ -8,6 +8,17 @@ description: Automate browser operations with Playwright. Use for web navigation
 Run every operation through `scripts/pw.sh` next to this SKILL.md (below: `pw.sh`). Resolve the script from the directory of the SKILL.md you actually read: its absolute path is `<skill-dir>/scripts/pw.sh`, where `<skill-dir>` is that directory. Invoke it by that absolute path and do not depend on a harness-injected base directory.
 
 `pw.sh` is a wrapper around the plain CLI that pins the session name, strips the update banner, **inlines snapshots** (the plain CLI returns only a path), and adds an `open` preflight.
+
+## Prerequisites
+
+An already installed `playwright-cli` with its Chromium, and `PW_BIN`, when set, naming an already
+installed binary. The first `open` is the check: it stops with the missing item instead of starting a
+session. If anything is missing, stop and report it. Do not install the CLI, the browser, or any other
+dependency, and do not change global settings; providing them is the user's task. A caller may
+explicitly select an already installed binary for this run.
+
+A package downloader (for example `npx @playwright/cli`) installs the package when it is absent, so
+`PW_BIN` must not point at one unless the caller has already provided it.
 
 ## Basic loop
 
