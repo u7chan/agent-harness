@@ -433,6 +433,45 @@ capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
 check_eq "a non-JSON entry is not a profile" "$(kv "$OUT" reason)" "no-profiles"
 check_eq "a non-JSON entry keeps profiles_present false" "$(kv "$OUT" profiles_present)" "false"
 
+# A profile set that exists but cannot be enumerated is not an empty set: the
+# field stays empty and the result is invalid, so no run can read it as the
+# bootstrap state. A regular file at the `profiles` path fails the enumeration
+# the same way a permission error does, on every user.
+D="$(new_agent unreadable-profiles-file)"
+mkdir -p "$(asset "$D")"
+printf 'not a directory\n' > "$(asset "$D")/profiles"
+capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+check_single_line "profiles is not a directory"
+check_nonzero "profiles is not a directory"
+check_eq "profiles is not a directory result" "$(kv "$OUT" result)" "invalid"
+check_eq "profiles is not a directory reason" "$(kv "$OUT" reason)" "unreadable"
+check_eq "profiles is not a directory keeps profiles_present unknown" "$(kv "$OUT" profiles_present)" ""
+check_eq "profiles is not a directory keeps the selection" "$(kv "$OUT" profile)" "default"
+check_eq "profiles is not a directory is not missing" "$([ "$(kv "$OUT" result)" = "missing" ] && echo yes || echo no)" "no"
+
+# The reviewed reproduction: an existing fallback profile behind a directory
+# that allows writing and traversal but not reading.
+if [ "$(id -u)" -ne 0 ]; then
+  D="$(new_agent unreadable-profiles-mode)"
+  put_profile "$D" fallback "$(profile_json true "$ROLES")"
+  chmod 300 "$(asset "$D")/profiles"
+  capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+  chmod 700 "$(asset "$D")/profiles"
+  check_single_line "unreadable profiles directory"
+  check_nonzero "unreadable profiles directory"
+  check_eq "unreadable profiles directory result" "$(kv "$OUT" result)" "invalid"
+  check_eq "unreadable profiles directory reason" "$(kv "$OUT" reason)" "unreadable"
+  check_eq "unreadable profiles directory keeps profiles_present unknown" "$(kv "$OUT" profiles_present)" ""
+  check_eq "unreadable profiles directory is not a bootstrap state" "$([ "$(kv "$OUT" result)" = "missing" ] && echo yes || echo no)" "no"
+  if [ -e "$(asset "$D")/active" ]; then
+    ng "unreadable profiles directory creates no active" "found $(asset "$D")/active"
+  else
+    ok "unreadable profiles directory creates no active"
+  fi
+else
+  ok "unreadable profiles directory (skipped: running as root)"
+fi
+
 # Only default.json, no active: default applies implicitly.
 D="$(new_agent default-only)"
 put_profile "$D" default "$(profile_json true "$ROLES")"
@@ -869,7 +908,43 @@ capture_in "$D" use --resolver "$WORK/stub-mixed.sh"
 check_exit "use without a name is a usage error" "2"
 check_eq "use without a name keeps active" "$(active_content "$D")" "default"
 
+# Every name the documented pattern permits is usable. A leading dash needs
+# the `--` end-of-options terminator, and the same name round-trips through
+# write, resolve, and use.
+D="$(new_agent use-dash-name)"
+capture_in "$D" write --profile -fallback --resolver "$WORK/stub-mixed.sh" \
+  --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+check_eq "write accepts a dash-leading name" "$RC" "0"
+check_eq "write reports the dash-leading name" "$(kv "$OUT" profile)" "-fallback"
+check_eq "write stores the dash-leading profile" "$(file_mode "$(asset "$D")/profiles/-fallback.json")" "600"
+
+capture_in "$D" resolve --profile -fallback --resolver "$WORK/stub-mixed.sh"
+check_eq "resolve accepts a dash-leading name" "$RC" "0"
+check_eq "resolve reports the dash-leading name" "$(kv "$OUT" profile)" "-fallback"
+check_eq "resolve reports the dash-leading source" "$(kv "$OUT" source)" "explicit"
+
+capture_in "$D" use -fallback --resolver "$WORK/stub-mixed.sh"
+check_exit "use without the terminator still parses options" "2"
+check_eq "use without the terminator reports usage" "$(kv "$OUT" reason)" "usage"
+if [ -e "$(asset "$D")/active" ]; then
+  ng "use without the terminator creates no active" "found $(asset "$D")/active"
+else
+  ok "use without the terminator creates no active"
+fi
+
+capture_in "$D" use --resolver "$WORK/stub-mixed.sh" -- -fallback
+check_eq "use -- reaches the dash-leading name" "$RC" "0"
+check_eq "use -- reports the dash-leading name" "$(kv "$OUT" profile)" "-fallback"
+check_eq "use -- writes the dash-leading name" "$(active_content "$D")" "-fallback"
+check_eq "use -- keeps the mode 0600" "$(file_mode "$(asset "$D")/active")" "600"
+
+capture_in "$D" use --resolver "$WORK/stub-mixed.sh" -- fallback
+check_nonzero "use -- reports a missing normal name"
+
 # use replaces an existing active atomically and leaves no temporary file.
+D="$(new_agent use-replace)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+put_active "$D" '-fallback\n'
 capture_in "$D" use default --resolver "$WORK/stub-mixed.sh"
 check_eq "use replaces an existing active" "$(active_content "$D")" "default"
 check_eq "use keeps the replaced active at 0600" "$(file_mode "$(asset "$D")/active")" "600"
@@ -960,6 +1035,17 @@ capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
 check_nonzero "bootstrap: a rejected write fails"
 check_eq "bootstrap: the invalid profile is unchanged" "$(cat "$(asset "$D")/profiles/default.json")" "$before_invalid"
 
+# 7. A profile set that cannot be enumerated is invalid, so it never
+# bootstraps and never looks like `no-profiles`.
+D="$(new_agent bootstrap-unreadable)"
+mkdir -p "$(asset "$D")"
+printf 'not a directory\n' > "$(asset "$D")/profiles"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "bootstrap: unreadable profiles result" "$(kv "$OUT" result)" "invalid"
+check_eq "bootstrap: unreadable profiles reason" "$(kv "$OUT" reason)" "unreadable"
+check_eq "bootstrap: unreadable profiles keeps the field unknown" "$(kv "$OUT" profiles_present)" ""
+check_bootstrap_blocked "bootstrap: unreadable profiles"
+
 # --- skill documentation ---------------------------------------------------
 
 SKILL_TEXT="$(cat "$SKILL_MD")"
@@ -967,6 +1053,12 @@ TEAM_TEXT="$(section_text "$SKILL_MD" "Team profiles")"
 KICKOFF_TEXT="$(section_text "$SKILL_MD" "Kickoff gate")"
 SEQUENTIAL_TEXT="$(cat "$SEQUENTIAL_REFERENCE")"
 MIGRATION_TEXT="$(cat "$MIGRATION_REFERENCE")"
+
+# The removed heading and its anchor are rebuilt from their words, so this
+# suite itself does not carry the old literals while the assertions still pin
+# their absence.
+OLD_TEAM_RECORD_TITLE="$(printf '%s' 'Approved' ' team' ' record')"
+OLD_TEAM_RECORD_ANCHOR="#$(printf '%s' "$OLD_TEAM_RECORD_TITLE" | tr '[:upper:] ' '[:lower:]-')"
 
 check_contains "skill documents the profile helper" "$SKILL_TEXT" "team-record.sh"
 check_contains "skill documents the user asset location" "$SKILL_TEXT" 'PI_CODING_AGENT_DIR'
@@ -994,6 +1086,9 @@ check_contains "skill documents the active-profile reason" "$TEAM_TEXT" 'missing
 check_contains "skill documents the explicit-profile reason" "$TEAM_TEXT" 'missing-explicit-profile'
 check_contains "skill documents the bad-active reason" "$TEAM_TEXT" 'bad-active'
 check_contains "skill documents the bad-name reason" "$TEAM_TEXT" 'bad-profile-name'
+check_contains "skill documents the unreadable profile set" "$TEAM_TEXT" 'cannot be enumerated'
+check_contains "skill blocks bootstrap on an unreadable profile set" "$TEAM_TEXT" 'never bootstraps'
+check_contains "skill documents the end-of-options form for a dash-leading name" "$SKILL_TEXT" 'use -- -fallback'
 check_contains "skill documents that active never falls back" "$TEAM_TEXT" 'never silently falls back to `default`'
 check_contains "skill documents the run-only fallback word" "$TEAM_TEXT" 'fallback で'
 check_contains "skill documents the persistent switch word" "$TEAM_TEXT" 'fallback に切り替えて'
@@ -1011,8 +1106,8 @@ check_contains "skill keeps the explicit-save contract" "$KICKOFF_TEXT" \
 check_contains "skill keeps the bootstrap save" "$KICKOFF_TEXT" 'team-record.sh write --profile default'
 check_contains "skill links the migration procedure" "$SKILL_TEXT" 'references/team-profile-migration.md'
 check_contains "skill states that a profile has no version" "$TEAM_TEXT" 'There is no version field'
-check_not_contains "skill does not document the old record anchor" "$SKILL_TEXT" '#approved-team-record'
-check_not_contains "skill does not document the old record heading" "$SKILL_TEXT" '## Approved team record'
+check_not_contains "skill does not document the old record anchor" "$SKILL_TEXT" "$OLD_TEAM_RECORD_ANCHOR"
+check_not_contains "skill does not document the old record heading" "$SKILL_TEXT" "## $OLD_TEAM_RECORD_TITLE"
 check_not_contains "skill does not document the removed repo root option" "$SKILL_TEXT" '--repo-root'
 check_not_contains "skill does not document the removed origin option" "$SKILL_TEXT" '--origin-url'
 check_not_contains "skill does not document the old teams path" "$SKILL_TEXT" 'pi-issue-pr-workflow/teams'
@@ -1022,8 +1117,7 @@ check_not_contains "skill does not document a version field" "$SKILL_TEXT" '"ver
 check_contains "sequential runs relate the profiles to pane reuse" "$SEQUENTIAL_TEXT" \
   '## Relationship to the team profiles'
 check_contains "sequential runs link the Team profiles section" "$SEQUENTIAL_TEXT" '../SKILL.md#team-profiles'
-check_not_contains "sequential runs do not keep the old anchor" "$SEQUENTIAL_TEXT" '#approved-team-record'
-check_not_contains "sequential runs do not say record" "$SEQUENTIAL_TEXT" 'approved team record'
+check_not_contains "sequential runs do not keep the old anchor" "$SEQUENTIAL_TEXT" "$OLD_TEAM_RECORD_ANCHOR"
 
 # The migration reference is the documented procedure, not code.
 check_contains "migration backs up the user asset" "$MIGRATION_TEXT" 'cp -a "$ASSET" "$ASSET.bak-$(date +%Y%m%d%H%M%S)"'

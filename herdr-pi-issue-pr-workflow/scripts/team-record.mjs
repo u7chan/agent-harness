@@ -12,12 +12,19 @@
  *
  *   resolve:
  *     command=resolve profile=<name> source=<explicit|active|default> record=<path>
- *       profiles_present=<true|false> present=<true|false>
+ *       profiles_present=<true|false|> present=<true|false>
  *       result=<ok|missing|invalid|unresolved> [reason=<token>] ...
  *     result=ok         every role of the selected profile resolved
  *     result=missing    no profile file for the selected name
- *     result=invalid    unreadable JSON, a name or `active` violation, or the profile contract
+ *     result=invalid    unreadable JSON, a name or `active` violation, the
+ *                       profile contract, or a `profiles/` that exists but
+ *                       cannot be enumerated
  *     result=unresolved a role does not resolve
+ *
+ * `profiles_present` is empty only when `profiles/` exists but cannot be
+ * enumerated (permission denied, or not a directory). That is never the
+ * `profiles_present=false` bootstrap state: the result is `<invalid>` with
+ * `reason=unreadable`.
  *   use:
  *     command=use profile=<name> active=<path> result=<ok|missing|invalid|unresolved>
  *       written=<true|false> [reason=<token>] ...
@@ -94,6 +101,9 @@ resolve options:
 use:
   use <name>          validate the named profile and write it to \`active\`.
       Only a profile whose every role resolves is selected.
+  use -- <name>       the same, for a name that starts with \`-\`; \`--\` ends
+      option parsing, so \`use -- -fallback\` reaches the profile
+      \`profiles/-fallback.json\`.
 
 write options:
   --profile <name>    required; the profile to write, and the only file this
@@ -176,19 +186,27 @@ function parseArgs(argv) {
       options.prFixSharedWithImpl = parsed;
     },
   };
+  let endOfOptions = false;
   for (let i = 0; i < argv.length; i += 1) {
     const argument = argv[i];
-    if (argument === "-h" || argument === "--help") {
-      return { help: true };
-    }
     if (i === 0) {
+      if (argument === "-h" || argument === "--help") {
+        return { help: true };
+      }
       if (argument !== "resolve" && argument !== "use" && argument !== "write") {
         return { options, error: `unknown command '${argument}'` };
       }
       options.command = argument;
       continue;
     }
-    if (!argument.startsWith("-")) {
+    if (!endOfOptions && argument === "--") {
+      endOfOptions = true;
+      continue;
+    }
+    if (!endOfOptions && (argument === "-h" || argument === "--help")) {
+      return { help: true };
+    }
+    if (endOfOptions || !argument.startsWith("-")) {
       options.positional.push(argument);
       continue;
     }
@@ -261,62 +279,74 @@ function pathExists(file) {
   }
 }
 
-/** True when `profiles/` holds at least one profile file. */
-function profilesPresent() {
+/**
+ * Enumeration state of `profiles/`.
+ *
+ * A failed enumeration is not an empty set: `unreadable` keeps it distinct
+ * from the absence of the directory, so it can never satisfy the
+ * `profiles_present=false` bootstrap condition.
+ *
+ * @returns {{state: "present" | "empty" | "unreadable"}}
+ */
+function profilesPresence() {
   let names;
   try {
     names = readdirSync(profilesDir());
-  } catch {
-    return false;
+  } catch (error) {
+    return { state: error.code === "ENOENT" ? "empty" : "unreadable" };
   }
-  return names.some((name) => name.endsWith(".json") && pathExists(path.join(profilesDir(), name)));
+  const present = names.some((name) => name.endsWith(".json") && pathExists(path.join(profilesDir(), name)));
+  return { state: present ? "present" : "empty" };
 }
 
 /**
- * Select this run's profile.
+ * Select this run's profile name, before the profile set is inspected.
  *
- * @returns {{name: string, source: string, profilesPresent: boolean,
+ * @returns {{name: string, source: string,
  *   status?: {result: "invalid", reason: string}}}
- *   `status` is set when the selection itself cannot be made (`bad-active`,
- *   `bad-profile-name`); otherwise the caller reads `profiles/<name>.json`.
  */
-function selectProfile(options) {
-  const presentProfiles = profilesPresent();
+function selectProfileName(options) {
   if (options.profile !== "") {
     if (!isProfileName(options.profile)) {
-      return {
-        name: "",
-        source: "explicit",
-        profilesPresent: presentProfiles,
-        status: { result: "invalid", reason: "bad-profile-name" },
-      };
+      return { name: "", source: "explicit", status: { result: "invalid", reason: "bad-profile-name" } };
     }
-    return { name: options.profile, source: "explicit", profilesPresent: presentProfiles };
+    return { name: options.profile, source: "explicit" };
   }
   let text;
   try {
     text = readFileSync(activePath(), "utf8");
   } catch (error) {
     if (error.code === "ENOENT") {
-      return { name: DEFAULT_PROFILE_NAME, source: "default", profilesPresent: presentProfiles };
+      return { name: DEFAULT_PROFILE_NAME, source: "default" };
     }
-    return {
-      name: "",
-      source: "active",
-      profilesPresent: presentProfiles,
-      status: { result: "invalid", reason: "bad-active" },
-    };
+    return { name: "", source: "active", status: { result: "invalid", reason: "bad-active" } };
   }
   const parsed = parseActiveContent(text);
   if (parsed.result !== "ok") {
-    return {
-      name: "",
-      source: "active",
-      profilesPresent: presentProfiles,
-      status: { result: "invalid", reason: parsed.reason },
-    };
+    return { name: "", source: "active", status: { result: "invalid", reason: parsed.reason } };
   }
-  return { name: parsed.name, source: "active", profilesPresent: presentProfiles };
+  return { name: parsed.name, source: "active" };
+}
+
+/**
+ * Select this run's profile and report the profile-set state.
+ *
+ * `profilesPresent` is `"true"`, `"false"`, or `""` when `profiles/` cannot be
+ * enumerated. The unreadable state is an `invalid` result, so an unknown
+ * profile set is never reported as `profiles_present=false` and never reaches
+ * the bootstrap condition.
+ *
+ * @returns {{name: string, source: string, profilesPresent: string,
+ *   status?: {result: "invalid", reason: string}}}
+ */
+function selectProfile(options) {
+  const selection = selectProfileName(options);
+  const presence = profilesPresence();
+  const profilesPresent = presence.state === "present" ? "true" : presence.state === "empty" ? "false" : "";
+  if (!selection.status && presence.state === "unreadable") {
+    return { ...selection, profilesPresent, status: { result: "invalid", reason: "unreadable" } };
+  }
+  return { ...selection, profilesPresent };
 }
 
 /** Model-spec resolver to use; the sibling script is the default. */
@@ -439,7 +469,7 @@ function commandResolve(options) {
         ? "missing-explicit-profile"
         : selection.source === "active"
           ? "missing-active-profile"
-          : selection.profilesPresent
+          : selection.profilesPresent === "true"
             ? "missing-selected-profile"
             : "no-profiles";
     emit([...base, ["present", "false"], ["result", "missing"], ["reason", reason]]);
