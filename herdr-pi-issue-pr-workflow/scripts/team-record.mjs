@@ -1,48 +1,74 @@
 #!/usr/bin/env node
 /**
- * Read, validate, and write the approved team record of one repository.
+ * Read, validate, and write team profiles.
  *
- * `team-record.sh` resolves the repository root and its `origin` remote URL
- * and passes them as `--repo-root` / `--origin-url`; this file owns the record
- * file and the model-spec resolver call. The record format, the key
- * derivation, and the validation rules live in `lib/team-record.mjs`.
+ * The user asset is `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow`:
+ * `profiles/<name>.json` holds one team composition and `active` names the
+ * profile a run uses when it states none. The profile format and the validation
+ * rules live in `lib/team-record.mjs`.
  *
  * Output contract (exactly one stdout line, exit status 0 only for
  * `result=ok`, 2 for an argument error):
  *
  *   resolve:
- *     command=resolve record=<path> present=<true|false> result=<ok|missing|invalid|unresolved> ...
- *     result=ok        every recorded role resolved through the model-spec resolver
- *     result=missing   no record file for this repository
- *     result=invalid   the file is unreadable JSON or fails the record contract
- *     result=unresolved a recorded or required role does not resolve
- *   write:
- *     command=write record=<path> result=<ok|invalid|unresolved> written=<true|false> ...
+ *     command=resolve profile=<name> source=<explicit|active|default> record=<path>
+ *       profiles_present=<true|false|> present=<true|false>
+ *       result=<ok|missing|invalid|unresolved> [reason=<token>] ...
+ *     result=ok         every role of the selected profile resolved
+ *     result=missing    no profile file for the selected name
+ *     result=invalid    unreadable JSON, an unreadable `active` or
+ *                       `profiles/`, a name violation, or the profile contract
+ *     result=unresolved a role does not resolve
  *
- * The record file is a user asset: the write is atomic (temporary file plus
- * rename) and the file mode is 0600.
+ * `profiles_present` is empty only when `profiles/` exists but cannot be read
+ * reliably: enumeration fails (permission denied, or not a directory), or a
+ * `.json` entry cannot be inspected. That is never the `profiles_present=false`
+ * bootstrap state: the result is `<invalid>` with `reason=unreadable`. An
+ * unreadable `active` or profile file reports the same reason and is never
+ * treated as absent.
+ *   use:
+ *     command=use profile=<name> active=<path> result=<ok|missing|invalid|unresolved>
+ *       written=<true|false> [reason=<token>] ...
+ *   write:
+ *     command=write profile=<name> record=<path> result=<ok|invalid|unresolved>
+ *       written=<true|false> [reason=<token>] ...
+ *
+ * `use` writes `active` and `write` writes one profile; neither changes the
+ * other. Both write atomically (temporary file plus rename) with mode 0600.
  */
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ACTIVE_FILE_NAME,
+  DEFAULT_PROFILE_NAME,
   REQUIRED_ROLE_NAMES,
   ROLE_NAMES,
-  buildRecord,
+  buildProfile,
   field,
   formatRoleSpec,
+  isProfileName,
   isSafeField,
-  parseOriginKey,
+  parseActiveContent,
   parseRoleSpec,
-  recordFileName,
-  recordKeyFromPath,
+  profileFileName,
   renderStoredRole,
-  validateRecord,
+  validateProfile,
 } from "./lib/team-record.mjs";
 
 /** A resolver run that hangs must not hold the kickoff pane forever. */
@@ -51,27 +77,42 @@ const RESOLVER_TIMEOUT_MS = 120000;
 /** Resolver results that mean "this specification is usable". */
 const OK_RESULT = "ok";
 
-const USAGE = `Usage: team-record.sh <resolve|write> [options]
+const USAGE = `Usage: team-record.sh <resolve|use|write> [options]
 
-Reads, validates, and writes the approved team record for one repository:
-  \${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow/teams/<key>.json
-\`<key>\` is \`owner__repo\` derived from \`origin\`, or the repository root path
-when the remote does not name exactly \`owner/repo\`.
+Reads, validates, and writes team profiles under
+\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow:
+  profiles/<name>.json   one team composition per profile
+  active                 the profile name a run uses when it states none
+
+\`resolve\` selects this run's profile: --profile, then \`active\`, then
+\`default\`. An \`active\` that names a missing profile is an error, not a
+silent fallback to \`default\`. An unreadable \`profiles/\` (it cannot be
+listed, or a \`.json\` entry cannot be inspected) and an unreadable
+\`active\` or profile file are \`result=invalid reason=unreadable\`; they
+are never reported as absent, so they cannot satisfy the bootstrap
+condition.
 
 Common options:
-  --repo-root <dir>   repository root used to derive the record key
-  --origin-url <url>  \`origin\` URL of that root (empty means no resolvable origin)
-  --record <file>     record file path; overrides the derived path
   --resolver <path>   model-spec resolver (default: the sibling resolve-model-spec.sh)
 
 resolve options:
+  --profile <name>    use this profile for the run (extensionless name)
   --require-role <role>
-      also require this role in the record (repeatable). Any role name is
-      accepted, so a role this version does not know yet answers \`absent\`
+      also require this role in the profile (repeatable). Any role name is
+      accepted, so a role this version does not know yet answers \`unresolved\`
       instead of failing the argument check, and the kickoff returns to the
       proposal path.
 
+use:
+  use <name>          validate the named profile and write it to \`active\`.
+      Only a profile whose every role resolves is selected.
+  use -- <name>       the same, for a name that starts with \`-\`; \`--\` ends
+      option parsing, so \`use -- -fallback\` reaches the profile
+      \`profiles/-fallback.json\`.
+
 write options:
+  --profile <name>    required; the profile to write, and the only file this
+      command changes (\`active\` is untouched).
   --role <role>=<provider>/<model>/<thinking>
       team member to record (repeatable); impl, review, and pr-fix are
       required, ui-tester is optional, and the role name must be one of them.
@@ -81,10 +122,9 @@ write options:
       required; whether pr-fix reuses the impl agent. When \`true\`, the
       pr-fix specification must equal the impl specification.
 
-resolve prints one key=value line and exits nonzero unless \`result=ok\`.
-write prints one key=value line and exits nonzero unless \`result=ok\`; it
-validates every role through the resolver before writing, so the record only
-ever holds specifications that resolved at write time.`;
+Every command prints one key=value line and exits nonzero unless \`result=ok\`.
+\`write\` and \`use\` validate every role through the resolver, so the user asset
+only ever holds specifications that resolved at write time.`;
 
 /** Print the single key=value line; `writeSync` keeps it complete on exit. */
 function emit(fields) {
@@ -97,7 +137,7 @@ function emit(fields) {
 function emitUsageError(command, reason) {
   emit([
     ["command", command],
-    ["record", ""],
+    ["profile", ""],
     ["result", "invalid"],
     ["reason", reason || "usage"],
   ]);
@@ -117,29 +157,19 @@ function parseBoolean(text) {
 function parseArgs(argv) {
   const options = {
     command: "",
-    repoRoot: "",
-    originUrl: null,
-    record: "",
+    profile: "",
+    positional: [],
     resolver: "",
     requireRoles: [],
     roleSpecs: [],
     prFixSharedWithImpl: null,
   };
   const values = {
-    "--repo-root": (value) => {
-      if (!isSafeField(value) || value === "") {
-        throw new Error("--repo-root requires a non-empty path");
-      }
-      options.repoRoot = value;
-    },
-    "--origin-url": (value) => {
-      options.originUrl = value;
-    },
-    "--record": (value) => {
+    "--profile": (value) => {
       if (value === "") {
-        throw new Error("--record requires a non-empty path");
+        throw new Error("--profile requires a name");
       }
-      options.record = value;
+      options.profile = value;
     },
     "--resolver": (value) => {
       if (value === "") {
@@ -161,16 +191,28 @@ function parseArgs(argv) {
       options.prFixSharedWithImpl = parsed;
     },
   };
+  let endOfOptions = false;
   for (let i = 0; i < argv.length; i += 1) {
     const argument = argv[i];
-    if (argument === "-h" || argument === "--help") {
-      return { help: true };
-    }
     if (i === 0) {
-      if (argument !== "resolve" && argument !== "write") {
+      if (argument === "-h" || argument === "--help") {
+        return { help: true };
+      }
+      if (argument !== "resolve" && argument !== "use" && argument !== "write") {
         return { options, error: `unknown command '${argument}'` };
       }
       options.command = argument;
+      continue;
+    }
+    if (!endOfOptions && argument === "--") {
+      endOfOptions = true;
+      continue;
+    }
+    if (!endOfOptions && (argument === "-h" || argument === "--help")) {
+      return { help: true };
+    }
+    if (endOfOptions || !argument.startsWith("-")) {
+      options.positional.push(argument);
       continue;
     }
     const apply = values[argument];
@@ -188,7 +230,17 @@ function parseArgs(argv) {
     }
   }
   if (!options.command) {
-    return { options, error: "a command (resolve or write) is required" };
+    return { options, error: "a command (resolve, use, or write) is required" };
+  }
+  if (options.command === "use") {
+    if (options.positional.length === 0) {
+      return { options, error: "use requires a profile name" };
+    }
+    if (options.positional.length > 1) {
+      return { options, error: "use takes exactly one profile name" };
+    }
+  } else if (options.positional.length > 0) {
+    return { options, error: `unexpected argument '${options.positional[0]}'` };
   }
   return { options };
 }
@@ -200,17 +252,129 @@ function piAgentDir() {
   return path.resolve(base);
 }
 
-/** Record file path for this invocation. */
-function recordPath(options) {
-  if (options.record) {
-    return path.resolve(options.record);
+/**
+ * Root of the user asset. "pi-issue-pr-workflow" is the asset's stable
+ * identifier, not this skill's distribution path: profiles written before the
+ * skill directory was renamed stay readable, so renaming it requires a
+ * migration.
+ */
+function assetDir() {
+  return path.join(piAgentDir(), "pi-issue-pr-workflow");
+}
+
+function profilesDir() {
+  return path.join(assetDir(), "profiles");
+}
+
+function activePath() {
+  return path.join(assetDir(), ACTIVE_FILE_NAME);
+}
+
+function profilePath(name) {
+  return path.join(profilesDir(), profileFileName(name));
+}
+
+/**
+ * Presence of one file, following a symlink.
+ *
+ * A failed inspection is not an absent file: only `ENOENT` reads as `missing`,
+ * so a permission or type error can never become "there is no profile here".
+ *
+ * @returns {"present" | "missing" | "unreadable"}
+ */
+function profilePresence(file) {
+  try {
+    statSync(file);
+    return "present";
+  } catch (error) {
+    return error.code === "ENOENT" ? "missing" : "unreadable";
   }
-  const repoRoot = options.repoRoot ? path.resolve(options.repoRoot) : process.cwd();
-  const key = parseOriginKey(options.originUrl ?? "") ?? recordKeyFromPath(repoRoot);
-  // "pi-issue-pr-workflow" is the user asset's stable identifier, not this
-  // skill's distribution path: records written before the skill directory was
-  // renamed stay readable, so renaming it requires a migration.
-  return path.join(piAgentDir(), "pi-issue-pr-workflow", "teams", recordFileName(key));
+}
+
+/**
+ * Enumeration state of `profiles/`.
+ *
+ * A failed read is not an empty set: `unreadable` keeps it distinct from the
+ * absence of the directory, so it can never satisfy the
+ * `profiles_present=false` bootstrap condition. The same holds after a
+ * successful enumeration when a candidate entry cannot be inspected: a
+ * directory that can be listed but not traversed reports `EACCES` on the
+ * child `stat`, which must not read as "that entry does not exist".
+ *
+ * @returns {{state: "present" | "empty" | "unreadable"}}
+ */
+function profilesPresence() {
+  let names;
+  try {
+    names = readdirSync(profilesDir());
+  } catch (error) {
+    return { state: error.code === "ENOENT" ? "empty" : "unreadable" };
+  }
+  let present = false;
+  for (const name of names) {
+    if (!name.endsWith(".json")) {
+      continue;
+    }
+    try {
+      statSync(path.join(profilesDir(), name));
+    } catch {
+      return { state: "unreadable" };
+    }
+    present = true;
+  }
+  return { state: present ? "present" : "empty" };
+}
+
+/**
+ * Select this run's profile name, before the profile set is inspected.
+ *
+ * @returns {{name: string, source: string,
+ *   status?: {result: "invalid", reason: string}}}
+ */
+function selectProfileName(options) {
+  if (options.profile !== "") {
+    if (!isProfileName(options.profile)) {
+      return { name: "", source: "explicit", status: { result: "invalid", reason: "bad-profile-name" } };
+    }
+    return { name: options.profile, source: "explicit" };
+  }
+  let text;
+  try {
+    text = readFileSync(activePath(), "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { name: DEFAULT_PROFILE_NAME, source: "default" };
+    }
+    // An unreadable `active` is not an absent one: a permission or type error
+    // must never select the implicit default as if no switch were configured.
+    return { name: "", source: "active", status: { result: "invalid", reason: "unreadable" } };
+  }
+  const parsed = parseActiveContent(text);
+  if (parsed.result !== "ok") {
+    return { name: "", source: "active", status: { result: "invalid", reason: parsed.reason } };
+  }
+  return { name: parsed.name, source: "active" };
+}
+
+/**
+ * Select this run's profile and report the profile-set state.
+ *
+ * `profilesPresent` is `"true"`, `"false"`, or `""` when `profiles/` cannot be
+ * enumerated. The unreadable state is an `invalid` result, so an unknown
+ * profile set is never reported as `profiles_present=false` and never reaches
+ * the bootstrap condition.
+ *
+ * @returns {{name: string, source: string, profilesPresent: string,
+ *   status?: {result: "invalid", reason: string}}}
+ */
+function selectProfile(options) {
+  const selection = selectProfileName(options);
+  const presence = profilesPresence();
+  const profilesPresent = presence.state === "present" ? "true" : presence.state === "empty" ? "false" : "";
+  if (!selection.status && presence.state === "unreadable") {
+    return { ...selection, profilesPresent, status: { result: "invalid", reason: "unreadable" } };
+  }
+  return { ...selection, profilesPresent };
 }
 
 /** Model-spec resolver to use; the sibling script is the default. */
@@ -257,44 +421,106 @@ function roleFields(raw) {
   return fields;
 }
 
-function commandResolve(options) {
-  const file = recordPath(options);
-  const base = [
-    ["command", "resolve"],
-    ["record", file],
-  ];
-  let raw;
+/** A resolved `{result, reason}` is an argument error only for a bad name. */
+function exitForReason(reason) {
+  return reason === "bad-profile-name" || reason === "usage" ? 2 : 1;
+}
+
+/**
+ * Read and validate one profile file.
+ *
+ * @returns {{result: "ok", profile: object} | {result: "invalid" | "missing" | "unresolved", ...}}
+ */
+function loadProfile(file) {
   let text;
   try {
     text = readFileSync(file, "utf8");
   } catch (error) {
     if (error.code === "ENOENT") {
-      emit([...base, ["present", "false"], ["result", "missing"], ["reason", "absent"]]);
-      return 1;
+      return { result: "missing" };
     }
-    emit([...base, ["present", "true"], ["result", "invalid"], ["reason", "unreadable"]]);
-    return 1;
+    return { result: "invalid", reason: "unreadable" };
   }
+  let raw;
   try {
     raw = JSON.parse(text);
   } catch {
-    emit([...base, ["present", "true"], ["result", "invalid"], ["reason", "bad-json"]]);
+    return { result: "invalid", reason: "bad-json", raw: undefined };
+  }
+  const validation = validateProfile(raw);
+  if (validation.result !== "ok") {
+    return { result: "invalid", reason: validation.reason, raw };
+  }
+  return { result: "ok", profile: validation.profile, raw };
+}
+
+/** Every role of a profile must resolve before the profile is usable. */
+function resolveRoles(profile, resolver) {
+  for (const role of ROLE_NAMES) {
+    const spec = profile.roles[role];
+    if (!spec) {
+      continue;
+    }
+    const resolution = runResolver(resolver, spec);
+    if (resolution.result !== OK_RESULT) {
+      return { role, result: resolution.result };
+    }
+  }
+  return null;
+}
+
+function commandResolve(options) {
+  const selection = selectProfile(options);
+  const file = selection.name === "" ? "" : profilePath(selection.name);
+  const base = [
+    ["command", "resolve"],
+    ["profile", selection.name],
+    ["source", selection.source],
+    ["record", file],
+    ["profiles_present", String(selection.profilesPresent)],
+  ];
+
+  if (selection.status) {
+    emit([
+      ...base,
+      ["present", "false"],
+      ["result", selection.status.result],
+      ["reason", selection.status.reason],
+    ]);
+    return exitForReason(selection.status.reason);
+  }
+
+  const filePresence = file === "" ? "missing" : profilePresence(file);
+  if (filePresence === "unreadable") {
+    emit([...base, ["present", "false"], ["result", "invalid"], ["reason", "unreadable"]]);
+    return 1;
+  }
+  if (filePresence === "missing") {
+    const reason =
+      selection.source === "explicit"
+        ? "missing-explicit-profile"
+        : selection.source === "active"
+          ? "missing-active-profile"
+          : selection.profilesPresent === "true"
+            ? "missing-selected-profile"
+            : "no-profiles";
+    emit([...base, ["present", "false"], ["result", "missing"], ["reason", reason]]);
     return 1;
   }
 
-  const validation = validateRecord(raw);
-  if (validation.result !== "ok") {
+  const loaded = loadProfile(file);
+  if (loaded.result !== "ok") {
     emit([
       ...base,
       ["present", "true"],
       ["result", "invalid"],
-      ["reason", validation.reason],
-      ...roleFields(raw),
+      ["reason", loaded.reason],
+      ...(loaded.raw === undefined ? [] : roleFields(loaded.raw)),
     ]);
     return 1;
   }
 
-  const record = validation.record;
+  const profile = loaded.profile;
   const unresolvedFields = (role, result) => [
     ...base,
     ["present", "true"],
@@ -302,8 +528,8 @@ function commandResolve(options) {
     ["reason", "role"],
     ["unresolved", role],
     ["unresolved_result", result],
-    ["pr_fix_shared_with_impl", String(record.pr_fix_shared_with_impl)],
-    ...roleFields(record),
+    ["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)],
+    ...roleFields(profile),
   ];
 
   for (const role of options.requireRoles) {
@@ -311,49 +537,42 @@ function commandResolve(options) {
       emit([...base, ["present", "true"], ["result", "invalid"], ["reason", "usage"]]);
       return 2;
     }
-    if (!Object.prototype.hasOwnProperty.call(record.roles, role)) {
+    if (!Object.prototype.hasOwnProperty.call(profile.roles, role)) {
       emit(unresolvedFields(role, "absent"));
       return 1;
     }
   }
 
-  const resolver = resolverPath(options);
-  for (const role of ROLE_NAMES) {
-    const spec = record.roles[role];
-    if (!spec) {
-      continue;
-    }
-    const resolution = runResolver(resolver, spec);
-    if (resolution.result !== OK_RESULT) {
-      emit(unresolvedFields(role, resolution.result));
-      return 1;
-    }
+  const failed = resolveRoles(profile, resolverPath(options));
+  if (failed) {
+    emit(unresolvedFields(failed.role, failed.result));
+    return 1;
   }
 
-  const teamFields = ROLE_NAMES.filter((role) => record.roles[role]).map((role) => [
+  const teamFields = ROLE_NAMES.filter((role) => profile.roles[role]).map((role) => [
     role,
-    formatRoleSpec(record.roles[role]),
+    formatRoleSpec(profile.roles[role]),
   ]);
   emit([
     ...base,
     ["present", "true"],
     ["result", "ok"],
-    ["pr_fix_shared_with_impl", String(record.pr_fix_shared_with_impl)],
+    ["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)],
     ...teamFields,
   ]);
   return 0;
 }
 
 /**
- * Write the record atomically: a 0600 temporary file in the target directory
- * is renamed over the record, so a reader never sees a partial file.
+ * Write one user asset file atomically: a 0600 temporary file in the target
+ * directory is renamed over the target, so a reader never sees a partial file.
  */
-function writeRecordFile(file, record) {
+function writeAssetFile(file, content) {
   const directory = path.dirname(file);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
   try {
-    writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
+    writeFileSync(temporary, content, { flag: "wx" });
     chmodSync(temporary, 0o600);
     renameSync(temporary, file);
   } catch (error) {
@@ -366,17 +585,77 @@ function writeRecordFile(file, record) {
   }
 }
 
+function commandUse(options) {
+  const name = options.positional[0] ?? "";
+  const active = activePath();
+  const base = [
+    ["command", "use"],
+    ["profile", isProfileName(name) ? name : ""],
+    ["active", active],
+  ];
+  const fail = (result, reason, extra = []) => {
+    emit([...base, ["result", result], ["written", "false"], ["reason", reason], ...extra]);
+    return exitForReason(reason);
+  };
+
+  if (!isProfileName(name)) {
+    return fail("invalid", "bad-profile-name");
+  }
+  const file = profilePath(name);
+  const loaded = loadProfile(file);
+  if (loaded.result === "missing") {
+    return fail("missing", "missing-explicit-profile");
+  }
+  if (loaded.result !== "ok") {
+    return fail("invalid", loaded.reason, loaded.raw === undefined ? [] : roleFields(loaded.raw));
+  }
+  const profile = loaded.profile;
+  const failed = resolveRoles(profile, resolverPath(options));
+  if (failed) {
+    return fail("unresolved", "role", [
+      ["unresolved", failed.role],
+      ["unresolved_result", failed.result],
+      ["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)],
+      ...roleFields(profile),
+    ]);
+  }
+
+  try {
+    writeAssetFile(active, `${name}\n`);
+  } catch (error) {
+    writeSync(2, `team-record: cannot write '${active}': ${error instanceof Error ? error.message : String(error)}\n`);
+    return fail("invalid", "write-failed");
+  }
+
+  emit([
+    ...base,
+    ["result", "ok"],
+    ["written", "true"],
+    ["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)],
+    ...ROLE_NAMES.filter((role) => profile.roles[role]).map((role) => [role, formatRoleSpec(profile.roles[role])]),
+  ]);
+  return 0;
+}
+
 function commandWrite(options) {
-  const file = recordPath(options);
+  const name = options.profile;
+  const file = isProfileName(name) ? profilePath(name) : "";
   const base = [
     ["command", "write"],
+    ["profile", isProfileName(name) ? name : ""],
     ["record", file],
   ];
   const fail = (result, reason, extra = []) => {
     emit([...base, ["result", result], ["written", "false"], ["reason", reason], ...extra]);
-    return result === "invalid" && reason === "usage" ? 2 : 1;
+    return exitForReason(reason);
   };
 
+  if (name === "") {
+    return fail("invalid", "usage");
+  }
+  if (!isProfileName(name)) {
+    return fail("invalid", "bad-profile-name");
+  }
   if (options.prFixSharedWithImpl === null) {
     return fail("invalid", "usage");
   }
@@ -405,35 +684,28 @@ function commandWrite(options) {
     return fail("invalid", "bad-shared");
   }
 
-  const resolver = resolverPath(options);
-  for (const role of ROLE_NAMES) {
-    const spec = roles[role];
-    if (!spec) {
-      continue;
-    }
-    const resolution = runResolver(resolver, spec);
-    if (resolution.result !== OK_RESULT) {
-      return fail("unresolved", "role", [
-        ["unresolved", role],
-        ["unresolved_result", resolution.result],
-      ]);
-    }
+  const profile = buildProfile(roles, options.prFixSharedWithImpl);
+  const failed = resolveRoles(profile, resolverPath(options));
+  if (failed) {
+    return fail("unresolved", "role", [
+      ["unresolved", failed.role],
+      ["unresolved_result", failed.result],
+    ]);
   }
 
   try {
-    writeRecordFile(file, buildRecord(roles, options.prFixSharedWithImpl));
+    writeAssetFile(file, `${JSON.stringify(profile, null, 2)}\n`);
   } catch (error) {
     writeSync(2, `team-record: cannot write '${file}': ${error instanceof Error ? error.message : String(error)}\n`);
     return fail("invalid", "write-failed");
   }
 
-  const written = ROLE_NAMES.filter((role) => roles[role]);
   emit([
     ...base,
     ["result", "ok"],
     ["written", "true"],
     ["pr_fix_shared_with_impl", String(options.prFixSharedWithImpl)],
-    ["roles", written.join(",")],
+    ["roles", ROLE_NAMES.filter((role) => roles[role]).join(",")],
   ]);
   return 0;
 }
@@ -448,7 +720,14 @@ function main() {
     writeSync(2, `team-record: ${parsed.error}. Run team-record.sh --help for usage.\n`);
     return emitUsageError(parsed.options.command, "usage");
   }
-  return parsed.options.command === "resolve" ? commandResolve(parsed.options) : commandWrite(parsed.options);
+  switch (parsed.options.command) {
+    case "resolve":
+      return commandResolve(parsed.options);
+    case "use":
+      return commandUse(parsed.options);
+    default:
+      return commandWrite(parsed.options);
+  }
 }
 
 process.exit(main());

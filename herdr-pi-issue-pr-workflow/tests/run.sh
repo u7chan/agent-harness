@@ -3,7 +3,7 @@
 # require pi and do not touch the network: the model-spec classification module
 # is imported directly, the wrapper is driven only with an unresolved pi
 # package root, and tests/team-record.sh replaces the model-spec resolver with a
-# stub through --resolver while it exercises the approved-team-record helper.
+# stub through --resolver while it exercises the team-profile helper.
 # tests/ui-tester-evidence.sh and tests/fixed-lines.sh read the skill's Markdown
 # without any helper.
 set -uo pipefail
@@ -158,7 +158,7 @@ out="$("$HELPER" --provider opencode-go --model deepseek-v4.1-flash \
 rc=$?
 check_unknown_record "newline thinking" "$rc" "$out"
 
-# The approved-team-record helper has its own hermetic suite; it runs here so
+# The team-profile helper has its own hermetic suite; it runs here so
 # the existing CI job covers it without a new step.
 printf '\n== team-record helper ==\n'
 if "$TEAM_RECORD_TEST"; then

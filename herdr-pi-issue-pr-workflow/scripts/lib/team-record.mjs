@@ -1,36 +1,39 @@
 /**
- * Pure helpers for the approved team record.
+ * Pure helpers for team profiles.
  *
- * The record is a user asset that lives outside the repository. It holds the
- * provider/model/thinking specification the user approved for one repository,
- * so a later kickoff can reuse it instead of asking for the same approval
- * again.
+ * A team profile is a user asset that lives outside the repository. It holds
+ * the provider/model/thinking specification of one named team composition, so a
+ * later kickoff can reuse it instead of asking for the same approval again. The
+ * `active` file names the profile a run uses when it states none.
  *
  * This module must not import pi and must not perform I/O. The wrapper
- * (`team-record.sh`) resolves the repository root and its `origin` URL, and
- * the CLI (`team-record.mjs`) reads and writes the record file and calls the
- * model-spec resolver; `herdr-pi-issue-pr-workflow/tests/team-record.sh` imports this
- * module directly, on machines without an installed pi.
+ * (`team-record.sh`) starts the CLI, the CLI (`team-record.mjs`) reads and
+ * writes the user asset and calls the model-spec resolver, and
+ * `herdr-pi-issue-pr-workflow/tests/team-record.sh` imports this module
+ * directly, on machines without an installed pi.
  */
 
 import { THINKING_LEVELS } from "./model-spec.mjs";
 
-/** Record format version this skill writes and accepts. */
-export const RECORD_VERSION = 1;
+/** Profile a run uses when it names none and `active` is absent. */
+export const DEFAULT_PROFILE_NAME = "default";
+
+/** File that names the profile a run uses by default. */
+export const ACTIVE_FILE_NAME = "active";
 
 /** Role names of this skill, in team-table order. */
 export const ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix", "ui-tester"]);
 
-/** Roles a record must provide; `ui-tester` is the optional extra role. */
+/** Roles a profile must provide; `ui-tester` is the optional extra role. */
 export const REQUIRED_ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix"]);
 
 /**
- * A provider ID and an `owner`/`repo` name may contain only these characters,
- * so a spec string stays unambiguous and a record key stays a filename segment.
+ * A provider ID and a profile name may contain only these characters, so a
+ * spec string stays unambiguous and a profile name stays a filename segment.
  */
 const NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 
-/** True when a value can be embedded in the one-line record. */
+/** True when a value can be embedded in the one-line output. */
 export function isSafeField(value) {
   return typeof value === "string" && !/[\s\u0000-\u001f\u007f]/.test(value);
 }
@@ -40,9 +43,47 @@ export function isSpecValue(value) {
   return isSafeField(value) && value !== "";
 }
 
-/** Keep the one-line record parseable even when a value is unexpected. */
+/** Keep the one-line output parseable even when a value is unexpected. */
 export function field(value) {
   return isSafeField(value) ? value : "";
+}
+
+/**
+ * True when a value can name a profile: one filename segment of `profiles/`,
+ * given without the extension, and never a directory reference.
+ */
+export function isProfileName(value) {
+  if (typeof value !== "string" || !NAME_PATTERN.test(value)) {
+    return false;
+  }
+  return value !== "." && value !== "..";
+}
+
+/**
+ * Parse the `active` file content. Exactly one line is accepted, with at most
+ * one trailing newline; an empty file, several lines, and a name that is not a
+ * profile name are all `bad-active`.
+ *
+ * @param {unknown} text raw file content
+ * @returns {{result: "ok", name: string} | {result: "invalid", reason: "bad-active"}}
+ */
+export function parseActiveContent(text) {
+  if (typeof text !== "string") {
+    return { result: "invalid", reason: "bad-active" };
+  }
+  let value = text;
+  if (value.endsWith("\n")) {
+    value = value.slice(0, -1);
+  }
+  if (value.includes("\n") || !isProfileName(value)) {
+    return { result: "invalid", reason: "bad-active" };
+  }
+  return { result: "ok", name: value };
+}
+
+/** Profile file name inside `profiles/`, given an extensionless profile name. */
+export function profileFileName(name) {
+  return `${name}.json`;
 }
 
 function isPlainObject(value) {
@@ -122,12 +163,12 @@ export function parseRoleSpec(text) {
 }
 
 /**
- * Build the record content for a settled team.
+ * Build the profile content for a settled team.
  *
  * @param {{[role: string]: {provider: string, model: string, thinking: string}}} roles
  * @param {boolean} prFixSharedWithImpl
  */
-export function buildRecord(roles, prFixSharedWithImpl) {
+export function buildProfile(roles, prFixSharedWithImpl) {
   const stored = {};
   for (const role of ROLE_NAMES) {
     const spec = roles[role];
@@ -136,30 +177,27 @@ export function buildRecord(roles, prFixSharedWithImpl) {
     }
   }
   return {
-    version: RECORD_VERSION,
     pr_fix_shared_with_impl: Boolean(prFixSharedWithImpl),
     roles: stored,
   };
 }
 
 /**
- * Validate parsed record content.
+ * Validate parsed profile content.
  *
  * Unknown top-level and role keys are ignored, so a later role name does not
- * break this reader. Everything the record must provide is required: an
- * unknown `version`, a missing or malformed role, a missing shared flag, and a
- * shared `pr-fix` that differs from `impl` are all unresolvable, which sends
- * the kickoff back to the proposal and approval path.
+ * break this reader and a profile that still carries a removed key stays
+ * usable. Everything a profile must provide is required: a missing or
+ * malformed role, a missing shared flag, and a shared `pr-fix` that differs
+ * from `impl` are all unresolvable, which sends the kickoff back to the
+ * proposal and approval path.
  *
  * @param {unknown} raw parsed JSON
- * @returns {{result: "ok", record: object} | {result: "invalid", reason: string}}
+ * @returns {{result: "ok", profile: object} | {result: "invalid", reason: string}}
  */
-export function validateRecord(raw) {
+export function validateProfile(raw) {
   if (!isPlainObject(raw)) {
     return { result: "invalid", reason: "bad-record" };
-  }
-  if (raw.version !== RECORD_VERSION) {
-    return { result: "invalid", reason: "bad-version" };
   }
   if (typeof raw.pr_fix_shared_with_impl !== "boolean") {
     return { result: "invalid", reason: "bad-shared" };
@@ -186,70 +224,5 @@ export function validateRecord(raw) {
   if (raw.pr_fix_shared_with_impl && formatRoleSpec(roles["pr-fix"]) !== formatRoleSpec(roles["impl"])) {
     return { result: "invalid", reason: "bad-shared" };
   }
-  return { result: "ok", record: buildRecord(roles, raw.pr_fix_shared_with_impl) };
-}
-
-/**
- * Derive the record key (`<owner>__<repo>`) from an `origin` remote URL.
- * Only URLs that name exactly `owner/repo` qualify; a local path or a remote
- * that carries more path segments is not resolvable and returns null, so the
- * caller falls back to the repository-root key.
- *
- * @param {unknown} url
- * @returns {string | null}
- */
-export function parseOriginKey(url) {
-  if (!isSafeField(url) || url === "") {
-    return null;
-  }
-  let pathPart = null;
-  const schemeMatch = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.exec(url);
-  if (schemeMatch) {
-    const rest = url.slice(schemeMatch[0].length);
-    const slash = rest.indexOf("/");
-    if (slash < 0) {
-      return null;
-    }
-    pathPart = rest.slice(slash + 1);
-  } else if (/^[^/@]+@[^/]+:/.test(url)) {
-    // scp-like remote: git@host:owner/repo.git
-    pathPart = url.slice(url.indexOf(":") + 1);
-  } else {
-    return null;
-  }
-  const segments = pathPart
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "")
-    .replace(/\.git$/, "")
-    .split("/");
-  if (segments.length !== 2) {
-    return null;
-  }
-  for (const segment of segments) {
-    if (!NAME_PATTERN.test(segment) || segment === "." || segment === "..") {
-      return null;
-    }
-  }
-  return `${segments[0]}__${segments[1]}`;
-}
-
-/**
- * Derive the record key from a repository root path. Every character outside
- * the safe set becomes `-`, so the key stays a single filename component.
- *
- * @param {unknown} repoRoot
- * @returns {string}
- */
-export function recordKeyFromPath(repoRoot) {
-  const raw = typeof repoRoot === "string" ? repoRoot : "";
-  const sanitized = raw
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^-+/, "")
-    .replace(/-+$/, "");
-  return sanitized === "" || sanitized === "." || sanitized === ".." ? "repository-root" : sanitized;
-}
-
-/** Record file name for one key. */
-export function recordFileName(key) {
-  return `${key}.json`;
+  return { result: "ok", profile: buildProfile(roles, raw.pr_fix_shared_with_impl) };
 }

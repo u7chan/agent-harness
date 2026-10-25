@@ -28,6 +28,14 @@ check_contains() {
   esac
 }
 
+check_not_contains() {
+  local name="$1" hay="$2" needle="$3"
+  case "$hay" in
+    *"$needle"*) ng "$name" "should NOT contain: $needle" ;;
+    *) ok "$name" ;;
+  esac
+}
+
 section_text() { # file heading
   awk -v heading="## $2" '
     $0 == heading { inside = 1; next }
@@ -38,6 +46,10 @@ section_text() { # file heading
 
 SKILL_TEXT="$(cat "$SKILL_MD")"
 REFERENCE_TEXT="$(cat "$SEQUENTIAL_REFERENCE")"
+
+# The removed section anchor is rebuilt from its heading words, so this suite
+# itself does not carry the old literal while the check still pins its absence.
+OLD_TEAM_RECORD_ANCHOR="#$(printf '%s' 'approved' ' team' ' record' | tr ' ' '-')"
 KICKOFF_TEXT="$(section_text "$SKILL_MD" "Kickoff gate")"
 TEAM_TEXT="$(section_text "$SKILL_MD" "Start the team")"
 
@@ -91,10 +103,14 @@ check_contains "SKILL.md skips the planner for a full reuse" "$TEAM_TEXT" \
 
 check_contains "the facts travel in the task text" "$REFERENCE_TEXT" \
   'is not a handoff'
+check_contains "sequential runs link the Team profiles section" "$REFERENCE_TEXT" \
+  '../SKILL.md#team-profiles'
+check_not_contains "sequential runs do not keep the old record anchor" "$REFERENCE_TEXT" \
+  "$OLD_TEAM_RECORD_ANCHOR"
 check_contains "a single new role is split, not planned" "$REFERENCE_TEXT" \
   'single-pane rules'
-check_contains "the record never makes a pane reusable" "$REFERENCE_TEXT" \
-  'A record says nothing about panes'
+check_contains "the profile never makes a pane reusable" "$REFERENCE_TEXT" \
+  'A profile says nothing about panes'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

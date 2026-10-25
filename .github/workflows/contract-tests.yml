@@ -3,7 +3,7 @@ name: contract-tests
 # Runs the gh dispatcher contract suite, the action catalog consistency
 # check, the review payload and recheck tests, the playwright skill mock tests,
 # the Herdr async wrapper tests, the herdr-pi-issue-pr-workflow model-spec and
-# approved-team-record tests, the herdr-issue-review start-gate documentation
+# team-profile tests, the herdr-issue-review start-gate documentation
 # contract, and the markdown link and anchor check over every
 # skill's SKILL.md and references on every push and pull request. All checks are
 # hermetic: they run unauthenticated with no credentials, no network access, no

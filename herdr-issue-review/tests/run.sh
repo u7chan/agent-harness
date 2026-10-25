@@ -47,6 +47,14 @@ section_text() { # file heading (heading includes the leading hashes)
   ' "$1"
 }
 
+subsection_text() { # file heading (a level-3 heading, stopped by ## or ###)
+  awk -v heading="$2" '
+    $0 == heading { inside = 1; next }
+    inside && /^#{2,3} / { exit }
+    inside { print }
+  ' "$1"
+}
+
 section_line() { # file heading
   awk -v heading="$2" '$0 == heading { print NR; exit }' "$1"
 }
@@ -57,6 +65,7 @@ GATE_TEXT="$(section_text "$SKILL_MD" "## 開始前チェック")"
 GATE_LINE="$(section_line "$SKILL_MD" "## 開始前チェック")"
 ARTIFACT_LINE="$(section_line "$SKILL_MD" "## 成果物ファイル")"
 PROCEDURE_LINE="$(section_line "$SKILL_MD" "## 手順")"
+REVIEWER_TEXT="$(subsection_text "$SKILL_MD" "### 1. レビュアーのペインと起動 spec を用意する")"
 
 # --- the gate exists and runs before every side effect ---------------------
 
@@ -115,6 +124,45 @@ check_contains "the gate forbids installing Herdr" "$GATE_TEXT" 'インストー
 # why a skill rule is not a technical block.
 check_contains "the gate links the delegation boundary reference" "$GATE_TEXT" \
   '../herdr/references/technical-delegation-boundary.md'
+
+# --- the reviewer starts from the effective profile ------------------------
+
+# The reviewer specification is the effective profile's `review`, overlaid with
+# the user's explicit values only, and the composed specification is re-checked
+# before the agent starts.
+check_contains "the reviewer section names the effective profile" "$REVIEWER_TEXT" \
+  '実効プロファイル'
+check_contains "the reviewer section links the Team profiles section" "$REVIEWER_TEXT" \
+  '../herdr-pi-issue-pr-workflow/SKILL.md#team-profiles'
+check_contains "the reviewer section resolves the profile" "$REVIEWER_TEXT" \
+  'scripts/team-record.sh resolve'
+check_contains "the reviewer section bases the spec on the profile review" "$REVIEWER_TEXT" \
+  'review=<provider>/<model>/<thinking>'
+check_contains "the reviewer section overlays only the user values" "$REVIEWER_TEXT" \
+  'ユーザーが指定した provider / model / thinking だけを上書きする'
+check_contains "the reviewer section re-validates the composed spec" "$REVIEWER_TEXT" \
+  'scripts/resolve-model-spec.sh --provider <provider> --model <model> --thinking <thinking>'
+check_contains "the reviewer section starts only on result=ok" "$REVIEWER_TEXT" \
+  '`result=ok` のときだけ起動する'
+check_contains "the reviewer section stops for a non-ok user specification" "$REVIEWER_TEXT" \
+  '再検証が `result=ok` でなければ停止する'
+
+# A profile that cannot be used falls back to the runtime default only when the
+# user stated nothing; a partial specification stops instead of being guessed.
+check_contains "the reviewer section falls back to the environment default" "$REVIEWER_TEXT" \
+  '実行環境の既定'
+check_contains "the reviewer section stops on a partial specification" "$REVIEWER_TEXT" \
+  '不足をプロファイルや推測で埋めずに停止して確認する'
+check_contains "the reviewer section validates a complete user specification" "$REVIEWER_TEXT" \
+  'ユーザー指定が完全なら'
+check_contains "the reviewer section fixes the fallback line" "$REVIEWER_TEXT" \
+  'review: 実効プロファイルを使わず実行環境の既定で起動（profile=<missing|invalid|unresolved>）'
+check_contains "the reviewer section starts with the provider and model flags" "$REVIEWER_TEXT" \
+  'herdr agent start herdr-issue-review --kind pi --pane <pane-id> -- --provider <provider> --model <model> --thinking <thinking>'
+
+# The user's explicit values outrank the profile.
+check_contains "the preconditions let the user override the profile" \
+  "$(section_text "$SKILL_MD" "## 前提")" 'ユーザーが明示指定した値はプロファイルより優先する'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
