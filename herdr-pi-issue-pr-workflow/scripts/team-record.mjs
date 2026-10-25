@@ -16,15 +16,16 @@
  *       result=<ok|missing|invalid|unresolved> [reason=<token>] ...
  *     result=ok         every role of the selected profile resolved
  *     result=missing    no profile file for the selected name
- *     result=invalid    unreadable JSON, a name or `active` violation, the
- *                       profile contract, or a `profiles/` that exists but
- *                       cannot be enumerated
+ *     result=invalid    unreadable JSON, an unreadable `active` or
+ *                       `profiles/`, a name violation, or the profile contract
  *     result=unresolved a role does not resolve
  *
- * `profiles_present` is empty only when `profiles/` exists but cannot be
- * enumerated (permission denied, or not a directory). That is never the
- * `profiles_present=false` bootstrap state: the result is `<invalid>` with
- * `reason=unreadable`.
+ * `profiles_present` is empty only when `profiles/` exists but cannot be read
+ * reliably: enumeration fails (permission denied, or not a directory), or a
+ * `.json` entry cannot be inspected. That is never the `profiles_present=false`
+ * bootstrap state: the result is `<invalid>` with `reason=unreadable`. An
+ * unreadable `active` or profile file reports the same reason and is never
+ * treated as absent.
  *   use:
  *     command=use profile=<name> active=<path> result=<ok|missing|invalid|unresolved>
  *       written=<true|false> [reason=<token>] ...
@@ -85,7 +86,11 @@ Reads, validates, and writes team profiles under
 
 \`resolve\` selects this run's profile: --profile, then \`active\`, then
 \`default\`. An \`active\` that names a missing profile is an error, not a
-silent fallback to \`default\`.
+silent fallback to \`default\`. An unreadable \`profiles/\` (it cannot be
+listed, or a \`.json\` entry cannot be inspected) and an unreadable
+\`active\` or profile file are \`result=invalid reason=unreadable\`; they
+are never reported as absent, so they cannot satisfy the bootstrap
+condition.
 
 Common options:
   --resolver <path>   model-spec resolver (default: the sibling resolve-model-spec.sh)
@@ -269,22 +274,32 @@ function profilePath(name) {
   return path.join(profilesDir(), profileFileName(name));
 }
 
-/** True when the path exists, following a symlink. */
-function pathExists(file) {
+/**
+ * Presence of one file, following a symlink.
+ *
+ * A failed inspection is not an absent file: only `ENOENT` reads as `missing`,
+ * so a permission or type error can never become "there is no profile here".
+ *
+ * @returns {"present" | "missing" | "unreadable"}
+ */
+function profilePresence(file) {
   try {
     statSync(file);
-    return true;
-  } catch {
-    return false;
+    return "present";
+  } catch (error) {
+    return error.code === "ENOENT" ? "missing" : "unreadable";
   }
 }
 
 /**
  * Enumeration state of `profiles/`.
  *
- * A failed enumeration is not an empty set: `unreadable` keeps it distinct
- * from the absence of the directory, so it can never satisfy the
- * `profiles_present=false` bootstrap condition.
+ * A failed read is not an empty set: `unreadable` keeps it distinct from the
+ * absence of the directory, so it can never satisfy the
+ * `profiles_present=false` bootstrap condition. The same holds after a
+ * successful enumeration when a candidate entry cannot be inspected: a
+ * directory that can be listed but not traversed reports `EACCES` on the
+ * child `stat`, which must not read as "that entry does not exist".
  *
  * @returns {{state: "present" | "empty" | "unreadable"}}
  */
@@ -295,7 +310,18 @@ function profilesPresence() {
   } catch (error) {
     return { state: error.code === "ENOENT" ? "empty" : "unreadable" };
   }
-  const present = names.some((name) => name.endsWith(".json") && pathExists(path.join(profilesDir(), name)));
+  let present = false;
+  for (const name of names) {
+    if (!name.endsWith(".json")) {
+      continue;
+    }
+    try {
+      statSync(path.join(profilesDir(), name));
+    } catch {
+      return { state: "unreadable" };
+    }
+    present = true;
+  }
   return { state: present ? "present" : "empty" };
 }
 
@@ -319,7 +345,9 @@ function selectProfileName(options) {
     if (error.code === "ENOENT") {
       return { name: DEFAULT_PROFILE_NAME, source: "default" };
     }
-    return { name: "", source: "active", status: { result: "invalid", reason: "bad-active" } };
+    // An unreadable `active` is not an absent one: a permission or type error
+    // must never select the implicit default as if no switch were configured.
+    return { name: "", source: "active", status: { result: "invalid", reason: "unreadable" } };
   }
   const parsed = parseActiveContent(text);
   if (parsed.result !== "ok") {
@@ -462,8 +490,12 @@ function commandResolve(options) {
     return exitForReason(selection.status.reason);
   }
 
-  const present = file !== "" && pathExists(file);
-  if (!present) {
+  const filePresence = file === "" ? "missing" : profilePresence(file);
+  if (filePresence === "unreadable") {
+    emit([...base, ["present", "false"], ["result", "invalid"], ["reason", "unreadable"]]);
+    return 1;
+  }
+  if (filePresence === "missing") {
     const reason =
       selection.source === "explicit"
         ? "missing-explicit-profile"

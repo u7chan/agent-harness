@@ -121,7 +121,7 @@ herdr-pi-issue-pr-workflow/scripts/team-record.sh write --profile <name> \
   --role pr-fix=<provider>/<model>/<thinking> [--role ui-tester=<provider>/<model>/<thinking>]
 ```
 
-`resolve` prints one key=value line with `profile`, `source` (`explicit`, `active`, or `default`), `record` (the selected profile file), `profiles_present` (whether any profile exists), `present` (whether the selected one exists), and `result`; a successful one adds `pr_fix_shared_with_impl` and one field per role. `profiles_present` is empty when `profiles/` exists but cannot be enumerated, such as a permission error or a non-directory: that is `result=invalid reason=unreadable`, never an absent profile set. A `missing` result adds a `reason`:
+`resolve` prints one key=value line with `profile`, `source` (`explicit`, `active`, or `default`), `record` (the selected profile file), `profiles_present` (whether any profile exists), `present` (whether the selected one exists), and `result`; a successful one adds `pr_fix_shared_with_impl` and one field per role. `profiles_present` is empty when `profiles/` exists but cannot be read reliably: it cannot be listed (a permission error or a non-directory), or a `.json` entry cannot be inspected. That is `result=invalid reason=unreadable`, never an absent profile set. An unreadable `active` or profile file is `invalid` with the same `reason=unreadable`, and is never treated as absent either. A `missing` result adds a `reason`:
 
 - `no-profiles`: `profiles/` is absent or empty (`source=default`).
 - `missing-selected-profile`: other profiles exist but the selected one does not.
@@ -138,7 +138,7 @@ Bootstrap — turning the team this run settles into `default` — happens only 
 - `source=default`, meaning `active` is absent;
 - the run named no `--profile`.
 
-Bootstrap writes the settled team with `write --profile default` and adds no approval wait. It never happens when `profiles_present=true` and only the selected name is missing, when `active` is broken, or when an explicit profile is missing: those return to the proposal path, and a save happens only on an explicit user instruction. An unreadable `profiles/` is no exception to the `profiles_present=false` condition: it reports the field empty and `result=invalid`, so it never bootstraps.
+Bootstrap writes the settled team with `write --profile default` and adds no approval wait. It never happens when `profiles_present=true` and only the selected name is missing, when `active` is broken, or when an explicit profile is missing: those return to the proposal path, and a save happens only on an explicit user instruction. An unreadable `profiles/` or `active` is no exception to the `profiles_present=false` condition: the run reports `result=invalid` (with an empty `profiles_present` for the profile set), so it never bootstraps.
 
 The reader ignores unknown keys, so roles added later do not break it and a profile that still carries a removed key stays usable. A role key follows this skill's role names: a profile written under another name does not resolve that role, so `--require-role` reports it `unresolved` and the run returns to the proposal path. A missing role, a missing `pr_fix_shared_with_impl`, or a shared flag whose `pr-fix` differs from `impl` all make the profile unresolvable, on read and on write.
 

@@ -472,6 +472,70 @@ else
   ok "unreadable profiles directory (skipped: running as root)"
 fi
 
+# The Round 2 reproduction: the directory can be listed but its entries cannot
+# be inspected (mode 0600 allows read without traversal). The failed child
+# `stat` must not read as "that profile does not exist".
+if [ "$(id -u)" -ne 0 ]; then
+  D="$(new_agent unreadable-profiles-mode600)"
+  put_profile "$D" fallback "$(profile_json true "$ROLES")"
+  chmod 600 "$(asset "$D")/profiles"
+  capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+  chmod 700 "$(asset "$D")/profiles"
+  check_single_line "listable but uninspectable profiles"
+  check_nonzero "listable but uninspectable profiles"
+  check_eq "listable but uninspectable profiles result" "$(kv "$OUT" result)" "invalid"
+  check_eq "listable but uninspectable profiles reason" "$(kv "$OUT" reason)" "unreadable"
+  check_eq "listable but uninspectable profiles keeps profiles_present unknown" "$(kv "$OUT" profiles_present)" ""
+  check_not_contains "listable but uninspectable profiles never reports no-profiles" "$OUT" "no-profiles"
+  check_eq "listable but uninspectable profiles leaves the profile set alone" \
+    "$(ls -A "$(asset "$D")/profiles")" "fallback.json"
+  if [ -e "$(asset "$D")/active" ]; then
+    ng "listable but uninspectable profiles creates no active" "found $(asset "$D")/active"
+  else
+    ok "listable but uninspectable profiles creates no active"
+  fi
+else
+  ok "listable but uninspectable profiles (skipped: running as root)"
+fi
+
+# An unreadable `active` is not an absent `active`: the selection must not fall
+# back to the implicit default. A directory at that path is unreadable on every
+# user, independent of permissions.
+D="$(new_agent unreadable-active)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+mkdir -p "$(asset "$D")/active"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_single_line "unreadable active"
+check_nonzero "unreadable active"
+check_eq "unreadable active result" "$(kv "$OUT" result)" "invalid"
+check_eq "unreadable active reason" "$(kv "$OUT" reason)" "unreadable"
+check_eq "unreadable active keeps the source" "$(kv "$OUT" source)" "active"
+check_eq "unreadable active does not resolve the default" "$(kv "$OUT" impl)" ""
+
+if [ "$(id -u)" -ne 0 ]; then
+  D="$(new_agent unreadable-active-mode)"
+  put_profile "$D" default "$(profile_json true "$ROLES")"
+  printf 'default\n' > "$(asset "$D")/active"
+  chmod 200 "$(asset "$D")/active"
+  capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+  chmod 600 "$(asset "$D")/active"
+  check_eq "unreadable active mode result" "$(kv "$OUT" result)" "invalid"
+  check_eq "unreadable active mode reason" "$(kv "$OUT" reason)" "unreadable"
+  check_eq "unreadable active mode is not treated as absent" \
+    "$([ "$(kv "$OUT" source)" = "default" ] && echo yes || echo no)" "no"
+else
+  ok "unreadable active mode (skipped: running as root)"
+fi
+
+# A plain resolve never creates the user asset.
+D="$(new_agent resolve-no-write)"
+capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+if [ -e "$(asset "$D")" ]; then
+  ng "plain resolve does not create the asset directory" "found $(asset "$D")"
+else
+  ok "plain resolve does not create the asset directory"
+fi
+
 # Only default.json, no active: default applies implicitly.
 D="$(new_agent default-only)"
 put_profile "$D" default "$(profile_json true "$ROLES")"
@@ -1046,6 +1110,60 @@ check_eq "bootstrap: unreadable profiles reason" "$(kv "$OUT" reason)" "unreadab
 check_eq "bootstrap: unreadable profiles keeps the field unknown" "$(kv "$OUT" profiles_present)" ""
 check_bootstrap_blocked "bootstrap: unreadable profiles"
 
+# 8. A set that can be listed but not inspected never bootstraps.
+if [ "$(id -u)" -ne 0 ]; then
+  D="$(new_agent bootstrap-mode600)"
+  put_profile "$D" fallback "$(profile_json true "$ROLES")"
+  chmod 600 "$(asset "$D")/profiles"
+  capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+  check_eq "bootstrap: uninspectable profiles result" "$(kv "$OUT" result)" "invalid"
+  check_eq "bootstrap: uninspectable profiles reason" "$(kv "$OUT" reason)" "unreadable"
+  check_bootstrap_blocked "bootstrap: uninspectable profiles"
+  # A write into that mode fails before it can change the set, and the set
+  # stays uninspectable afterwards.
+  capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
+    --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+  check_eq "bootstrap: write into an uninspectable set writes nothing" "$(kv "$OUT" written)" "false"
+  capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+  chmod 700 "$(asset "$D")/profiles"
+  check_eq "bootstrap: the uninspectable set stays invalid after a write" "$(kv "$OUT" result)" "invalid"
+  check_bootstrap_blocked "bootstrap: the uninspectable set after a write"
+else
+  ok "bootstrap: uninspectable profiles (skipped: running as root)"
+fi
+
+# 9. An unreadable active is invalid, so it never selects default implicitly.
+D="$(new_agent bootstrap-unreadable-active)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+mkdir -p "$(asset "$D")/active"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "bootstrap: unreadable active result" "$(kv "$OUT" result)" "invalid"
+check_eq "bootstrap: unreadable active reason" "$(kv "$OUT" reason)" "unreadable"
+check_bootstrap_blocked "bootstrap: unreadable active"
+
+# 10. An explicit name under an unreadable set is invalid, never
+# `missing-explicit-profile`; a write the mode allows still leaves the set
+# unreadable, so the next resolve cannot bootstrap.
+if [ "$(id -u)" -ne 0 ]; then
+  D="$(new_agent bootstrap-write-unreadable)"
+  put_profile "$D" fallback "$(profile_json true "$ROLES")"
+  chmod 300 "$(asset "$D")/profiles"
+  capture_in "$D" resolve --profile ghost --resolver "$WORK/stub-mixed.sh"
+  check_eq "bootstrap: unreadable set with an explicit name" "$(kv "$OUT" result)" "invalid"
+  check_eq "bootstrap: unreadable set with an explicit name reason" "$(kv "$OUT" reason)" "unreadable"
+  capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
+    --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+  check_eq "bootstrap: a write the mode allows succeeds" "$RC" "0"
+  capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+  chmod 700 "$(asset "$D")/profiles"
+  check_eq "bootstrap: the set stays unreadable after the write" "$(kv "$OUT" result)" "invalid"
+  check_bootstrap_blocked "bootstrap: the set after the write"
+  check_eq "bootstrap: the written profile exists behind the unreadable mode" \
+    "$([ -f "$(asset "$D")/profiles/default.json" ] && echo yes || echo no)" "yes"
+else
+  ok "bootstrap: write into an unreadable set (skipped: running as root)"
+fi
+
 # --- skill documentation ---------------------------------------------------
 
 SKILL_TEXT="$(cat "$SKILL_MD")"
@@ -1086,7 +1204,9 @@ check_contains "skill documents the active-profile reason" "$TEAM_TEXT" 'missing
 check_contains "skill documents the explicit-profile reason" "$TEAM_TEXT" 'missing-explicit-profile'
 check_contains "skill documents the bad-active reason" "$TEAM_TEXT" 'bad-active'
 check_contains "skill documents the bad-name reason" "$TEAM_TEXT" 'bad-profile-name'
-check_contains "skill documents the unreadable profile set" "$TEAM_TEXT" 'cannot be enumerated'
+check_contains "skill documents the unreadable profile set" "$TEAM_TEXT" 'cannot be read reliably'
+check_contains "skill documents the per-entry inspection failure" "$TEAM_TEXT" 'entry cannot be inspected'
+check_contains "skill documents the unreadable active" "$TEAM_TEXT" 'An unreadable `active` or profile file'
 check_contains "skill blocks bootstrap on an unreadable profile set" "$TEAM_TEXT" 'never bootstraps'
 check_contains "skill documents the end-of-options form for a dash-leading name" "$SKILL_TEXT" 'use -- -fallback'
 check_contains "skill documents that active never falls back" "$TEAM_TEXT" 'never silently falls back to `default`'
