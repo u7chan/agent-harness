@@ -9,7 +9,7 @@ and how; [Start the team](../SKILL.md#start-the-team) and
 The decision uses the current conversation only: the panes are the ones this
 orchestrator started for the roles in an earlier run of the same Issue, and
 nothing about them is written to disk. A pane is never reused because of its
-label, its agent name, or an entry in the approved team record.
+label, its agent name, or the name of a team profile.
 
 ## Scope
 
@@ -29,12 +29,11 @@ A joining role reuses its previous pane only when every condition holds:
 | Same workspace and worktree | The pane is in the current Herdr workspace and worktree, as the previous run's delegation was. |
 | The pane is this orchestrator's role pane | The pane is one this orchestrator started for that role in an earlier run of this Issue and named in this conversation. A pane that only matches by label or agent name is a different pane. |
 | The pane is idle | `herdr agent get <pane-id>` reports `agent_status: idle`. |
-| The effective specification matches | A `herdr agent read <pane-id> --source visible` footer shows this run's settled provider, model, and thinking for the role. Startup argv and the approved team record are not evidence of the running values. |
+| The effective specification matches | A `herdr agent read <pane-id> --source visible` footer shows this run's settled provider, model, and thinking for the role. Startup argv and the team profile are not evidence of the running values. |
 
 When a condition fails or cannot be checked, the role needs a new pane, and the
 old pane stays open. There is no probing of a pane this conversation cannot
-name, no repair of a mismatched running agent, and no fallback to a recorded
-team.
+name, no repair of a mismatched running agent, and no fallback to a stored team.
 
 ## Compact a reused pane
 
@@ -112,12 +111,12 @@ named and labelled. A role that leaves the team, such as `pr-fix` moving back to
 received a delegation stays open, and only a `ui-tester` pane this run created
 and never delegated to is closed at [Completion](../SKILL.md#completion).
 
-## Relationship to the approved team record
+## Relationship to the team profiles
 
-The [approved team record](../SKILL.md#approved-team-record) and pane reuse are
-separate decisions. The record settles the team specification, so a kickoff can
-skip the approval wait; pane reuse settles which panes this run runs that team
-in, from the conditions above. A record says nothing about panes and never makes
-one a reuse candidate, and a reuse candidate never skips an approval the record
-did not settle. Both apply in the same run: the record skips the approval, then
+The [team profiles](../SKILL.md#team-profiles) and pane reuse are separate
+decisions. A profile settles the team specification, so a kickoff can skip the
+approval wait; pane reuse settles which panes this run runs that team in, from
+the conditions above. A profile says nothing about panes and never makes one a
+reuse candidate, and a reuse candidate never skips an approval a profile did not
+settle. Both apply in the same run: the profile skips the approval, then
 [Start the team](../SKILL.md#start-the-team) checks the panes.

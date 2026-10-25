@@ -9,8 +9,8 @@
 #     line;
 #   - SKILL.md: the target PR forms.
 # The `前回承認編成を使用:` reuse line stays owned by tests/team-record.sh,
-# which pins it next to the record helper it belongs to; this suite does not
-# duplicate that check.
+# which pins the whole line, including `profile=<name>`, next to the profile
+# helper it belongs to; this suite does not duplicate that check.
 #
 # A form is read from the section that defines it, not from the whole file:
 # the completion report repeats `対象 PR` as an example, so a whole-file search

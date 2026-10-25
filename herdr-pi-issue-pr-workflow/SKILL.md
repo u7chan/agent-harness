@@ -18,7 +18,7 @@ Load and follow the existing skills instead of duplicating their behavior:
 - [GH](../gh/SKILL.md) for every GitHub read and write.
 - [Review](../review/SKILL.md) for full PR reviews, rechecks, and the conversation-resolution policy.
 
-Those skills are authoritative for their safety and operation rules. Keep all agents in the current Herdr workspace and worktree. Do not add a workflow runtime, persistent state, or a static provider/model catalog. The persistent state this rules out is the process state of a run, such as the current phase, the review round, the reviewed head, and unresolved Blockers. The [approved team record](#approved-team-record) is the one exception, because the Issue requires it: it holds the last approved team specification only, never the process state of a run.
+Those skills are authoritative for their safety and operation rules. Keep all agents in the current Herdr workspace and worktree. Do not add a workflow runtime, persistent state, or a static provider/model catalog. The persistent state this rules out is the process state of a run, such as the current phase, the review round, the reviewed head, and unresolved Blockers. The [team profiles](#team-profiles) are the one exception, because the Issue requires them: they hold named team compositions only, never the process state of a run.
 
 ## Local review before filing an Issue
 
@@ -80,36 +80,71 @@ herdr-pi-issue-pr-workflow/scripts/resolve-model-spec.sh \
 
 It prints one key=value line with `provider`, `model`, `requested`, `supported`, `effective`, `result`, and `thinking_level_map`, and exits nonzero unless `result=ok`. Only `result=ok` (the effective level equals the requested level) resolves the specification; every other result is unresolved, so stop instead of silently choosing a Pi default, accepting a clamped level, maintaining aliases, or inferring an unavailable ID. Treat a partial, invalid, ambiguous, unsupported, or clamped specification as unresolved.
 
-## Approved team record
+## Team profiles
 
-A team the user approved is recorded outside the repository, so a later kickoff for the same repository can reuse it instead of asking for the same approval again. The record is a user asset and is never part of the skill distribution:
+A team composition the user approves is stored as a named profile outside the repository, so a later run can reuse it by name instead of asking for the same approval again, and so a usage limit can be handled by switching the name. Profiles are a user asset and are never part of the skill distribution:
 
-- Path: `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow/teams/<key>.json`.
-- The directory name in that path is the user asset's identifier, not this skill's distribution path: it stays `pi-issue-pr-workflow` so an existing record remains readable after the skill directory was renamed, and changing it would require a migration. Do not rename it with the skill.
-- Key: `<owner>__<repo>` from `origin`, or the repository root path when the remote does not name exactly `owner/repo`.
-- Content: `{"version": 1, "pr_fix_shared_with_impl": <boolean>, "roles": {"impl": {...}, "review": {...}, "pr-fix": {...} [,"ui-tester": {...}]}}`, where each role holds `provider`, `model`, and `thinking`.
-- Write: atomically (temporary file plus rename) with mode `0600`.
+- Directory: `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow/`. That directory name is the user asset's identifier, not this skill's distribution path: it stays `pi-issue-pr-workflow` so existing profiles remain readable after the skill directory was renamed, and changing it would require a migration. Do not rename it with the skill.
+- Profiles: `profiles/<name>.json`, one file per composition. A name matches `^[A-Za-z0-9._-]+$` and is never `.` or `..`; every command takes it without the `.json` extension.
+- Selection: `active`, an optional file holding one profile name and at most a trailing newline.
+- Content: `{"pr_fix_shared_with_impl": <boolean>, "roles": {"impl": {...}, "review": {...}, "pr-fix": {...} [,"ui-tester": {...}]}}`, where each role holds `provider`, `model`, and `thinking`. There is no version field.
+- Write: atomically (temporary file plus rename) with mode `0600`, for a profile and for `active`.
 
-The reader ignores unknown keys, so roles added later do not break it. A role key follows this skill's role names: a record written under another name does not resolve that role, so `--require-role` reports it `unresolved` and the run returns to the proposal path. Renaming a role does not migrate records either: the previous name stays an unknown key and its value is ignored, so a run that asks for the renamed role finds no role to reuse and proposes the team again. An unknown `version`, a missing role, a missing `pr_fix_shared_with_impl`, or a shared flag whose `pr-fix` differs from `impl` all make the record unresolvable.
+Resolution order is this run's explicit profile, then `active`, then `default`. A missing `active` means `default`. An `active` that names a missing profile is an error and never silently falls back to `default`. Only a profile that resolves (`result=ok`) is reusable.
 
-Nothing but the team specification is recorded. The target PR is not recorded, so it gates reuse only by being unresolved; the `ui-tester` task never gates reuse, because it always has the default in [the ui-tester role reference](references/ui-tester-role.md#default-task) unless this run supplies one. Every recorded part — a provider, model, thinking, or the composition — is reused only when this run does not state it ([Kickoff gate](#kickoff-gate)).
+An ordinary run never rewrites the profiles: a provider, model, or thinking value this run states, and the `pr-fix` or `ui-tester` composition it settles, apply to this run only. Apart from bootstrap, only two explicit operations change the master:
 
-Read and write it with the helper:
+- `use <name>` switches `active` to a profile whose every role resolves.
+- `write --profile <name>` saves one composition and leaves `active` alone.
+
+The `ui-tester` participation decision never rewrites a profile either: a run that excludes the role omits it from this run's team and keeps the stored profile as it is.
+
+Switching for a usage limit takes one of two words:
+
+- `fallback で` applies this run only: the run uses that profile without touching `active`.
+- `fallback に切り替えて` is `use fallback`: it persists, so later runs start from `fallback`.
+
+Read, switch, and save with the helper:
 
 ```bash
-# Reuse check: every recorded role is re-resolved through the model-spec helper,
-# and only result=ok may be reused.
-herdr-pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root> \
-  [--require-role <role>]
+# This run's profile: --profile, then active, then default.
+herdr-pi-issue-pr-workflow/scripts/team-record.sh resolve \
+  [--profile <name>] [--require-role <role>]
 
-# After the team is settled, record the settled specification.
-herdr-pi-issue-pr-workflow/scripts/team-record.sh write --repo-root <repository root> \
+# Switch the active profile; every role is re-resolved first.
+herdr-pi-issue-pr-workflow/scripts/team-record.sh use <name>
+
+# Save one profile; active is not changed.
+herdr-pi-issue-pr-workflow/scripts/team-record.sh write --profile <name> \
   --pr-fix-shared-with-impl <true|false> \
   --role impl=<provider>/<model>/<thinking> --role review=<provider>/<model>/<thinking> \
   --role pr-fix=<provider>/<model>/<thinking> [--role ui-tester=<provider>/<model>/<thinking>]
 ```
 
-`resolve` prints one key=value line with `record`, `present`, `result` (`ok`, `missing`, `invalid`, or `unresolved`), `pr_fix_shared_with_impl`, and one field per recorded role; an `invalid` result adds a `reason`, and an `unresolved` one names the failing `unresolved` role and its `unresolved_result`. `--require-role <role>` adds a role this run needs: when the record does not provide it, the result is `unresolved` instead of a silently omitted role. `write` prints one line and rejects every specification it cannot resolve, so the record only ever holds specifications that resolved at write time.
+`resolve` prints one key=value line with `profile`, `source` (`explicit`, `active`, or `default`), `record` (the selected profile file), `profiles_present` (whether any profile exists), `present` (whether the selected one exists), and `result`; a successful one adds `pr_fix_shared_with_impl` and one field per role. A `missing` result adds a `reason`:
+
+- `no-profiles`: `profiles/` is absent or empty (`source=default`).
+- `missing-selected-profile`: other profiles exist but the selected one does not.
+- `missing-active-profile`: `active` names a profile that does not exist.
+- `missing-explicit-profile`: the run named a profile that does not exist.
+
+An `invalid` result adds a `reason` (`bad-active`, `bad-profile-name`, `bad-json`, `bad-record`, `bad-shared`, `bad-roles`, `missing-role`, `bad-role-spec`, or `unreadable`), and an `unresolved` one names the failing `unresolved` role and its `unresolved_result`. `--require-role <role>` adds a role this run needs: when the profile does not provide it, the result is `unresolved` instead of a silently omitted role.
+
+Bootstrap — turning the team this run settles into `default` — happens only when all of these hold:
+
+- `result=missing`;
+- `reason=no-profiles`;
+- `profiles_present=false`;
+- `source=default`, meaning `active` is absent;
+- the run named no `--profile`.
+
+Bootstrap writes the settled team with `write --profile default` and adds no approval wait. It never happens when `profiles_present=true` and only the selected name is missing, when `active` is broken, or when an explicit profile is missing: those return to the proposal path, and a save happens only on an explicit user instruction.
+
+The reader ignores unknown keys, so roles added later do not break it and a profile that still carries a removed key stays usable. A role key follows this skill's role names: a profile written under another name does not resolve that role, so `--require-role` reports it `unresolved` and the run returns to the proposal path. A missing role, a missing `pr_fix_shared_with_impl`, or a shared flag whose `pr-fix` differs from `impl` all make the profile unresolvable, on read and on write.
+
+Nothing but the team specification is stored. The target PR is not stored, so it gates reuse only by being unresolved; the `ui-tester` task never gates reuse, because it always has the default in [the ui-tester role reference](references/ui-tester-role.md#default-task) unless this run supplies one. Every stored part — a provider, model, thinking, or the composition — is reused only when this run does not state it ([Kickoff gate](#kickoff-gate)).
+
+Migrating the previous per-repository records is a manual procedure without migration code: [team profile migration](references/team-profile-migration.md).
 
 ## Kickoff gate
 
@@ -117,17 +152,17 @@ Decide whether a `ui-tester` joins using the [ui-tester participation](reference
 
 If any role assignment, agent specification, or target PR determination is unresolved, inspect the Issue and relevant repository context, then propose the complete team before continuing. Preserve every valid value the user supplied.
 
-Reuse the [approved team record](#approved-team-record) before proposing:
+Reuse the [team profiles](#team-profiles) before proposing:
 
-1. Resolve it with `herdr-pi-issue-pr-workflow/scripts/team-record.sh resolve --repo-root <repository root>`, adding `--require-role ui-tester` when the participation decision includes a `ui-tester`.
-2. Skip the table and the approval wait only when all of these hold: `result=ok`; this run supplies no explicit provider, model, or thinking value; this run states no composition itself, meaning neither whether `pr-fix` shares the `impl` agent nor a `ui-tester` composition of its own (the participation decision, derived from the Issue or overridden by the user in the same reply, decides this run's team only and never states the composition); and the target PR is determined. Print exactly one line, listing the roles that join, and the participation line, then continue to [Start the team](#start-the-team):
+1. Resolve the effective profile with `herdr-pi-issue-pr-workflow/scripts/team-record.sh resolve [--profile <name>]`, adding `--require-role ui-tester` when the participation decision includes a `ui-tester`. A request such as `fallback で` selects that profile for this run with `--profile fallback` and never changes `active`; `fallback に切り替えて` is the separate `use fallback` in [Team profiles](#team-profiles).
+2. Skip the table and the approval wait only when all of these hold: `result=ok`; this run supplies no explicit provider, model, or thinking value; this run states no composition itself, meaning neither whether `pr-fix` shares the `impl` agent nor a `ui-tester` composition of its own (the participation decision, derived from the Issue or overridden by the user in the same reply, decides this run's team only and never states the composition); and the target PR is determined. Print exactly one line, listing the profile and the roles that join, and the participation line, then continue to [Start the team](#start-the-team):
 
    ```text
-   前回承認編成を使用: impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]
+   前回承認編成を使用: profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]
    ```
 
-   The recorded team carries the composition, so a run that states the composition never reuses the record: it returns to the proposal path and waits for approval, because reuse would silently keep a recorded composition the run overrode. A participation decision the user overrode is not such a statement either, so it keeps the reuse path: whatever its origin, it settles this run's team only. It overrides a recorded `ui-tester` in one direction only: when the decision includes the role, `--require-role` makes a record without it `unresolved`; when the decision excludes it, the record is reused without the role while the record itself keeps it, per the settled-team write below.
-3. Otherwise propose the complete team as described in this section and wait for approval, keeping every rule below unchanged.
+   The profile carries the composition, so a run that states the composition never reuses it: it returns to the proposal path and waits for approval, because reuse would silently keep a stored composition the run overrode. A participation decision the user overrode is not such a statement either, so it keeps the reuse path: whatever its origin, it settles this run's team only. It overrides a stored `ui-tester` in one direction only: when the decision includes the role, `--require-role` makes a profile without it `unresolved`; when the decision excludes it, the profile is reused without the role while the stored profile keeps it, because excluding a role never rewrites a profile.
+3. Otherwise propose the complete team as described in this section and wait for approval, keeping every rule below unchanged. When the run has no profile at all, the settled team becomes `default` by bootstrap, and only under the conditions in [Team profiles](#team-profiles); every other case returns here and saves only on an explicit user instruction.
 
 Use a table containing:
 
@@ -154,7 +189,7 @@ A task this run supplies for the `ui-tester` is preserved as-is and written into
 
 Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. Only when all assignments are complete and valid and the target PR is determined, summarize the resolved team and proceed without an additional approval round.
 
-Once the team is settled, write it to the [approved team record](#approved-team-record) with `team-record.sh write` using exactly the settled values, including the composition: `--pr-fix-shared-with-impl` and exactly the roles that join, so a run that separates `pr-fix` from `impl` or drops a recorded `ui-tester` records that composition instead of keeping the recorded one. This has one exception: a recorded `ui-tester` that the participation decision excluded stays in the record with its recorded value, whether the Issue derived the decision or the user overrode it in the same reply, because that decision settles this run's team only and no approval settled a composition without the role — this run's team omits the role while the write keeps it. A value supplied in this run wins over the record: never silently keep a recorded value the user overrode, and never write a value that does not resolve. When the user asks to see the team (`編成見せて`), print the table from the `resolve` output without waiting for approval; displaying the record is not an approval and does not change it.
+Once the team is settled, this run uses that team without changing the stored profiles. The composition applies to this run only: a settled team is not written automatically, and a run that excludes a stored `ui-tester`, separates `pr-fix` from `impl`, or overrides a stored provider, model, or thinking value keeps the stored profile as it is. The one automatic save is bootstrap, under the conditions in [Team profiles](#team-profiles): the team is written with `team-record.sh write --profile default`. Every other save happens only on an explicit user instruction, with `team-record.sh write --profile <name>` and exactly the settled values, including the composition: `--pr-fix-shared-with-impl` and exactly the roles that join. A value supplied in this run wins over the profile: never silently keep a stored value the user overrode, and never write a value that does not resolve. When the user asks to see the team (`編成見せて`), print the table from the `resolve` output without waiting for approval; displaying the profile is not an approval and does not change it.
 
 ## Start the team
 
@@ -192,7 +227,7 @@ Each role must return `completed` or `blocked` through the direct-parent result 
 
 `completed` requires every verification mandated by the Issue and repository instructions to have run and succeeded. A failed, skipped, or unavailable required check must return `blocked` with its command and result; never advance merely because verification finished.
 
-Track the Issue, team assignments and pane IDs, base and work branches, current phase, PR, reviewed head, review round, and unresolved Blockers only in the current conversation. Do not write this process state to disk; the [approved team record](#approved-team-record) holds the last approved team specification only.
+Track the Issue, team assignments and pane IDs, base and work branches, current phase, PR, reviewed head, review round, and unresolved Blockers only in the current conversation. Do not write this process state to disk; the [team profiles](#team-profiles) hold team compositions only.
 
 ### Implementation
 
@@ -277,4 +312,4 @@ Conversation resolution follows the Review skill's Resolve policy, which is cano
 
 Close the unused `ui-tester` pane once completion is confirmed with `herdr pane close <pane-id>`: the pane this workflow created that received no delegation is closed, and the closure is reported as one line. Keep a user-created pane, a pane that received a delegation, and every pane when the run fails or stops before completion; this is the only pane closure the workflow performs on its own, and `herdr tab close` and `herdr workspace close` are never used for it, because they would close delegated panes too.
 
-Report the Issue, the origin of the used team specification (the [approved team record](#approved-team-record) or this run's approval), the target PR position (`対象 PR: 1/2` or `対象 PR: single`, with the base branch difference when the PR is stacked), base and work branches, Draft PR, latest commit, verification, review round count, separate Issue candidates if any, unresolved optional feedback or conversations, and every created pane's role and observed state, including the `ui-tester` participation line, its Draft PR re-judgment, the closure line when one was closed, and the latest head's evidence comment when one was posted or reused. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup, except the unused `ui-tester` pane closed above.
+Report the Issue, the origin of the used team specification (the [effective team profile](#team-profiles) or this run's approval), the target PR position (`対象 PR: 1/2` or `対象 PR: single`, with the base branch difference when the PR is stacked), base and work branches, Draft PR, latest commit, verification, review round count, separate Issue candidates if any, unresolved optional feedback or conversations, and every created pane's role and observed state, including the `ui-tester` participation line, its Draft PR re-judgment, the closure line when one was closed, and the latest head's evidence comment when one was posted or reused. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup, except the unused `ui-tester` pane closed above.

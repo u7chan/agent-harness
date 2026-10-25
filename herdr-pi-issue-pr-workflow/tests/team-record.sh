@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Hermetic tests for the approved-team-record helper: scripts/lib/team-record.mjs,
+# Hermetic tests for the team-profile helper: scripts/lib/team-record.mjs,
 # scripts/team-record.mjs, and the scripts/team-record.sh wrapper.
 #
 # These tests do not require pi and do not touch the network: the model-spec
 # resolver is replaced through --resolver (a stub that reports the result the
-# case needs), every record lives under a temporary PI_CODING_AGENT_DIR, and
-# the path-derivation cases use repositories created by `git init` alone.
+# case needs), and every profile lives under a temporary PI_CODING_AGENT_DIR.
 # herdr-pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
 set -uo pipefail
 
@@ -15,13 +14,11 @@ HELPER="$SKILL_DIR/scripts/team-record.sh"
 MODULE="$SKILL_DIR/scripts/lib/team-record.mjs"
 SKILL_MD="$SKILL_DIR/SKILL.md"
 UI_TESTER_REFERENCE="$SKILL_DIR/references/ui-tester-role.md"
+SEQUENTIAL_REFERENCE="$SKILL_DIR/references/sequential-runs.md"
+MIGRATION_REFERENCE="$SKILL_DIR/references/team-profile-migration.md"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/team-record-test-XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
-
-# Every record path in this suite stays inside the work tree; the helper reads
-# PI_CODING_AGENT_DIR for the record directory.
-export PI_CODING_AGENT_DIR="$WORK/agent"
 
 PASS=0
 FAIL=0
@@ -50,6 +47,14 @@ check_not_contains() {
   esac
 }
 
+section_text() { # file heading
+  awk -v heading="## $2" '
+    $0 == heading { inside = 1; next }
+    inside && /^## / { exit }
+    inside { print }
+  ' "$1"
+}
+
 command -v node >/dev/null 2>&1 || {
   printf 'FAIL: node is required to run the team-record tests\n' >&2
   exit 1
@@ -57,11 +62,11 @@ command -v node >/dev/null 2>&1 || {
 
 # --- pure module -----------------------------------------------------------
 
-# The record format and key derivation must stay usable without pi or the
+# The profile format and the name rules must stay usable without pi or the
 # filesystem, so the module imports nothing but the sibling pure module.
 LIB_SOURCE="$(cat "$MODULE")"
-check_not_contains "record module does not import node" "$LIB_SOURCE" "from \"node:"
-check_not_contains "record module does not import pi" "$LIB_SOURCE" "@earendil-works"
+check_not_contains "profile module does not import node" "$LIB_SOURCE" "from \"node:"
+check_not_contains "profile module does not import pi" "$LIB_SOURCE" "@earendil-works"
 
 cat > "$WORK/lib-probe.mjs" <<'PROBE'
 import { pathToFileURL } from "node:url";
@@ -98,13 +103,42 @@ function makeRoles(overrides = {}) {
 }
 
 function valid(overrides = {}) {
-  return { version: 1, pr_fix_shared_with_impl: true, roles: makeRoles(), ...overrides };
+  return { pr_fix_shared_with_impl: true, roles: makeRoles(), ...overrides };
 }
 
 function reasonOf(raw) {
-  const result = lib.validateRecord(raw);
-  return result.result === "ok" ? `ok:${Object.keys(result.record.roles).join(",")}` : result.reason;
+  const result = lib.validateProfile(raw);
+  return result.result === "ok" ? `ok:${Object.keys(result.profile.roles).join(",")}` : result.reason;
 }
+
+function activeReasonOf(text) {
+  const result = lib.parseActiveContent(text);
+  return result.result === "ok" ? `ok:${result.name}` : result.reason;
+}
+
+// Profile names: one filename segment of profiles/, without the extension.
+eq("isProfileName accepts default", lib.isProfileName("default"), true);
+eq("isProfileName accepts a dotted name", lib.isProfileName("gpt.6-sol_x-1"), true);
+eq("isProfileName rejects the current directory", lib.isProfileName("."), false);
+eq("isProfileName rejects the parent directory", lib.isProfileName(".."), false);
+eq("isProfileName rejects a path separator", lib.isProfileName("a/b"), false);
+eq("isProfileName rejects whitespace", lib.isProfileName("fall back"), false);
+eq("isProfileName rejects an empty value", lib.isProfileName(""), false);
+eq("isProfileName rejects a non-string", lib.isProfileName(null), false);
+eq("profileFileName appends the suffix", lib.profileFileName("fallback"), "fallback.json");
+
+// active: exactly one line, at most one trailing newline, a valid name.
+eq("parseActiveContent accepts a trailing newline", activeReasonOf("fallback\n"), "ok:fallback");
+eq("parseActiveContent accepts no trailing newline", activeReasonOf("fallback"), "ok:fallback");
+eq("parseActiveContent accepts default", activeReasonOf("default\n"), "ok:default");
+eq("parseActiveContent rejects an empty file", activeReasonOf(""), "bad-active");
+eq("parseActiveContent rejects a bare newline", activeReasonOf("\n"), "bad-active");
+eq("parseActiveContent rejects two lines", activeReasonOf("a\nb\n"), "bad-active");
+eq("parseActiveContent rejects a second newline", activeReasonOf("fallback\n\n"), "bad-active");
+eq("parseActiveContent rejects an invalid name", activeReasonOf("fall back\n"), "bad-active");
+eq("parseActiveContent rejects a path", activeReasonOf("../x\n"), "bad-active");
+eq("parseActiveContent rejects a dot", activeReasonOf(".\n"), "bad-active");
+eq("parseActiveContent rejects a non-string", activeReasonOf(null), "bad-active");
 
 // parseRoleSpec: the provider is the first segment, the thinking level the
 // last one, and the model everything between them.
@@ -142,59 +176,61 @@ eq("readRoleSpec rejects a slash in the provider", lib.readRoleSpec({ ...makeRol
 eq("readRoleSpec rejects a missing level", lib.readRoleSpec({ provider: "opencode-go", model: "m" }), null);
 eq("readRoleSpec rejects a non-object", lib.readRoleSpec("opencode-go/m/high"), null);
 
-// validateRecord: what the reuse path may accept.
-eq("validateRecord accepts the smallest record", reasonOf(valid()), "ok:impl,review,pr-fix");
+// validateProfile: what the reuse path may accept.
+eq("validateProfile accepts the smallest profile", reasonOf(valid()), "ok:impl,review,pr-fix");
 eq(
-  "validateRecord accepts a ui-tester",
+  "validateProfile accepts a ui-tester",
   reasonOf(valid({ roles: makeRoles({ "ui-tester": { provider: "opencode-go", model: "m", thinking: "max" } }) })),
   "ok:impl,review,pr-fix,ui-tester",
 );
 eq(
-  "validateRecord ignores unknown top-level keys",
+  "validateProfile ignores unknown top-level keys",
   reasonOf({ ...valid(), note: "hand written", future_field: 1 }),
   "ok:impl,review,pr-fix",
 );
 eq(
-  "validateRecord ignores unknown role keys",
+  "validateProfile accepts a profile that still carries the removed version",
+  reasonOf({ version: 1, ...valid() }),
+  "ok:impl,review,pr-fix",
+);
+eq(
+  "validateProfile ignores unknown role keys",
   reasonOf({ ...valid(), roles: makeRoles({ reviewer: { provider: "opencode-go", model: "m", thinking: "max" } }) }),
   "ok:impl,review,pr-fix",
 );
-eq("validateRecord rejects a non-object", reasonOf(null), "bad-record");
-eq("validateRecord rejects an array", reasonOf([]), "bad-record");
-eq("validateRecord rejects an unknown version", reasonOf({ ...valid(), version: 2 }), "bad-version");
-eq("validateRecord rejects a string version", reasonOf({ ...valid(), version: "1" }), "bad-version");
-eq("validateRecord rejects a missing version", reasonOf({ pr_fix_shared_with_impl: true, roles: makeRoles() }), "bad-version");
-eq("validateRecord rejects a missing shared flag", reasonOf({ version: 1, roles: makeRoles() }), "bad-shared");
-eq("validateRecord rejects a string shared flag", reasonOf({ ...valid(), pr_fix_shared_with_impl: "true" }), "bad-shared");
-eq("validateRecord rejects missing roles", reasonOf({ version: 1, pr_fix_shared_with_impl: true }), "bad-roles");
-eq("validateRecord rejects an array roles", reasonOf({ version: 1, pr_fix_shared_with_impl: true, roles: [] }), "bad-roles");
+eq("validateProfile rejects a non-object", reasonOf(null), "bad-record");
+eq("validateProfile rejects an array", reasonOf([]), "bad-record");
+eq("validateProfile rejects a missing shared flag", reasonOf({ roles: makeRoles() }), "bad-shared");
+eq("validateProfile rejects a string shared flag", reasonOf({ ...valid(), pr_fix_shared_with_impl: "true" }), "bad-shared");
+eq("validateProfile rejects missing roles", reasonOf({ pr_fix_shared_with_impl: true }), "bad-roles");
+eq("validateProfile rejects an array roles", reasonOf({ pr_fix_shared_with_impl: true, roles: [] }), "bad-roles");
 eq(
-  "validateRecord rejects a missing required role",
+  "validateProfile rejects a missing required role",
   reasonOf({ ...valid(), roles: { impl: makeRoles().impl, "pr-fix": makeRoles()["pr-fix"] } }),
   "missing-role",
 );
 eq(
-  "validateRecord rejects a role that is not an object",
+  "validateProfile rejects a role that is not an object",
   reasonOf({ ...valid(), roles: { ...makeRoles(), review: "openai-codex/gpt-6-astra/medium" } }),
   "bad-role-spec",
 );
 eq(
-  "validateRecord rejects an unknown thinking level",
+  "validateProfile rejects an unknown thinking level",
   reasonOf({ ...valid(), roles: { ...makeRoles(), review: { ...makeRoles().review, thinking: "extreme" } } }),
   "bad-role-spec",
 );
 eq(
-  "validateRecord rejects whitespace in a stored value",
+  "validateProfile rejects whitespace in a stored value",
   reasonOf({ ...valid(), roles: { ...makeRoles(), review: { ...makeRoles().review, thinking: "medium " } } }),
   "bad-role-spec",
 );
 eq(
-  "validateRecord rejects a shared pr-fix with a different spec",
+  "validateProfile rejects a shared pr-fix with a different spec",
   reasonOf({ ...valid(), roles: { ...makeRoles(), "pr-fix": { provider: "opencode-go", model: "other", thinking: "high" } } }),
   "bad-shared",
 );
 eq(
-  "validateRecord accepts a distinct pr-fix when not shared",
+  "validateProfile accepts a distinct pr-fix when not shared",
   reasonOf({
     ...valid({ pr_fix_shared_with_impl: false }),
     roles: { ...makeRoles(), "pr-fix": { provider: "opencode-go", model: "other", thinking: "high" } },
@@ -202,44 +238,23 @@ eq(
   "ok:impl,review,pr-fix",
 );
 eq(
-  "validateRecord rejects an invalid optional role",
+  "validateProfile rejects an invalid optional role",
   reasonOf({ ...valid(), roles: makeRoles({ "ui-tester": { provider: "opencode-go", model: "" , thinking: "max" } }) }),
   "bad-role-spec",
 );
 
-// buildRecord: the canonical content the writer stores.
+// buildProfile: the canonical content the writer stores.
 eq(
-  "buildRecord keeps role order",
-  Object.keys(lib.buildRecord(makeRoles({ "ui-tester": { provider: "opencode-go", model: "m", thinking: "max" } }), false).roles),
+  "buildProfile keeps role order",
+  Object.keys(lib.buildProfile(makeRoles({ "ui-tester": { provider: "opencode-go", model: "m", thinking: "max" } }), false).roles),
   ["impl", "review", "pr-fix", "ui-tester"],
 );
-eq("buildRecord stores the version", lib.buildRecord(makeRoles(), true).version, 1);
-eq("buildRecord stores the shared flag", lib.buildRecord(makeRoles(), true).pr_fix_shared_with_impl, true);
-
-// parseOriginKey: only a remote that names exactly owner/repo is usable.
-eq("parseOriginKey reads an https remote", lib.parseOriginKey("https://github.com/u7chan/agent-harness.git"), "u7chan__agent-harness");
-eq("parseOriginKey reads an https remote without .git", lib.parseOriginKey("https://github.com/u7chan/agent-harness"), "u7chan__agent-harness");
-eq("parseOriginKey trims a trailing slash", lib.parseOriginKey("https://github.com/u7chan/agent-harness/"), "u7chan__agent-harness");
-eq("parseOriginKey reads an scp-like remote", lib.parseOriginKey("git@github.com:u7chan/agent-harness.git"), "u7chan__agent-harness");
-eq("parseOriginKey reads an ssh remote", lib.parseOriginKey("ssh://git@github.com/u7chan/agent-harness.git"), "u7chan__agent-harness");
-eq("parseOriginKey reads a remote with a port", lib.parseOriginKey("https://github.com:443/u7chan/agent-harness.git"), "u7chan__agent-harness");
-eq("parseOriginKey ignores the host", lib.parseOriginKey("https://gitlab.com/u7chan/agent-harness.git"), "u7chan__agent-harness");
-eq("parseOriginKey rejects a nested path", lib.parseOriginKey("https://github.com/u7chan/agent-harness/tree/main"), null);
-eq("parseOriginKey rejects a repository-only remote", lib.parseOriginKey("https://github.com/u7chan"), null);
-eq("parseOriginKey rejects an empty segment", lib.parseOriginKey("https://github.com//agent-harness"), null);
-eq("parseOriginKey rejects a dot segment", lib.parseOriginKey("https://github.com/u7chan/.."), null);
-eq("parseOriginKey rejects a file remote", lib.parseOriginKey("file:///home/u/checkout.git"), null);
-eq("parseOriginKey rejects a local path", lib.parseOriginKey("/home/u/checkout"), null);
-eq("parseOriginKey rejects a bare owner/repo", lib.parseOriginKey("u7chan/agent-harness"), null);
-eq("parseOriginKey rejects an empty value", lib.parseOriginKey(""), null);
-eq("parseOriginKey rejects a non-string", lib.parseOriginKey(null), null);
-
-// recordKeyFromPath and recordFileName: the fallback key stays one filename.
-eq("recordKeyFromPath sanitizes a path", lib.recordKeyFromPath("/home/u/dev/repo"), "home-u-dev-repo");
-eq("recordKeyFromPath sanitizes spaces", lib.recordKeyFromPath("/tmp/x y/z"), "tmp-x-y-z");
-eq("recordKeyFromPath handles an empty path", lib.recordKeyFromPath(""), "repository-root");
-eq("recordKeyFromPath handles the current directory", lib.recordKeyFromPath("."), "repository-root");
-eq("recordFileName appends the suffix", lib.recordFileName("u7chan__agent-harness"), "u7chan__agent-harness.json");
+eq("buildProfile stores the shared flag", lib.buildProfile(makeRoles(), true).pr_fix_shared_with_impl, true);
+eq(
+  "buildProfile no longer stores a version",
+  Object.prototype.hasOwnProperty.call(lib.buildProfile(makeRoles(), true), "version"),
+  false,
+);
 
 process.exit(failures === 0 ? 0 : 1);
 PROBE
@@ -300,46 +315,52 @@ chmod +x "$WORK/stub-ok.sh" "$WORK/stub-mixed.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$WORK/stub-noexec.sh"
 chmod -x "$WORK/stub-noexec.sh"
 
-# --- record fixtures -------------------------------------------------------
+# --- profile fixtures ------------------------------------------------------
 
-RECORDS="$WORK/records"
-mkdir -p "$RECORDS"
 IMPL='{"provider":"opencode-go","model":"deepseek-v4.1-flash","thinking":"high"}'
 REVIEW='{"provider":"openai-codex","model":"gpt-6-astra","thinking":"medium"}'
 PRFIX='{"provider":"opencode-go","model":"deepseek-v4.1-flash","thinking":"high"}'
 UI_TESTER='{"provider":"opencode-go","model":"deepseek-v4-flash","thinking":"max"}'
 UNRESOLVABLE='{"provider":"opencode-go","model":"unresolvable","thinking":"high"}'
 CLAMPED='{"provider":"opencode-go","model":"clamped-model","thinking":"high"}'
+ROLES='{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"'}'
+ROLES_UI_TESTER='{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"ui-tester":'"$UI_TESTER"'}'
 
-record() { # file json
-  printf '%s\n' "$2" > "$RECORDS/$1"
+profile_json() { # shared roles-json
+  printf '{"pr_fix_shared_with_impl":%s,"roles":%s}' "$1" "$2"
 }
 
-record valid.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX}}"
-record valid-ui-tester.json "{\"version\":1,\"pr_fix_shared_with_impl\":false,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX,\"ui-tester\":$UI_TESTER}}"
-# Role keys this version does not know, including a previous name of a known
-# role, are ignored: a run that needs such a role finds no role to reuse and
-# returns to the proposal path.
-record unknown-keys.json "{\"version\":1,\"note\":\"hand written\",\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX,\"reviewer\":$UI_TESTER,\"unknown\":{\"provider\":\"x\"}}}"
-record bad-json.json 'not json'
-record version2.json "{\"version\":2,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX}}"
-record version-missing.json "{\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX}}"
-record roles-missing.json '{"version":1,"pr_fix_shared_with_impl":true}'
-record missing-review.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"pr-fix\":$PRFIX}}"
-record role-not-object.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":\"openai-codex/gpt-6-astra/medium\",\"pr-fix\":$PRFIX}}"
-record role-bad-thinking.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":{\"provider\":\"openai-codex\",\"model\":\"gpt-6-astra\",\"thinking\":\"extreme\"},\"pr-fix\":$PRFIX}}"
-record role-whitespace.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":{\"provider\":\"openai-codex\",\"model\":\"gpt 6 astra\",\"thinking\":\"medium\"},\"pr-fix\":$PRFIX}}"
-record shared-missing.json "{\"version\":1,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$PRFIX}}"
-record shared-mismatch.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$REVIEW,\"pr-fix\":$REVIEW}}"
-record unresolvable-model.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$UNRESOLVABLE,\"pr-fix\":$PRFIX}}"
-record clamped-model.json "{\"version\":1,\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":$IMPL,\"review\":$CLAMPED,\"pr-fix\":$PRFIX}}"
+asset() { # agent-dir
+  printf '%s/pi-issue-pr-workflow' "$1"
+}
 
-# --- resolve ---------------------------------------------------------------
+new_agent() { # name
+  local dir="$WORK/agent-$1"
+  mkdir -p "$dir"
+  printf '%s' "$dir"
+}
+
+put_profile() { # agent-dir name json
+  mkdir -p "$(asset "$1")/profiles"
+  printf '%s\n' "$3" > "$(asset "$1")/profiles/$2.json"
+}
+
+put_active() { # agent-dir content (printf %b escapes)
+  mkdir -p "$(asset "$1")"
+  printf '%b' "$2" > "$(asset "$1")/active"
+  chmod 600 "$(asset "$1")/active"
+}
+
+active_content() { # agent-dir
+  cat "$(asset "$1")/active" 2>/dev/null
+}
+
+# --- helper invocation -----------------------------------------------------
 
 RC=0
 OUT=""
 ERR=""
-capture() { # cli-args...
+capture() { # cli-args... (uses the already-exported PI_CODING_AGENT_DIR)
   local out_file err_file
   out_file="$(mktemp "$WORK/out.XXXXXX")"
   err_file="$(mktemp "$WORK/err.XXXXXX")"
@@ -349,6 +370,14 @@ capture() { # cli-args...
   ERR="$(cat "$err_file")"
   cat "$out_file" "$err_file" >> "$WORK/all-output.txt"
   rm -f "$out_file" "$err_file"
+}
+
+capture_in() { # agent-dir cli-args...
+  local dir="$1" saved="${PI_CODING_AGENT_DIR-}"
+  shift
+  export PI_CODING_AGENT_DIR="$dir"
+  capture "$@"
+  export PI_CODING_AGENT_DIR="$saved"
 }
 
 # Reads one field from the single output line.
@@ -368,92 +397,263 @@ check_nonzero() { # name
   fi
 }
 
-# A missing record: nothing to reuse, so the kickoff proposes and waits.
-capture resolve --record "$RECORDS/absent.json" --resolver "$WORK/stub-ok.sh"
-check_single_line "missing record"
-check_nonzero "missing record"
-check_eq "missing record result" "$(kv "$OUT" result)" "missing"
-check_eq "missing record present" "$(kv "$OUT" present)" "false"
-check_eq "missing record reason" "$(kv "$OUT" reason)" "absent"
-
-# Invalid content: every shape violation returns to the proposal path.
-check_invalid() { # name file expected-reason
-  capture resolve --record "$RECORDS/$2" --resolver "$WORK/stub-ok.sh"
-  check_single_line "$1"
-  check_nonzero "$1"
-  check_eq "$1 result" "$(kv "$OUT" result)" "invalid"
-  check_eq "$1 reason" "$(kv "$OUT" reason)" "$3"
+check_exit() { # name expected
+  check_eq "$1 exit status" "$RC" "$2"
 }
 
-check_invalid "broken JSON" bad-json.json bad-json
-check_invalid "unknown version" version2.json bad-version
-check_invalid "missing version" version-missing.json bad-version
-check_invalid "missing roles" roles-missing.json bad-roles
-check_invalid "missing role key" missing-review.json missing-role
-check_invalid "role is not an object" role-not-object.json bad-role-spec
-check_invalid "role has an unknown level" role-bad-thinking.json bad-role-spec
-check_invalid "role value has whitespace" role-whitespace.json bad-role-spec
-check_invalid "missing shared flag" shared-missing.json bad-shared
-check_invalid "shared pr-fix differs from impl" shared-mismatch.json bad-shared
+# --- resolve: profile selection -------------------------------------------
 
-# A directory in place of the record file is unreadable, not broken JSON.
-capture resolve --record "$RECORDS" --resolver "$WORK/stub-ok.sh"
-check_single_line "unreadable record"
-check_nonzero "unreadable record"
-check_eq "unreadable record result" "$(kv "$OUT" result)" "invalid"
-check_eq "unreadable record reason" "$(kv "$OUT" reason)" "unreadable"
+# No profiles at all: nothing to reuse, so the kickoff proposes and waits.
+D="$(new_agent no-profiles)"
+capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+check_single_line "no profiles"
+check_nonzero "no profiles"
+check_eq "no profiles result" "$(kv "$OUT" result)" "missing"
+check_eq "no profiles reason" "$(kv "$OUT" reason)" "no-profiles"
+check_eq "no profiles reports no profile set" "$(kv "$OUT" profiles_present)" "false"
+check_eq "no profiles reports the selected profile absent" "$(kv "$OUT" present)" "false"
+check_eq "no profiles selects default" "$(kv "$OUT" profile)" "default"
+check_eq "no profiles source is default" "$(kv "$OUT" source)" "default"
+check_eq "no profiles names the would-be file" "$(kv "$OUT" record)" \
+  "$(asset "$D")/profiles/default.json"
 
-# The reuse path: recorded roles resolve, so the kickoff continues without a
-# table and without an approval round.
-capture resolve --record "$RECORDS/valid.json" --resolver "$WORK/stub-mixed.sh"
-check_single_line "reusable record"
-check_eq "reusable record exits ok" "$RC" "0"
-check_eq "reusable record result" "$(kv "$OUT" result)" "ok"
-check_eq "reusable record present" "$(kv "$OUT" present)" "true"
-check_eq "reusable record shared flag" "$(kv "$OUT" pr_fix_shared_with_impl)" "true"
-check_eq "reusable record impl" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
-check_eq "reusable record review" "$(kv "$OUT" review)" "openai-codex/gpt-6-astra/medium"
-check_eq "reusable record pr-fix" "$(kv "$OUT" pr-fix)" "opencode-go/deepseek-v4.1-flash/high"
+# An existing but empty profiles/ directory is the same state.
+D="$(new_agent empty-profiles)"
+mkdir -p "$(asset "$D")/profiles"
+capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+check_eq "empty profiles dir result" "$(kv "$OUT" result)" "missing"
+check_eq "empty profiles dir reason" "$(kv "$OUT" reason)" "no-profiles"
+check_eq "empty profiles dir reports no profile set" "$(kv "$OUT" profiles_present)" "false"
 
-capture resolve --record "$RECORDS/valid-ui-tester.json" --resolver "$WORK/stub-mixed.sh"
-check_eq "reusable record with ui-tester exits ok" "$RC" "0"
-check_eq "reusable record tests the ui-tester spec" "$(kv "$OUT" ui-tester)" "opencode-go/deepseek-v4-flash/max"
+# A non-JSON file does not count as a profile.
+D="$(new_agent non-json-entry)"
+mkdir -p "$(asset "$D")/profiles"
+printf 'notes\n' > "$(asset "$D")/profiles/notes.txt"
+capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+check_eq "a non-JSON entry is not a profile" "$(kv "$OUT" reason)" "no-profiles"
+check_eq "a non-JSON entry keeps profiles_present false" "$(kv "$OUT" profiles_present)" "false"
 
-# Unknown top-level and role keys are ignored, so a later role name does not
-# break this reader; the role is simply absent and --require-role reports it.
-capture resolve --record "$RECORDS/unknown-keys.json" --resolver "$WORK/stub-mixed.sh"
-check_eq "unknown keys still reuse the record" "$RC" "0"
-check_eq "unknown role key is not a known role" "$(kv "$OUT" ui-tester)" ""
-check_eq "unknown role keys keep the required roles" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
-capture resolve --record "$RECORDS/unknown-keys.json" --resolver "$WORK/stub-mixed.sh" --require-role ui-tester
-check_nonzero "required ui-tester absent from the record"
-check_eq "required ui-tester result" "$(kv "$OUT" result)" "unresolved"
-check_eq "required ui-tester is reported" "$(kv "$OUT" unresolved)" "ui-tester"
-check_eq "required ui-tester reports absent" "$(kv "$OUT" unresolved_result)" "absent"
+# Only default.json, no active: default applies implicitly.
+D="$(new_agent default-only)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_single_line "default profile"
+check_exit "default profile exits ok" "0"
+check_eq "default profile result" "$(kv "$OUT" result)" "ok"
+check_eq "default profile name" "$(kv "$OUT" profile)" "default"
+check_eq "default profile source" "$(kv "$OUT" source)" "default"
+check_eq "default profile present" "$(kv "$OUT" present)" "true"
+check_eq "default profile reports the set" "$(kv "$OUT" profiles_present)" "true"
+check_eq "default profile shared flag" "$(kv "$OUT" pr_fix_shared_with_impl)" "true"
+check_eq "default profile impl" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
+check_eq "default profile review" "$(kv "$OUT" review)" "openai-codex/gpt-6-astra/medium"
+check_eq "default profile pr-fix" "$(kv "$OUT" pr-fix)" "opencode-go/deepseek-v4.1-flash/high"
 
-# One recorded role that does not resolve sends the kickoff back to the
-# proposal path, and the other specifications stay visible for the proposal.
-capture resolve --record "$RECORDS/unresolvable-model.json" --resolver "$WORK/stub-mixed.sh"
+# active selects the named profile, with or without a trailing newline.
+D="$(new_agent active)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+put_profile "$D" fallback "$(profile_json true "$ROLES")"
+put_active "$D" 'fallback\n'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_exit "active profile exits ok" "0"
+check_eq "active profile result" "$(kv "$OUT" result)" "ok"
+check_eq "active profile name" "$(kv "$OUT" profile)" "fallback"
+check_eq "active profile source" "$(kv "$OUT" source)" "active"
+check_eq "active profile file" "$(kv "$OUT" record)" "$(asset "$D")/profiles/fallback.json"
+
+put_active "$D" 'fallback'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "active without a trailing newline still applies" "$(kv "$OUT" result)" "ok"
+check_eq "active without a trailing newline keeps the name" "$(kv "$OUT" profile)" "fallback"
+
+# An explicit --profile wins over active and reports source=explicit.
+capture_in "$D" resolve --profile default --resolver "$WORK/stub-mixed.sh"
+check_exit "explicit profile exits ok" "0"
+check_eq "explicit profile name" "$(kv "$OUT" profile)" "default"
+check_eq "explicit profile source" "$(kv "$OUT" source)" "explicit"
+check_eq "explicit profile result" "$(kv "$OUT" result)" "ok"
+
+# profiles_present=true with only the selected profile missing is not a
+# no-profile state: the run returns to the proposal path with its own reason.
+D="$(new_agent fallback-only)"
+put_profile "$D" fallback "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_single_line "missing selected profile"
+check_nonzero "missing selected profile"
+check_eq "missing selected profile result" "$(kv "$OUT" result)" "missing"
+check_eq "missing selected profile reason" "$(kv "$OUT" reason)" "missing-selected-profile"
+check_eq "missing selected profile selects default" "$(kv "$OUT" profile)" "default"
+check_eq "missing selected profile keeps profiles_present" "$(kv "$OUT" profiles_present)" "true"
+check_eq "missing selected profile is absent" "$(kv "$OUT" present)" "false"
+
+# active naming a missing profile is an error, never a silent default.
+D="$(new_agent active-missing)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+put_active "$D" 'nope\n'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_nonzero "active names a missing profile"
+check_eq "active missing profile result" "$(kv "$OUT" result)" "missing"
+check_eq "active missing profile reason" "$(kv "$OUT" reason)" "missing-active-profile"
+check_eq "active missing profile keeps the active name" "$(kv "$OUT" profile)" "nope"
+check_eq "active missing profile does not fall back to default" "$(kv "$OUT" impl)" ""
+check_eq "active missing profile is absent" "$(kv "$OUT" present)" "false"
+
+# A broken active file is bad-active, whatever its shape.
+check_bad_active() { # name content
+  local name="$1" content="$2" dir
+  dir="$(new_agent "bad-active-$name")"
+  put_profile "$dir" default "$(profile_json true "$ROLES")"
+  put_active "$dir" "$content"
+  capture_in "$dir" resolve --resolver "$WORK/stub-mixed.sh"
+  check_single_line "bad active: $name"
+  check_nonzero "bad active: $name"
+  check_eq "bad active: $name result" "$(kv "$OUT" result)" "invalid"
+  check_eq "bad active: $name reason" "$(kv "$OUT" reason)" "bad-active"
+  check_eq "bad active: $name profiles_present" "$(kv "$OUT" profiles_present)" "true"
+}
+
+check_bad_active empty ''
+check_bad_active multi-line 'a\nb\n'
+check_bad_active invalid-name 'fall back\n'
+check_bad_active parent-dir '..\n'
+
+# An explicit profile that is absent has its own reason.
+D="$(new_agent explicit-missing)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --profile ghost --resolver "$WORK/stub-mixed.sh"
+check_nonzero "explicit missing profile"
+check_eq "explicit missing profile result" "$(kv "$OUT" result)" "missing"
+check_eq "explicit missing profile reason" "$(kv "$OUT" reason)" "missing-explicit-profile"
+check_eq "explicit missing profile source" "$(kv "$OUT" source)" "explicit"
+
+# An explicit name that is not a profile name is an argument error.
+check_bad_profile_name() { # name value
+  local name="$1" value="$2" dir
+  dir="$(new_agent "bad-name-$name")"
+  put_profile "$dir" default "$(profile_json true "$ROLES")"
+  capture_in "$dir" resolve --profile "$value" --resolver "$WORK/stub-mixed.sh"
+  check_single_line "bad profile name: $name"
+  check_exit "bad profile name: $name exits with a usage status" "2"
+  check_eq "bad profile name: $name result" "$(kv "$OUT" result)" "invalid"
+  check_eq "bad profile name: $name reason" "$(kv "$OUT" reason)" "bad-profile-name"
+}
+
+check_bad_profile_name dot '.'
+check_bad_profile_name parent-dir '..'
+check_bad_profile_name separator 'a/b'
+check_bad_profile_name whitespace 'fall back'
+
+# --- resolve: profile content ---------------------------------------------
+
+check_invalid() { # name json expected-reason
+  local name="$1" json="$2" expected="$3" dir
+  dir="$(new_agent "invalid-$name")"
+  put_profile "$dir" default "$json"
+  capture_in "$dir" resolve --resolver "$WORK/stub-ok.sh"
+  check_single_line "invalid profile: $name"
+  check_nonzero "invalid profile: $name"
+  check_eq "invalid profile: $name result" "$(kv "$OUT" result)" "invalid"
+  check_eq "invalid profile: $name reason" "$(kv "$OUT" reason)" "$expected"
+}
+
+check_invalid "broken-json" 'not json' bad-json
+check_invalid "array" '[]' bad-record
+check_invalid "roles-missing" '{"pr_fix_shared_with_impl":true}' bad-roles
+check_invalid "missing-role" \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"pr-fix":'"$PRFIX"'}}' missing-role
+check_invalid "role-not-object" \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":"openai-codex/gpt-6-astra/medium","pr-fix":'"$PRFIX"'}}' bad-role-spec
+check_invalid "role-bad-thinking" \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":{"provider":"openai-codex","model":"gpt-6-astra","thinking":"extreme"},"pr-fix":'"$PRFIX"'}}' bad-role-spec
+check_invalid "role-whitespace" \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":{"provider":"openai-codex","model":"gpt 6 astra","thinking":"medium"},"pr-fix":'"$PRFIX"'}}' bad-role-spec
+check_invalid "shared-missing" \
+  '{"roles":{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"'}}' bad-shared
+check_invalid "shared-mismatch" \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$REVIEW"'}}' bad-shared
+
+# A profile that still carries the removed version key stays usable, because
+# unknown top-level keys are ignored.
+D="$(new_agent version-key)"
+put_profile "$D" default '{"version":1,"pr_fix_shared_with_impl":true,"roles":'"$ROLES"'}'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_exit "a leftover version key still resolves" "0"
+check_eq "a leftover version key keeps the roles" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
+
+# A directory in place of the profile file is unreadable, not broken JSON.
+D="$(new_agent unreadable)"
+mkdir -p "$(asset "$D")/profiles/default.json"
+capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+check_nonzero "unreadable profile"
+check_eq "unreadable profile result" "$(kv "$OUT" result)" "invalid"
+check_eq "unreadable profile reason" "$(kv "$OUT" reason)" "unreadable"
+
+# A role that does not resolve keeps the profile unreusable.
+D="$(new_agent unresolvable)"
+put_profile "$D" default \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$UNRESOLVABLE"',"pr-fix":'"$PRFIX"'}}'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
 check_single_line "unresolvable role"
 check_nonzero "unresolvable role"
 check_eq "unresolvable role result" "$(kv "$OUT" result)" "unresolved"
+check_eq "unresolvable role reason" "$(kv "$OUT" reason)" "role"
 check_eq "unresolvable role is reported" "$(kv "$OUT" unresolved)" "review"
 check_eq "unresolvable role token" "$(kv "$OUT" unresolved_result)" "unknown"
 check_eq "unresolvable role keeps impl for the proposal" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
 
-capture resolve --record "$RECORDS/clamped-model.json" --resolver "$WORK/stub-mixed.sh"
+D="$(new_agent clamped)"
+put_profile "$D" default \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$CLAMPED"',"pr-fix":'"$PRFIX"'}}'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
 check_nonzero "clamped role"
 check_eq "clamped role token" "$(kv "$OUT" unresolved_result)" "clamped"
 
 # A resolver that cannot run is unresolved, never a silent success.
-capture resolve --record "$RECORDS/valid.json" --resolver "$WORK/absent-resolver.sh"
+D="$(new_agent missing-resolver)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --resolver "$WORK/absent-resolver.sh"
 check_single_line "missing resolver"
 check_nonzero "missing resolver"
 check_eq "missing resolver result" "$(kv "$OUT" result)" "unresolved"
 check_eq "missing resolver token" "$(kv "$OUT" unresolved_result)" "error"
-capture resolve --record "$RECORDS/valid.json" --resolver "$WORK/stub-noexec.sh"
+capture_in "$D" resolve --resolver "$WORK/stub-noexec.sh"
 check_nonzero "non-executable resolver"
 check_eq "non-executable resolver token" "$(kv "$OUT" unresolved_result)" "error"
+
+# The optional ui-tester is reusable when present and reported absent when a
+# run requires it and the profile does not provide it.
+D="$(new_agent ui-tester)"
+put_profile "$D" default "$(profile_json false "$ROLES_UI_TESTER")"
+capture_in "$D" resolve --require-role ui-tester --resolver "$WORK/stub-mixed.sh"
+check_exit "required ui-tester present exits ok" "0"
+check_eq "required ui-tester is reusable" "$(kv "$OUT" ui-tester)" "opencode-go/deepseek-v4-flash/max"
+check_eq "required ui-tester keeps the shared flag" "$(kv "$OUT" pr_fix_shared_with_impl)" "false"
+
+put_profile "$D" default "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --require-role ui-tester --resolver "$WORK/stub-mixed.sh"
+check_nonzero "required ui-tester absent from the profile"
+check_eq "required ui-tester result" "$(kv "$OUT" result)" "unresolved"
+check_eq "required ui-tester is reported" "$(kv "$OUT" unresolved)" "ui-tester"
+check_eq "required ui-tester reports absent" "$(kv "$OUT" unresolved_result)" "absent"
+
+# Unknown top-level and role keys are ignored, so a later role name does not
+# break this reader; the role is simply absent for --require-role.
+D="$(new_agent unknown-keys)"
+put_profile "$D" default \
+  '{"note":"hand written","pr_fix_shared_with_impl":true,"roles":'"$ROLES"',"reviewer":'"$UI_TESTER"',"unknown":{"provider":"x"}}'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_exit "unknown keys still reuse the profile" "0"
+check_eq "unknown role key is not a known role" "$(kv "$OUT" ui-tester)" ""
+
+# The removed options are gone: the helper reports them as argument errors.
+D="$(new_agent removed-options)"
+capture_in "$D" resolve --repo-root "$WORK" --resolver "$WORK/stub-ok.sh"
+check_exit "--repo-root is rejected" "2"
+check_eq "--repo-root is rejected as usage" "$(kv "$OUT" reason)" "usage"
+capture_in "$D" resolve --record "$WORK/x.json" --resolver "$WORK/stub-ok.sh"
+check_exit "--record is rejected" "2"
+capture_in "$D" resolve --origin-url "https://github.com/u7dev/x.git" --resolver "$WORK/stub-ok.sh"
+check_exit "--origin-url is rejected" "2"
 
 # --- write -----------------------------------------------------------------
 
@@ -474,39 +674,50 @@ WRITE_TEAM=(--role impl=opencode-go/deepseek-v4.1-flash/high
   --role review=openai-codex/gpt-6-astra/medium
   --role pr-fix=opencode-go/deepseek-v4.1-flash/high)
 
-TARGET="$WORK/written/record.json"
-rm -rf "$WORK/written"
-capture write --record "$TARGET" --resolver "$WORK/stub-mixed.sh" \
+# write creates one profile and never touches active.
+D="$(new_agent write-create)"
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
   --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
-check_single_line "write creates the record"
+check_single_line "write creates the profile"
 check_eq "write exits ok" "$RC" "0"
 check_eq "write result" "$(kv "$OUT" result)" "ok"
 check_eq "write wrote" "$(kv "$OUT" written)" "true"
+check_eq "write profile" "$(kv "$OUT" profile)" "default"
 check_eq "write roles" "$(kv "$OUT" roles)" "impl,review,pr-fix"
-check_eq "write reports the target" "$(kv "$OUT" record)" "$TARGET"
-check_eq "write stores the version" "$(json_field "$TARGET" version)" "1"
-check_eq "write stores the shared flag" "$(json_field "$TARGET" pr_fix_shared_with_impl)" "true"
-check_eq "write stores the impl model" "$(json_field "$TARGET" roles.impl.model)" "deepseek-v4.1-flash"
-check_eq "write stores the review thinking" "$(json_field "$TARGET" roles.review.thinking)" "medium"
-check_eq "write mode is 0600" "$(file_mode "$TARGET")" "600"
-check_not_contains "write leaves no temporary file" "$(ls -A "$WORK/written")" ".tmp"
+check_eq "write reports the target" "$(kv "$OUT" record)" "$(asset "$D")/profiles/default.json"
+check_eq "write stores the shared flag" "$(json_field "$(asset "$D")/profiles/default.json" pr_fix_shared_with_impl)" "true"
+check_eq "write stores no version" "$(json_field "$(asset "$D")/profiles/default.json" version)" ""
+check_eq "write stores the impl model" "$(json_field "$(asset "$D")/profiles/default.json" roles.impl.model)" "deepseek-v4.1-flash"
+check_eq "write stores the review thinking" "$(json_field "$(asset "$D")/profiles/default.json" roles.review.thinking)" "medium"
+check_eq "write mode is 0600" "$(file_mode "$(asset "$D")/profiles/default.json")" "600"
+check_not_contains "write leaves no temporary file" "$(ls -A "$(asset "$D")/profiles")" ".tmp"
+if [ -e "$(asset "$D")/active" ]; then
+  ng "write does not create active" "found $(asset "$D")/active"
+else
+  ok "write does not create active"
+fi
 
-# The written record is reusable as-is.
-capture resolve --record "$TARGET" --resolver "$WORK/stub-mixed.sh"
-check_eq "written record resolves" "$(kv "$OUT" result)" "ok"
+# The written profile is reusable as-is.
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "the written profile resolves" "$(kv "$OUT" result)" "ok"
 
-# An existing record is replaced, and the replacement keeps mode 0600.
-capture write --record "$TARGET" --resolver "$WORK/stub-mixed.sh" \
+# write leaves an existing active alone.
+D="$(new_agent write-keeps-active)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+put_profile "$D" fallback "$(profile_json true "$ROLES")"
+put_active "$D" 'fallback\n'
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
   --pr-fix-shared-with-impl false "${WRITE_TEAM[@]}" --role ui-tester=opencode-go/deepseek-v4-flash/max
-check_eq "write replaces the record" "$RC" "0"
-check_eq "write stores the ui-tester" "$(json_field "$TARGET" roles.ui-tester.model)" "deepseek-v4-flash"
-check_eq "write replacement mode is 0600" "$(file_mode "$TARGET")" "600"
-check_eq "replaced record reports the shared flag" "$(json_field "$TARGET" pr_fix_shared_with_impl)" "false"
+check_eq "write replaces the profile" "$RC" "0"
+check_eq "write stores the ui-tester" "$(json_field "$(asset "$D")/profiles/default.json" roles.ui-tester.model)" "deepseek-v4-flash"
+check_eq "write replacement mode is 0600" "$(file_mode "$(asset "$D")/profiles/default.json")" "600"
+check_eq "write replacement reports the shared flag" "$(json_field "$(asset "$D")/profiles/default.json" pr_fix_shared_with_impl)" "false"
+check_eq "write does not change active" "$(active_content "$D")" "fallback"
+check_eq "write keeps active mode 0600" "$(file_mode "$(asset "$D")/active")" "600"
 
-# Rejected writes must not create or change the record file.
-UNTOUCHED="$WORK/untouched/record.json"
-
-capture write --record "$UNTOUCHED" --resolver "$WORK/stub-mixed.sh" --pr-fix-shared-with-impl true \
+# Rejected writes must not create or change the profile file.
+D="$(new_agent write-rejected)"
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" --pr-fix-shared-with-impl true \
   --role impl=opencode-go/deepseek-v4.1-flash/high \
   --role review=opencode-go/unresolvable/high \
   --role pr-fix=opencode-go/deepseek-v4.1-flash/high
@@ -514,36 +725,40 @@ check_nonzero "write with unresolvable role"
 check_eq "write with unresolvable role result" "$(kv "$OUT" result)" "unresolved"
 check_eq "write with unresolvable role written" "$(kv "$OUT" written)" "false"
 check_eq "write with unresolvable role names the role" "$(kv "$OUT" unresolved)" "review"
-if [ -e "$UNTOUCHED" ]; then
-  ng "write with unresolvable role leaves no file" "found $UNTOUCHED"
+if [ -e "$(asset "$D")/profiles/default.json" ]; then
+  ng "write with unresolvable role leaves no file" "found $(asset "$D")/profiles/default.json"
 else
   ok "write with unresolvable role leaves no file"
 fi
 
 check_write_invalid() { # name expected-reason cli-args...
-  local name="$1" expected="$2"
+  local name="$1" expected="$2" dir
   shift 2
-  capture write --record "$WORK/invalid/record.json" --resolver "$WORK/stub-mixed.sh" "$@"
-  check_nonzero "$name"
-  check_eq "$name result" "$(kv "$OUT" result)" "invalid"
-  check_eq "$name reason" "$(kv "$OUT" reason)" "$expected"
+  dir="$(new_agent "write-invalid-$name")"
+  capture_in "$dir" write --resolver "$WORK/stub-mixed.sh" "$@"
+  check_nonzero "write invalid: $name"
+  check_eq "write invalid: $name result" "$(kv "$OUT" result)" "invalid"
+  check_eq "write invalid: $name reason" "$(kv "$OUT" reason)" "$expected"
 }
 
-check_write_invalid "write without the shared flag" usage "${WRITE_TEAM[@]}"
-check_write_invalid "write with a non-boolean shared flag" usage --pr-fix-shared-with-impl maybe "${WRITE_TEAM[@]}"
-check_write_invalid "write without roles" missing-role --pr-fix-shared-with-impl true
-check_write_invalid "write without a required role" missing-role --pr-fix-shared-with-impl true \
+check_write_invalid "without-profile" usage --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+check_write_invalid "dot-name" bad-profile-name --profile . --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+check_write_invalid "path-name" bad-profile-name --profile a/b --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+check_write_invalid "without-shared-flag" usage --profile default "${WRITE_TEAM[@]}"
+check_write_invalid "non-boolean-shared-flag" usage --profile default --pr-fix-shared-with-impl maybe "${WRITE_TEAM[@]}"
+check_write_invalid "without-roles" missing-role --profile default --pr-fix-shared-with-impl true
+check_write_invalid "without-a-required-role" missing-role --profile default --pr-fix-shared-with-impl true \
   --role impl=opencode-go/deepseek-v4.1-flash/high --role review=openai-codex/gpt-6-astra/medium
-check_write_invalid "write with an unknown role name" unknown-role --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}" \
+check_write_invalid "unknown-role" unknown-role --profile default --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}" \
   --role reviewer=openai-codex/gpt-6-astra/medium
-check_write_invalid "write with a malformed spec" bad-role-spec --pr-fix-shared-with-impl true \
+check_write_invalid "malformed-spec" bad-role-spec --profile default --pr-fix-shared-with-impl true \
   --role impl=opencode-go/deepseek-v4.1-flash --role review=openai-codex/gpt-6-astra/medium --role pr-fix=x/y/z
-check_write_invalid "write with an unknown level" bad-role-spec --pr-fix-shared-with-impl true \
+check_write_invalid "unknown-level" bad-role-spec --profile default --pr-fix-shared-with-impl true \
   --role impl=opencode-go/deepseek-v4.1-flash/bogus --role review=openai-codex/gpt-6-astra/medium \
   --role pr-fix=opencode-go/deepseek-v4.1-flash/high
-check_write_invalid "write with a duplicated role" duplicate-role --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}" \
+check_write_invalid "duplicate-role" duplicate-role --profile default --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}" \
   --role review=openai-codex/gpt-6-astra/medium
-check_write_invalid "write with a shared pr-fix that differs" bad-shared --pr-fix-shared-with-impl true \
+check_write_invalid "shared-mismatch" bad-shared --profile default --pr-fix-shared-with-impl true \
   --role impl=opencode-go/deepseek-v4.1-flash/high --role review=openai-codex/gpt-6-astra/medium \
   --role pr-fix=opencode-go/deepseek-v4-flash/max
 
@@ -564,68 +779,260 @@ printf 'provider=%s model=%s requested=high supported=high effective=high result
 exit 0
 STUB
 chmod +x "$WORK/stub-echo.sh"
-capture write --record "$WORK/slash/record.json" --resolver "$WORK/stub-echo.sh" \
+D="$(new_agent write-slash)"
+capture_in "$D" write --profile default --resolver "$WORK/stub-echo.sh" \
   --pr-fix-shared-with-impl true \
   --role impl=openrouter/anthropic/claude-x/max \
   --role review=openai-codex/gpt-6-astra/medium \
   --role pr-fix=openrouter/anthropic/claude-x/max
 check_eq "write accepts a model with a slash" "$RC" "0"
-check_eq "write stores the slashed model" "$(json_field "$WORK/slash/record.json" roles.impl.model)" "anthropic/claude-x"
-check_eq "write stores the slashed provider" "$(json_field "$WORK/slash/record.json" roles.impl.provider)" "openrouter"
+check_eq "write stores the slashed model" "$(json_field "$(asset "$D")/profiles/default.json" roles.impl.model)" "anthropic/claude-x"
+check_eq "write stores the slashed provider" "$(json_field "$(asset "$D")/profiles/default.json" roles.impl.provider)" "openrouter"
 
 # Argument errors keep the one-line contract and exit 2.
-capture write --record "$WORK/invalid/record.json" --resolver "$WORK/stub-mixed.sh" --pr-fix-shared-with-impl true \
+D="$(new_agent write-args)"
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" --pr-fix-shared-with-impl true \
   "${WRITE_TEAM[@]}" --bogus
 check_single_line "write rejects an unknown argument"
-check_eq "write rejects an unknown argument with usage" "$RC" "2"
+check_exit "write rejects an unknown argument with a usage status" "2"
 check_eq "write rejects an unknown argument result" "$(kv "$OUT" result)" "invalid"
-capture resolve --record "$RECORDS/valid.json" --resolver "$WORK/stub-mixed.sh" --bogus
-check_eq "resolve rejects an unknown argument with usage" "$RC" "2"
-capture resolve --record "$RECORDS/valid.json" --resolver
-check_eq "resolve rejects a dangling option with usage" "$RC" "2"
+capture_in "$D" resolve --profile default --resolver "$WORK/stub-mixed.sh" --bogus
+check_exit "resolve rejects an unknown argument with a usage status" "2"
+capture_in "$D" resolve --profile default --resolver
+check_exit "resolve rejects a dangling option with a usage status" "2"
 
-# --- record path derivation ------------------------------------------------
+# --- use -------------------------------------------------------------------
 
-ORIGIN_REPO="$WORK/repos/with-origin"
-NO_ORIGIN_REPO="$WORK/repos/plain"
-mkdir -p "$ORIGIN_REPO" "$NO_ORIGIN_REPO"
-git -C "$ORIGIN_REPO" init -q
-git -C "$ORIGIN_REPO" remote add origin git@github.com:u7chan/agent-harness.git
+# use switches active to a validated profile.
+D="$(new_agent use)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+put_profile "$D" fallback "$(profile_json false "$ROLES_UI_TESTER")"
+capture_in "$D" use fallback --resolver "$WORK/stub-mixed.sh"
+check_single_line "use fallback"
+check_eq "use fallback exits ok" "$RC" "0"
+check_eq "use fallback result" "$(kv "$OUT" result)" "ok"
+check_eq "use fallback wrote" "$(kv "$OUT" written)" "true"
+check_eq "use fallback profile" "$(kv "$OUT" profile)" "fallback"
+check_eq "use fallback names active" "$(kv "$OUT" active)" "$(asset "$D")/active"
+check_eq "use fallback writes the name" "$(active_content "$D")" "fallback"
+check_eq "use fallback mode is 0600" "$(file_mode "$(asset "$D")/active")" "600"
+check_not_contains "use leaves no temporary file" "$(ls -A "$(asset "$D")")" ".tmp"
 
-capture write --repo-root "$ORIGIN_REPO" --resolver "$WORK/stub-mixed.sh" \
-  --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
-check_eq "write derives the key from origin" "$RC" "0"
-check_eq "write uses the owner__repo key" "$(kv "$OUT" record)" \
-  "$PI_CODING_AGENT_DIR/pi-issue-pr-workflow/teams/u7chan__agent-harness.json"
-check_eq "derived record is written" "$(json_field "$PI_CODING_AGENT_DIR/pi-issue-pr-workflow/teams/u7chan__agent-harness.json" version)" "1"
+# The selected profile is what resolve now reports.
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "use fallback changes the selection" "$(kv "$OUT" profile)" "fallback"
+check_eq "use fallback changes the source" "$(kv "$OUT" source)" "active"
 
-capture resolve --repo-root "$NO_ORIGIN_REPO" --resolver "$WORK/stub-mixed.sh"
-check_contains "a root without origin falls back to the path key" "$(kv "$OUT" record)" "pi-issue-pr-workflow/teams/"
-check_contains "the fallback key derives from the root" "$(kv "$OUT" record)" "repos-plain.json"
-check_eq "the fallback record is missing" "$(kv "$OUT" result)" "missing"
+# use never rewrites the profiles.
+before_profiles="$(cat "$(asset "$D")/profiles/default.json"; cat "$(asset "$D")/profiles/fallback.json")"
+capture_in "$D" use default --resolver "$WORK/stub-mixed.sh"
+check_eq "use default exits ok" "$RC" "0"
+check_eq "use default writes the name" "$(active_content "$D")" "default"
+check_eq "use default keeps active mode 0600" "$(file_mode "$(asset "$D")/active")" "600"
+after_profiles="$(cat "$(asset "$D")/profiles/default.json"; cat "$(asset "$D")/profiles/fallback.json")"
+check_eq "use does not rewrite the profiles" "$after_profiles" "$before_profiles"
 
-capture resolve --repo-root "$ORIGIN_REPO" --resolver "$WORK/stub-mixed.sh"
-check_eq "the derived record resolves" "$(kv "$OUT" result)" "ok"
+# A missing or invalid profile never changes active.
+D="$(new_agent use-rejected)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+put_profile "$D" broken 'not json'
+put_profile "$D" unresolvable \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$UNRESOLVABLE"',"pr-fix":'"$PRFIX"'}}'
+put_active "$D" 'default\n'
+
+capture_in "$D" use ghost --resolver "$WORK/stub-mixed.sh"
+check_nonzero "use a missing profile"
+check_eq "use a missing profile result" "$(kv "$OUT" result)" "missing"
+check_eq "use a missing profile reason" "$(kv "$OUT" reason)" "missing-explicit-profile"
+check_eq "use a missing profile wrote nothing" "$(kv "$OUT" written)" "false"
+check_eq "use a missing profile keeps active" "$(active_content "$D")" "default"
+
+capture_in "$D" use broken --resolver "$WORK/stub-mixed.sh"
+check_nonzero "use a broken profile"
+check_eq "use a broken profile result" "$(kv "$OUT" result)" "invalid"
+check_eq "use a broken profile reason" "$(kv "$OUT" reason)" "bad-json"
+check_eq "use a broken profile keeps active" "$(active_content "$D")" "default"
+
+capture_in "$D" use unresolvable --resolver "$WORK/stub-mixed.sh"
+check_nonzero "use an unresolvable profile"
+check_eq "use an unresolvable profile result" "$(kv "$OUT" result)" "unresolved"
+check_eq "use an unresolvable profile names the role" "$(kv "$OUT" unresolved)" "review"
+check_eq "use an unresolvable profile keeps active" "$(active_content "$D")" "default"
+
+capture_in "$D" use .. --resolver "$WORK/stub-mixed.sh"
+check_exit "use a bad name exits with a usage status" "2"
+check_eq "use a bad name result" "$(kv "$OUT" result)" "invalid"
+check_eq "use a bad name reason" "$(kv "$OUT" reason)" "bad-profile-name"
+check_eq "use a bad name keeps active" "$(active_content "$D")" "default"
+
+capture_in "$D" use --resolver "$WORK/stub-mixed.sh"
+check_exit "use without a name is a usage error" "2"
+check_eq "use without a name keeps active" "$(active_content "$D")" "default"
+
+# use replaces an existing active atomically and leaves no temporary file.
+capture_in "$D" use default --resolver "$WORK/stub-mixed.sh"
+check_eq "use replaces an existing active" "$(active_content "$D")" "default"
+check_eq "use keeps the replaced active at 0600" "$(file_mode "$(asset "$D")/active")" "600"
+check_not_contains "use leaves no temporary file next to active" "$(ls -A "$(asset "$D")")" ".tmp"
+
+# --- bootstrap -------------------------------------------------------------
+
+# SKILL.md allows bootstrap only when result=missing, profiles_present=false,
+# and source=default. These assertions mirror that rule.
+bootstrap_allowed() { # output
+  [ "$(kv "$1" result)" = "missing" ] &&
+    [ "$(kv "$1" reason)" = "no-profiles" ] &&
+    [ "$(kv "$1" profiles_present)" = "false" ] &&
+    [ "$(kv "$1" source)" = "default" ]
+}
+
+check_bootstrap_allowed() { # name
+  if bootstrap_allowed "$OUT"; then
+    ok "$1 allows bootstrap"
+  else
+    ng "$1 allows bootstrap" "output: $OUT"
+  fi
+}
+
+check_bootstrap_blocked() { # name
+  if bootstrap_allowed "$OUT"; then
+    ng "$1 blocks bootstrap" "output: $OUT"
+  else
+    ok "$1 blocks bootstrap"
+  fi
+}
+
+# 1. An empty profiles/ is the only state that bootstraps.
+D="$(new_agent bootstrap-empty)"
+mkdir -p "$(asset "$D")/profiles"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "bootstrap: empty profiles result" "$(kv "$OUT" result)" "missing"
+check_eq "bootstrap: empty profiles reason" "$(kv "$OUT" reason)" "no-profiles"
+check_bootstrap_allowed "bootstrap: empty profiles"
+
+# 2. Only fallback.json exists, so default is missing for a different reason.
+D="$(new_agent bootstrap-fallback-only)"
+put_profile "$D" fallback "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "bootstrap: fallback only result" "$(kv "$OUT" result)" "missing"
+check_eq "bootstrap: fallback only reason" "$(kv "$OUT" reason)" "missing-selected-profile"
+check_bootstrap_blocked "bootstrap: fallback only"
+
+# 3. active names a missing profile.
+D="$(new_agent bootstrap-active-missing)"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+put_active "$D" 'nope\n'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "bootstrap: active missing reason" "$(kv "$OUT" reason)" "missing-active-profile"
+check_bootstrap_blocked "bootstrap: active missing"
+
+# 4. active is empty, multi-line, or an invalid name.
+for bad_active in '' 'a\nb\n' 'fall back\n'; do
+  label="$(printf '%s' "$bad_active" | tr -d '\n' | tr ' ' '-')"
+  [ -n "$label" ] || label="empty"
+  D="$(new_agent "bootstrap-active-$label")"
+  put_profile "$D" default "$(profile_json true "$ROLES")"
+  put_active "$D" "$bad_active"
+  capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+  check_eq "bootstrap: active '$label' reason" "$(kv "$OUT" reason)" "bad-active"
+  check_bootstrap_blocked "bootstrap: active '$label'"
+done
+
+# 5. The run names an explicit profile that is missing.
+D="$(new_agent bootstrap-explicit-missing)"
+capture_in "$D" resolve --profile ghost --resolver "$WORK/stub-mixed.sh"
+check_eq "bootstrap: explicit missing reason" "$(kv "$OUT" reason)" "missing-explicit-profile"
+check_bootstrap_blocked "bootstrap: explicit missing"
+
+# 6. An existing invalid profile is never overwritten, and it blocks bootstrap.
+D="$(new_agent bootstrap-invalid)"
+put_profile "$D" default 'not json'
+before_invalid="$(cat "$(asset "$D")/profiles/default.json")"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "bootstrap: invalid profile result" "$(kv "$OUT" result)" "invalid"
+check_eq "bootstrap: invalid profile reason" "$(kv "$OUT" reason)" "bad-json"
+check_bootstrap_blocked "bootstrap: invalid profile"
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
+  --pr-fix-shared-with-impl true \
+  --role impl=opencode-go/deepseek-v4.1-flash/high \
+  --role review=opencode-go/unresolvable/high \
+  --role pr-fix=opencode-go/deepseek-v4.1-flash/high
+check_nonzero "bootstrap: a rejected write fails"
+check_eq "bootstrap: the invalid profile is unchanged" "$(cat "$(asset "$D")/profiles/default.json")" "$before_invalid"
 
 # --- skill documentation ---------------------------------------------------
 
 SKILL_TEXT="$(cat "$SKILL_MD")"
-check_contains "skill documents the record helper" "$SKILL_TEXT" "team-record.sh"
-check_contains "skill documents the record location" "$SKILL_TEXT" 'PI_CODING_AGENT_DIR'
-check_contains "skill documents the reuse line" "$SKILL_TEXT" "前回承認編成を使用"
-check_contains "skill documents the report origin" "$SKILL_TEXT" "origin of the used team specification"
+TEAM_TEXT="$(section_text "$SKILL_MD" "Team profiles")"
+KICKOFF_TEXT="$(section_text "$SKILL_MD" "Kickoff gate")"
+SEQUENTIAL_TEXT="$(cat "$SEQUENTIAL_REFERENCE")"
+MIGRATION_TEXT="$(cat "$MIGRATION_REFERENCE")"
+
+check_contains "skill documents the profile helper" "$SKILL_TEXT" "team-record.sh"
+check_contains "skill documents the user asset location" "$SKILL_TEXT" 'PI_CODING_AGENT_DIR'
+check_contains "skill documents the profiles directory" "$SKILL_TEXT" 'profiles/<name>.json'
+check_contains "skill documents the active file" "$SKILL_TEXT" '`active`'
+check_contains "skill documents the selection order" "$SKILL_TEXT" "Resolution order is this run's explicit profile, then \`active\`, then \`default\`"
+check_contains "skill documents the use command" "$SKILL_TEXT" "team-record.sh use <name>"
+check_contains "skill documents the write command" "$SKILL_TEXT" "team-record.sh write --profile <name>"
 check_contains "skill documents the required role option" "$SKILL_TEXT" "--require-role"
 check_contains "skill shows the ui-tester role in the reuse line" "$SKILL_TEXT" "[ui-tester=<provider>/<model>/<thinking>]"
-check_contains "skill documents the composition reuse gate" "$SKILL_TEXT" "states the composition never reuses the record"
-check_contains "skill documents writing the settled composition" "$SKILL_TEXT" "including the composition"
+check_contains "skill documents the composition reuse gate" "$SKILL_TEXT" "states the composition never reuses it"
+check_contains "skill documents the report origin" "$SKILL_TEXT" "origin of the used team specification"
+check_contains "skill documents the profile source of the reuse line" "$KICKOFF_TEXT" "profile=<name>"
+check_contains "skill documents the profile in the reuse line" "$KICKOFF_TEXT" \
+  'profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking>'
+check_contains "skill pins the whole reuse line" "$KICKOFF_TEXT" \
+  '前回承認編成を使用: profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]'
+check_contains "skill documents bootstrap from profiles_present" "$TEAM_TEXT" 'profiles_present=false'
+check_contains "skill documents bootstrap from the source" "$TEAM_TEXT" 'source=default'
+check_contains "skill documents bootstrap from the result" "$TEAM_TEXT" 'result=missing'
+check_contains "skill documents bootstrap from the reason" "$TEAM_TEXT" '`reason=no-profiles`'
+check_contains "skill documents the no-profile reason" "$TEAM_TEXT" 'no-profiles'
+check_contains "skill documents the selected-profile reason" "$TEAM_TEXT" 'missing-selected-profile'
+check_contains "skill documents the active-profile reason" "$TEAM_TEXT" 'missing-active-profile'
+check_contains "skill documents the explicit-profile reason" "$TEAM_TEXT" 'missing-explicit-profile'
+check_contains "skill documents the bad-active reason" "$TEAM_TEXT" 'bad-active'
+check_contains "skill documents the bad-name reason" "$TEAM_TEXT" 'bad-profile-name'
+check_contains "skill documents that active never falls back" "$TEAM_TEXT" 'never silently falls back to `default`'
+check_contains "skill documents the run-only fallback word" "$TEAM_TEXT" 'fallback で'
+check_contains "skill documents the persistent switch word" "$TEAM_TEXT" 'fallback に切り替えて'
+check_contains "skill ties the persistent switch to use fallback" "$TEAM_TEXT" 'is `use fallback`'
+check_contains "skill documents that an exclusion never rewrites a profile" "$TEAM_TEXT" \
+  'a run that excludes the role omits it from this run'"'"'s team and keeps the stored profile as it is'
+check_contains "skill keeps the reuse path for an overridden participation decision" "$KICKOFF_TEXT" \
+  "A participation decision the user overrode is not such a statement either"
+check_contains "skill says an excluded ui-tester stays stored" "$KICKOFF_TEXT" \
+  'excluding a role never rewrites a profile'
+check_contains "skill states the no-write contract for a settled team" "$KICKOFF_TEXT" \
+  'a settled team is not written automatically'
+check_contains "skill keeps the explicit-save contract" "$KICKOFF_TEXT" \
+  'Every other save happens only on an explicit user instruction'
+check_contains "skill keeps the bootstrap save" "$KICKOFF_TEXT" 'team-record.sh write --profile default'
+check_contains "skill links the migration procedure" "$SKILL_TEXT" 'references/team-profile-migration.md'
+check_contains "skill states that a profile has no version" "$TEAM_TEXT" 'There is no version field'
+check_not_contains "skill does not document the old record anchor" "$SKILL_TEXT" '#approved-team-record'
+check_not_contains "skill does not document the old record heading" "$SKILL_TEXT" '## Approved team record'
+check_not_contains "skill does not document the removed repo root option" "$SKILL_TEXT" '--repo-root'
+check_not_contains "skill does not document the removed origin option" "$SKILL_TEXT" '--origin-url'
+check_not_contains "skill does not document the old teams path" "$SKILL_TEXT" 'pi-issue-pr-workflow/teams'
+check_not_contains "skill does not document a version field" "$SKILL_TEXT" '"version": 1'
 
-# An exclusion the user overrides never settles a composition, so the write
-# keeps the approved ui-tester in the record instead of dropping it.
-check_contains "skill never reads the participation decision as a composition" "$SKILL_TEXT" "decides this run's team only and never states the composition"
-check_contains "skill keeps the reuse path for an overridden participation decision" "$SKILL_TEXT" "A participation decision the user overrode is not such a statement either"
-check_contains "skill keeps an excluded ui-tester in the record" "$SKILL_TEXT" 'a recorded `ui-tester` that the participation decision excluded stays in the record'
-check_contains "skill keeps the record whatever the exclusion's origin is" "$SKILL_TEXT" "whether the Issue derived the decision or the user overrode it in the same reply"
-check_not_contains "skill no longer narrows the kept record to a derived exclusion" "$SKILL_TEXT" "only the participation decision excluded"
+# The sequential-run reference follows the same rename and keeps one anchor.
+check_contains "sequential runs relate the profiles to pane reuse" "$SEQUENTIAL_TEXT" \
+  '## Relationship to the team profiles'
+check_contains "sequential runs link the Team profiles section" "$SEQUENTIAL_TEXT" '../SKILL.md#team-profiles'
+check_not_contains "sequential runs do not keep the old anchor" "$SEQUENTIAL_TEXT" '#approved-team-record'
+check_not_contains "sequential runs do not say record" "$SEQUENTIAL_TEXT" 'approved team record'
+
+# The migration reference is the documented procedure, not code.
+check_contains "migration backs up the user asset" "$MIGRATION_TEXT" 'cp -a "$ASSET" "$ASSET.bak-$(date +%Y%m%d%H%M%S)"'
+check_contains "migration maps a record to a profile" "$MIGRATION_TEXT" 'profiles/default.json'
+check_contains "migration sets the manual file mode" "$MIGRATION_TEXT" 'chmod 600 "$ASSET"/profiles/*.json'
+check_contains "migration resolves before deleting teams" "$MIGRATION_TEXT" 'rm -r "$ASSET"/teams'
+check_contains "migration states active is optional" "$MIGRATION_TEXT" '`active` is optional'
+check_contains "migration states the rollback scope" "$MIGRATION_TEXT" 'restores the skill revision only'
+check_contains "migration states the asset restore" "$MIGRATION_TEXT" 'put the backup from step 1 back'
 
 # Completion cleanup names the command for the one pane it may close.
 UI_TESTER_TEXT="$(cat "$UI_TESTER_REFERENCE")"

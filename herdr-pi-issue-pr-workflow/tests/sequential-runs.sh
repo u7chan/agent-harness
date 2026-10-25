@@ -28,6 +28,14 @@ check_contains() {
   esac
 }
 
+check_not_contains() {
+  local name="$1" hay="$2" needle="$3"
+  case "$hay" in
+    *"$needle"*) ng "$name" "should NOT contain: $needle" ;;
+    *) ok "$name" ;;
+  esac
+}
+
 section_text() { # file heading
   awk -v heading="## $2" '
     $0 == heading { inside = 1; next }
@@ -91,10 +99,14 @@ check_contains "SKILL.md skips the planner for a full reuse" "$TEAM_TEXT" \
 
 check_contains "the facts travel in the task text" "$REFERENCE_TEXT" \
   'is not a handoff'
+check_contains "sequential runs link the Team profiles section" "$REFERENCE_TEXT" \
+  '../SKILL.md#team-profiles'
+check_not_contains "sequential runs do not keep the old record anchor" "$REFERENCE_TEXT" \
+  '#approved-team-record'
 check_contains "a single new role is split, not planned" "$REFERENCE_TEXT" \
   'single-pane rules'
-check_contains "the record never makes a pane reusable" "$REFERENCE_TEXT" \
-  'A record says nothing about panes'
+check_contains "the profile never makes a pane reusable" "$REFERENCE_TEXT" \
+  'A profile says nothing about panes'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
