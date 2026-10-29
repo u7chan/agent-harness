@@ -8,7 +8,7 @@
 #   - references/ui-tester-role.md: the participation forms and the closure
 #     line;
 #   - SKILL.md: the target PR forms.
-# The `前回承認編成を使用:` reuse line stays owned by tests/team-record.sh,
+# The `前回承認編成を使用:` reuse line stays owned by tests/team-profiles.sh,
 # which pins the whole line, including `profile=<name>`, next to the profile
 # helper it belongs to; this suite does not duplicate that check.
 #

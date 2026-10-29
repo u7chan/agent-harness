@@ -85,7 +85,13 @@ git merge-base --is-ancestor <commit-sha> origin/main && echo gate-ok
 pi install git:github.com/u7chan/agent-harness@<commit-sha>
 ```
 
-4. Apply between tasks: `/reload` (or restart) every running session. A session reloaded after this step serves the new revision; one that skips it keeps its pre-install listing until it reloads.
+4. Apply between tasks. When rolling out the shared development-profile namespace for the first
+   time, perform [the backed-up profile migration](pi-development-migration.md)
+   after installation and before reloading or starting another workflow.
+   Profile assets are not part of the pinned clone and do not migrate with it.
+   Then `/reload` (or restart) every running session. A session reloaded after
+   this step serves the new revision; one that skips it keeps its pre-install
+   listing until it reloads.
 5. Run the smoke test.
 
 ### Revision confirmation

@@ -15,7 +15,7 @@ description: >
 
 - 設計は合意済みであること。未決定が残るなら、先に 1 問ずつ確認して潰す（Pi なら [kabeuchi](../kabeuchi/SKILL.md)）
 - Herdr 管理下であること（`HERDR_ENV=1`）。ペインと委譲の操作は [herdr](../herdr/SKILL.md) を正とする
-- レビュアーの provider / model / thinking は、実効プロファイルの `review` を土台にする（[Team profiles](../herdr-pi-issue-pr-workflow/SKILL.md#team-profiles)）。ユーザーが明示指定した値はプロファイルより優先する
+- レビュアーの provider / model / thinking は、実効プロファイルの `review` を土台にする（[Pi Development Profiles](../_docs/pi-development.md)）。ユーザーが明示指定した値はプロファイルより優先する
 - GitHub の読み書きは [gh](../gh/SKILL.md) を正とする
 
 ## 開始前チェック
@@ -52,10 +52,11 @@ description: >
 ### 1. レビュアーのペインと起動 spec を用意する
 
 - `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` で空きの対話シェルを探し、あれば使う。無ければ `herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus`（再利用するペインの cwd は親と同じとは限らないため、レビュアーへ渡すリポジトリのルートはプロンプト側で指定する）
-- 実効プロファイルの `review` を土台にして起動 spec を合成する（[Team profiles](../herdr-pi-issue-pr-workflow/SKILL.md#team-profiles)）。
-  1. `herdr-pi-issue-pr-workflow/scripts/team-record.sh resolve` で実効プロファイルを解決し、`result=ok` なら `review=<provider>/<model>/<thinking>` を土台にする。
+- 実効プロファイルの `review` を土台にして起動 spec を合成する（[Pi Development Profiles](../_docs/pi-development.md)）。スクリプトのパスは対象リポジトリではなく、このスキルの親（パッケージルート）から解決する。
+  1. `scripts/pi-development/team-record.sh resolve` で実効プロファイルを解決し、`result=ok` なら `review=<provider>/<model>/<thinking>` を土台にする。
   2. ユーザーが指定した provider / model / thinking だけを上書きする。
-  3. 合成後の完全な spec を `herdr-pi-issue-pr-workflow/scripts/resolve-model-spec.sh --provider <provider> --model <model> --thinking <thinking>` で再検証し、`result=ok` のときだけ起動する。ユーザー指定が完全でも、再検証が `result=ok` でなければ停止する。
+  3. 合成後の完全な spec を `scripts/pi-development/resolve-model-spec.sh --provider <provider> --model <model> --thinking <thinking>` で再検証し、`result=ok` のときだけ起動する。ユーザー指定が完全でも、再検証が `result=ok` でなければ停止する。
+- `reason=migration-required` の場合は既定へのフォールバックに進まず、[設定移行](../_docs/pi-development-migration.md)のため停止する。
 - プロファイルが `ok` でない場合（`result=missing` / `invalid` / `unresolved`）は、ユーザー指定の揃い方で決める。
   - ユーザー指定が無ければ、実行環境の既定（`--provider` / `--model` / `--thinking` を付けない起動）にフォールバックし、その旨を 1 行で出す。
   - ユーザー指定が部分的なら、不足をプロファイルや推測で埋めずに停止して確認する。

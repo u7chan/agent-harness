@@ -1,21 +1,15 @@
 #!/usr/bin/env bash
-# Hermetic tests for the team-profile helper: scripts/lib/team-record.mjs,
-# scripts/team-record.mjs, and the scripts/team-record.sh wrapper.
+# Hermetic tests for the shared profile module, CLI, and shell wrapper.
 #
 # These tests do not require pi and do not touch the network: the model-spec
 # resolver is replaced through --resolver (a stub that reports the result the
 # case needs), and every profile lives under a temporary PI_CODING_AGENT_DIR.
-# herdr-pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
+# scripts/pi-development/tests/run.sh runs this file as part of the shared suite.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-HELPER="$SKILL_DIR/scripts/team-record.sh"
-MODULE="$SKILL_DIR/scripts/lib/team-record.mjs"
-SKILL_MD="$SKILL_DIR/SKILL.md"
-UI_TESTER_REFERENCE="$SKILL_DIR/references/ui-tester-role.md"
-SEQUENTIAL_REFERENCE="$SKILL_DIR/references/sequential-runs.md"
-MIGRATION_REFERENCE="$SKILL_DIR/references/team-profile-migration.md"
+HELPER="$SCRIPT_DIR/../team-record.sh"
+MODULE="$SCRIPT_DIR/../lib/team-record.mjs"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/team-record-test-XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
@@ -45,14 +39,6 @@ check_not_contains() {
     *"$needle"*) ng "$name" "should NOT contain: $needle" ;;
     *) ok "$name" ;;
   esac
-}
-
-section_text() { # file heading
-  awk -v heading="## $2" '
-    $0 == heading { inside = 1; next }
-    inside && /^## / { exit }
-    inside { print }
-  ' "$1"
 }
 
 command -v node >/dev/null 2>&1 || {
@@ -331,7 +317,7 @@ profile_json() { # shared roles-json
 }
 
 asset() { # agent-dir
-  printf '%s/pi-issue-pr-workflow' "$1"
+  printf '%s/pi-development' "$1"
 }
 
 new_agent() { # name
@@ -1164,96 +1150,93 @@ else
   ok "bootstrap: write into an unreadable set (skipped: running as root)"
 fi
 
-# --- skill documentation ---------------------------------------------------
+# --- role-only consumer ---------------------------------------------------
 
-SKILL_TEXT="$(cat "$SKILL_MD")"
-TEAM_TEXT="$(section_text "$SKILL_MD" "Team profiles")"
-KICKOFF_TEXT="$(section_text "$SKILL_MD" "Kickoff gate")"
-SEQUENTIAL_TEXT="$(cat "$SEQUENTIAL_REFERENCE")"
-MIGRATION_TEXT="$(cat "$MIGRATION_REFERENCE")"
+# Neither missing/malformed unused roles nor an unavailable unused model may
+# prevent a caller from using the selected review specification.
+D="$(new_agent review-only)"
+put_profile "$D" default '{"roles":{"review":'"$REVIEW"'}}'
+capture_in "$D" resolve --only-role review --resolver "$WORK/stub-mixed.sh"
+check_eq "review-only profile resolves" "$RC" "0"
+check_eq "review-only returns review" "$(kv "$OUT" review)" "openai-codex/gpt-6-astra/medium"
+check_eq "review-only does not return impl" "$(kv "$OUT" impl)" ""
+check_not_contains "review-only does not invent a composition" "$OUT" 'pr_fix_shared_with_impl='
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_nonzero "full-team consumer still rejects a review-only profile"
 
-# The removed heading and its anchor are rebuilt from their words, so this
-# suite itself does not carry the old literals while the assertions still pin
-# their absence.
-OLD_TEAM_RECORD_TITLE="$(printf '%s' 'Approved' ' team' ' record')"
-OLD_TEAM_RECORD_ANCHOR="#$(printf '%s' "$OLD_TEAM_RECORD_TITLE" | tr '[:upper:] ' '[:lower:]-')"
+put_profile "$D" default '{"pr_fix_shared_with_impl":"bad","roles":{"review":'"$REVIEW"',"impl":null,"pr-fix":'"$UNRESOLVABLE"',"ui-tester":"bad"}}'
+before_review_only="$(cat "$(asset "$D")/profiles/default.json")"
+capture_in "$D" resolve --only-role review --resolver "$WORK/stub-mixed.sh"
+check_eq "unused malformed and unavailable roles do not block review" "$RC" "0"
+check_eq "role-only read never rewrites the profile" "$(cat "$(asset "$D")/profiles/default.json")" "$before_review_only"
+capture_in "$D" use default --resolver "$WORK/stub-mixed.sh"
+check_nonzero "active switches keep full-team validation"
 
-check_contains "skill documents the profile helper" "$SKILL_TEXT" "team-record.sh"
-check_contains "skill documents the user asset location" "$SKILL_TEXT" 'PI_CODING_AGENT_DIR'
-check_contains "skill documents the profiles directory" "$SKILL_TEXT" 'profiles/<name>.json'
-check_contains "skill documents the active file" "$SKILL_TEXT" '`active`'
-check_contains "skill documents the selection order" "$SKILL_TEXT" "Resolution order is this run's explicit profile, then \`active\`, then \`default\`"
-check_contains "skill documents the use command" "$SKILL_TEXT" "team-record.sh use <name>"
-check_contains "skill documents the write command" "$SKILL_TEXT" "team-record.sh write --profile <name>"
-check_contains "skill documents the required role option" "$SKILL_TEXT" "--require-role"
-check_contains "skill shows the ui-tester role in the reuse line" "$SKILL_TEXT" "[ui-tester=<provider>/<model>/<thinking>]"
-check_contains "skill documents the composition reuse gate" "$SKILL_TEXT" "states the composition never reuses it"
-check_contains "skill documents the report origin" "$SKILL_TEXT" "origin of the used team specification"
-check_contains "skill documents the profile source of the reuse line" "$KICKOFF_TEXT" "profile=<name>"
-check_contains "skill documents the profile in the reuse line" "$KICKOFF_TEXT" \
-  'profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking>'
-check_contains "skill pins the whole reuse line" "$KICKOFF_TEXT" \
-  '前回承認編成を使用: profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]'
-check_contains "skill documents bootstrap from profiles_present" "$TEAM_TEXT" 'profiles_present=false'
-check_contains "skill documents bootstrap from the source" "$TEAM_TEXT" 'source=default'
-check_contains "skill documents bootstrap from the result" "$TEAM_TEXT" 'result=missing'
-check_contains "skill documents bootstrap from the reason" "$TEAM_TEXT" '`reason=no-profiles`'
-check_contains "skill documents the no-profile reason" "$TEAM_TEXT" 'no-profiles'
-check_contains "skill documents the selected-profile reason" "$TEAM_TEXT" 'missing-selected-profile'
-check_contains "skill documents the active-profile reason" "$TEAM_TEXT" 'missing-active-profile'
-check_contains "skill documents the explicit-profile reason" "$TEAM_TEXT" 'missing-explicit-profile'
-check_contains "skill documents the bad-active reason" "$TEAM_TEXT" 'bad-active'
-check_contains "skill documents the bad-name reason" "$TEAM_TEXT" 'bad-profile-name'
-check_contains "skill documents the unreadable profile set" "$TEAM_TEXT" 'cannot be read reliably'
-check_contains "skill documents the per-entry inspection failure" "$TEAM_TEXT" 'entry cannot be inspected'
-check_contains "skill documents the unreadable active" "$TEAM_TEXT" 'An unreadable `active` or profile file'
-check_contains "skill blocks bootstrap on an unreadable profile set" "$TEAM_TEXT" 'never bootstraps'
-check_contains "skill documents the end-of-options form for a dash-leading name" "$SKILL_TEXT" 'use -- -fallback'
-check_contains "skill documents that active never falls back" "$TEAM_TEXT" 'never silently falls back to `default`'
-check_contains "skill documents the run-only fallback word" "$TEAM_TEXT" 'fallback で'
-check_contains "skill documents the persistent switch word" "$TEAM_TEXT" 'fallback に切り替えて'
-check_contains "skill ties the persistent switch to use fallback" "$TEAM_TEXT" 'is `use fallback`'
-check_contains "skill documents that an exclusion never rewrites a profile" "$TEAM_TEXT" \
-  'a run that excludes the role omits it from this run'"'"'s team and keeps the stored profile as it is'
-check_contains "skill keeps the reuse path for an overridden participation decision" "$KICKOFF_TEXT" \
-  "A participation decision the user overrode is not such a statement either"
-check_contains "skill says an excluded ui-tester stays stored" "$KICKOFF_TEXT" \
-  'excluding a role never rewrites a profile'
-check_contains "skill states the no-write contract for a settled team" "$KICKOFF_TEXT" \
-  'a settled team is not written automatically'
-check_contains "skill keeps the explicit-save contract" "$KICKOFF_TEXT" \
-  'Every other save happens only on an explicit user instruction'
-check_contains "skill keeps the bootstrap save" "$KICKOFF_TEXT" 'team-record.sh write --profile default'
-check_contains "skill links the migration procedure" "$SKILL_TEXT" 'references/team-profile-migration.md'
-check_contains "skill states that a profile has no version" "$TEAM_TEXT" 'There is no version field'
-check_not_contains "skill does not document the old record anchor" "$SKILL_TEXT" "$OLD_TEAM_RECORD_ANCHOR"
-check_not_contains "skill does not document the old record heading" "$SKILL_TEXT" "## $OLD_TEAM_RECORD_TITLE"
-check_not_contains "skill does not document the removed repo root option" "$SKILL_TEXT" '--repo-root'
-check_not_contains "skill does not document the removed origin option" "$SKILL_TEXT" '--origin-url'
-check_not_contains "skill does not document the old teams path" "$SKILL_TEXT" 'pi-issue-pr-workflow/teams'
-check_not_contains "skill does not document a version field" "$SKILL_TEXT" '"version": 1'
+put_profile "$D" default '{"pr_fix_shared_with_impl":true,"roles":{"review":'"$REVIEW"',"impl":'"$UNRESOLVABLE"',"pr-fix":'"$UNRESOLVABLE"',"ui-tester":'"$CLAMPED"'}}'
+capture_in "$D" resolve --only-role review --resolver "$WORK/stub-mixed.sh"
+check_eq "valid but unavailable unused models are not resolved" "$RC" "0"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "full-team runtime validation still checks unused-by-review models" "$(kv "$OUT" unresolved)" "impl"
 
-# The sequential-run reference follows the same rename and keeps one anchor.
-check_contains "sequential runs relate the profiles to pane reuse" "$SEQUENTIAL_TEXT" \
-  '## Relationship to the team profiles'
-check_contains "sequential runs link the Team profiles section" "$SEQUENTIAL_TEXT" '../SKILL.md#team-profiles'
-check_not_contains "sequential runs do not keep the old anchor" "$SEQUENTIAL_TEXT" "$OLD_TEAM_RECORD_ANCHOR"
+put_profile "$D" default '{"roles":{"review":'"$UNRESOLVABLE"'}}'
+capture_in "$D" resolve --only-role review --resolver "$WORK/stub-mixed.sh"
+check_eq "unavailable selected role blocks" "$(kv "$OUT" result)" "unresolved"
+check_eq "unavailable selected role is reported" "$(kv "$OUT" unresolved)" "review"
+put_profile "$D" default '{"roles":{"review":'"$CLAMPED"'}}'
+capture_in "$D" resolve --only-role review --resolver "$WORK/stub-mixed.sh"
+check_eq "clamped selected role blocks" "$(kv "$OUT" unresolved_result)" "clamped"
+for json in '[]' '{"roles":[]}' '{"roles":{}}' '{"roles":{"review":null}}'; do
+  put_profile "$D" default "$json"
+  capture_in "$D" resolve --only-role review --resolver "$WORK/stub-ok.sh"
+  check_nonzero "malformed selected role is not accepted: $json"
+done
+capture_in "$D" resolve --only-role reviewer --resolver "$WORK/stub-ok.sh"
+check_exit "unknown role projection is a usage error" "2"
+capture_in "$D" resolve --only-role review --require-role impl --resolver "$WORK/stub-ok.sh"
+check_exit "projection cannot bypass another required role" "2"
+for command in use write; do
+  capture_in "$D" "$command" --only-role review
+  check_exit "projection cannot weaken $command validation" "2"
+done
 
-# The migration reference is the documented procedure, not code.
-check_contains "migration backs up the user asset" "$MIGRATION_TEXT" 'cp -a "$ASSET" "$ASSET.bak-$(date +%Y%m%d%H%M%S)"'
-check_contains "migration maps a record to a profile" "$MIGRATION_TEXT" 'profiles/default.json'
-check_contains "migration sets the manual file mode" "$MIGRATION_TEXT" 'chmod 600 "$ASSET"/profiles/*.json'
-check_contains "migration resolves before deleting teams" "$MIGRATION_TEXT" 'rm -r "$ASSET"/teams'
-check_contains "migration states active is optional" "$MIGRATION_TEXT" '`active` is optional'
-check_contains "migration states the rollback scope" "$MIGRATION_TEXT" 'restores the skill revision only'
-check_contains "migration states the asset restore" "$MIGRATION_TEXT" 'put the backup from step 1 back'
+D="$(new_agent review-only-selection)"
+put_profile "$D" default '{"roles":{"review":'"$REVIEW"'}}'
+put_profile "$D" fallback '{"roles":{"review":'"$UI_TESTER"'}}'
+put_active "$D" 'fallback\n'
+capture_in "$D" resolve --only-role review --resolver "$WORK/stub-ok.sh"
+check_eq "review-only honors active" "$(kv "$OUT" profile)" "fallback"
+capture_in "$D" resolve --only-role review --profile default --resolver "$WORK/stub-ok.sh"
+check_eq "review-only honors explicit selection" "$(kv "$OUT" profile)" "default"
+check_eq "review-only explicit selection leaves active alone" "$(active_content "$D")" "fallback"
+put_active "$D" 'missing\n'
+capture_in "$D" resolve --only-role review --resolver "$WORK/stub-ok.sh"
+check_eq "review-only never falls back from a broken active" "$(kv "$OUT" reason)" "missing-active-profile"
 
-# Completion cleanup names the command for the one pane it may close.
-UI_TESTER_TEXT="$(cat "$UI_TESTER_REFERENCE")"
-check_contains "skill names the pane close command" "$SKILL_TEXT" '`herdr pane close <pane-id>`'
-check_contains "skill rules out closing a whole tab or workspace" "$SKILL_TEXT" '`herdr tab close` and `herdr workspace close` are never used'
-check_contains "ui-tester reference names the pane close command" "$UI_TESTER_TEXT" '`herdr pane close <pane-id>`'
-check_contains "ui-tester reference scopes the close to the single pane" "$UI_TESTER_TEXT" '`herdr tab close` and `herdr workspace close` would close delegated'
+# --- legacy migration guard ----------------------------------------------
+D="$(new_agent legacy-only)"
+mkdir -p "$D/pi-issue-pr-workflow/profiles"
+printf '%s\n' "$(profile_json true "$ROLES")" > "$D/pi-issue-pr-workflow/profiles/default.json"
+legacy_before="$(cat "$D/pi-issue-pr-workflow/profiles/default.json")"
+for args in 'resolve' 'resolve --only-role review' 'use default'; do
+  # The words are fixed test arguments, not untrusted input.
+  capture_in "$D" $args --resolver "$WORK/stub-ok.sh"
+  check_eq "legacy guard: $args" "$(kv "$OUT" reason)" "migration-required"
+  check_nonzero "legacy guard exits nonzero: $args"
+  check_bootstrap_blocked "legacy guard: $args"
+done
+capture_in "$D" write --profile default --resolver "$WORK/stub-ok.sh" \
+  --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+check_eq "legacy guard blocks writes" "$(kv "$OUT" reason)" "migration-required"
+check_eq "legacy guard writes nothing" "$(kv "$OUT" written)" "false"
+check_eq "legacy profile is unchanged" "$(cat "$D/pi-issue-pr-workflow/profiles/default.json")" "$legacy_before"
+check_eq "legacy guard creates no new root" "$([ -e "$(asset "$D")" ] && echo yes || echo no)" "no"
+mkdir -p "$(asset "$D")/profiles"
+capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+check_eq "an empty new root cannot conceal an unmigrated asset" "$(kv "$OUT" reason)" "migration-required"
+put_profile "$D" default "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --resolver "$WORK/stub-ok.sh"
+check_eq "a migrated profile uses only the new root" "$RC" "0"
+check_eq "a migrated profile names the new path" "$(kv "$OUT" record)" "$(asset "$D")/profiles/default.json"
 
 # No output may leak the machine paths or credentials of the environment.
 ALL_OUTPUT="$(cat "$WORK/all-output.txt" 2>/dev/null || true)"

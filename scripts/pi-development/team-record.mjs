@@ -2,7 +2,7 @@
 /**
  * Read, validate, and write team profiles.
  *
- * The user asset is `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow`:
+ * The user asset is `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-development`:
  * `profiles/<name>.json` holds one team composition and `active` names the
  * profile a run uses when it states none. The profile format and the validation
  * rules live in `lib/team-record.mjs`.
@@ -14,7 +14,7 @@
  *     command=resolve profile=<name> source=<explicit|active|default> record=<path>
  *       profiles_present=<true|false|> present=<true|false>
  *       result=<ok|missing|invalid|unresolved> [reason=<token>] ...
- *     result=ok         every role of the selected profile resolved
+ *     result=ok         every consumed role resolved (full team or projection)
  *     result=missing    no profile file for the selected name
  *     result=invalid    unreadable JSON, an unreadable `active` or
  *                       `profiles/`, a name violation, or the profile contract
@@ -25,7 +25,8 @@
  * `.json` entry cannot be inspected. That is never the `profiles_present=false`
  * bootstrap state: the result is `<invalid>` with `reason=unreadable`. An
  * unreadable `active` or profile file reports the same reason and is never
- * treated as absent.
+ * treated as absent. The field is also empty for migration-required, so an
+ * unmigrated legacy asset can never appear to be a bootstrap candidate.
  *   use:
  *     command=use profile=<name> active=<path> result=<ok|missing|invalid|unresolved>
  *       written=<true|false> [reason=<token>] ...
@@ -80,7 +81,7 @@ const OK_RESULT = "ok";
 const USAGE = `Usage: team-record.sh <resolve|use|write> [options]
 
 Reads, validates, and writes team profiles under
-\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-issue-pr-workflow:
+\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-development:
   profiles/<name>.json   one team composition per profile
   active                 the profile name a run uses when it states none
 
@@ -97,6 +98,9 @@ Common options:
 
 resolve options:
   --profile <name>    use this profile for the run (extensionless name)
+  --only-role <role>  validate and resolve only this known role (read-only).
+      Unused roles and the impl/pr-fix shared flag are ignored. Cannot be
+      combined with --require-role or used with use/write.
   --require-role <role>
       also require this role in the profile (repeatable). Any role name is
       accepted, so a role this version does not know yet answers \`unresolved\`
@@ -121,6 +125,10 @@ write options:
   --pr-fix-shared-with-impl <true|false>
       required; whether pr-fix reuses the impl agent. When \`true\`, the
       pr-fix specification must equal the impl specification.
+
+If only the legacy pi-issue-pr-workflow asset exists, commands stop with
+\`result=invalid reason=migration-required\`; there is no legacy fallback,
+automatic migration, or bootstrap over the legacy profiles.
 
 Every command prints one key=value line and exits nonzero unless \`result=ok\`.
 \`write\` and \`use\` validate every role through the resolver, so the user asset
@@ -161,6 +169,7 @@ function parseArgs(argv) {
     positional: [],
     resolver: "",
     requireRoles: [],
+    onlyRole: "",
     roleSpecs: [],
     prFixSharedWithImpl: null,
   };
@@ -179,6 +188,12 @@ function parseArgs(argv) {
     },
     "--require-role": (value) => {
       options.requireRoles.push(value);
+    },
+    "--only-role": (value) => {
+      if (!ROLE_NAMES.includes(value)) {
+        throw new Error("--only-role requires a known development role");
+      }
+      options.onlyRole = value;
     },
     "--role": (value) => {
       options.roleSpecs.push(value);
@@ -232,6 +247,9 @@ function parseArgs(argv) {
   if (!options.command) {
     return { options, error: "a command (resolve, use, or write) is required" };
   }
+  if (options.onlyRole && (options.command !== "resolve" || options.requireRoles.length > 0)) {
+    return { options, error: "--only-role is only valid with resolve and without --require-role" };
+  }
   if (options.command === "use") {
     if (options.positional.length === 0) {
       return { options, error: "use requires a profile name" };
@@ -253,13 +271,12 @@ function piAgentDir() {
 }
 
 /**
- * Root of the user asset. "pi-issue-pr-workflow" is the asset's stable
- * identifier, not this skill's distribution path: profiles written before the
- * skill directory was renamed stay readable, so renaming it requires a
- * migration.
+ * Root of the shared user asset, independent of any consuming skill.
+ * Legacy assets are detected only to stop an unsafe implicit bootstrap;
+ * migrating them is an explicit, backed-up operation, not a read fallback.
  */
 function assetDir() {
-  return path.join(piAgentDir(), "pi-issue-pr-workflow");
+  return path.join(piAgentDir(), "pi-development");
 }
 
 function profilesDir() {
@@ -325,6 +342,21 @@ function profilesPresence() {
   return { state: present ? "present" : "empty" };
 }
 
+/** Never mistake an unmigrated user asset for a first-time empty setup. */
+function migrationStatus() {
+  if (profilesPresence().state !== "empty") {
+    return null;
+  }
+  const legacy = profilePresence(path.join(piAgentDir(), "pi-issue-pr-workflow"));
+  if (legacy === "missing") {
+    return null;
+  }
+  return {
+    result: "invalid",
+    reason: legacy === "unreadable" ? "unreadable" : "migration-required",
+  };
+}
+
 /**
  * Select this run's profile name, before the profile set is inspected.
  *
@@ -362,7 +394,7 @@ function selectProfileName(options) {
  * `profilesPresent` is `"true"`, `"false"`, or `""` when `profiles/` cannot be
  * enumerated. The unreadable state is an `invalid` result, so an unknown
  * profile set is never reported as `profiles_present=false` and never reaches
- * the bootstrap condition.
+ * the bootstrap condition. The same holds when migration is required.
  *
  * @returns {{name: string, source: string, profilesPresent: string,
  *   status?: {result: "invalid", reason: string}}}
@@ -373,6 +405,12 @@ function selectProfile(options) {
   const profilesPresent = presence.state === "present" ? "true" : presence.state === "empty" ? "false" : "";
   if (!selection.status && presence.state === "unreadable") {
     return { ...selection, profilesPresent, status: { result: "invalid", reason: "unreadable" } };
+  }
+  if (!selection.status) {
+    const status = migrationStatus();
+    if (status) {
+      return { ...selection, profilesPresent: "", status };
+    }
   }
   return { ...selection, profilesPresent };
 }
@@ -431,7 +469,7 @@ function exitForReason(reason) {
  *
  * @returns {{result: "ok", profile: object} | {result: "invalid" | "missing" | "unresolved", ...}}
  */
-function loadProfile(file) {
+function loadProfile(file, onlyRole = "") {
   let text;
   try {
     text = readFileSync(file, "utf8");
@@ -447,7 +485,7 @@ function loadProfile(file) {
   } catch {
     return { result: "invalid", reason: "bad-json", raw: undefined };
   }
-  const validation = validateProfile(raw);
+  const validation = validateProfile(raw, { onlyRole });
   if (validation.result !== "ok") {
     return { result: "invalid", reason: validation.reason, raw };
   }
@@ -508,7 +546,7 @@ function commandResolve(options) {
     return 1;
   }
 
-  const loaded = loadProfile(file);
+  const loaded = loadProfile(file, options.onlyRole);
   if (loaded.result !== "ok") {
     emit([
       ...base,
@@ -528,7 +566,7 @@ function commandResolve(options) {
     ["reason", "role"],
     ["unresolved", role],
     ["unresolved_result", result],
-    ["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)],
+    ...(options.onlyRole ? [] : [["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)]]),
     ...roleFields(profile),
   ];
 
@@ -557,7 +595,7 @@ function commandResolve(options) {
     ...base,
     ["present", "true"],
     ["result", "ok"],
-    ["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)],
+    ...(options.onlyRole ? [] : [["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)]]),
     ...teamFields,
   ]);
   return 0;
@@ -600,6 +638,10 @@ function commandUse(options) {
 
   if (!isProfileName(name)) {
     return fail("invalid", "bad-profile-name");
+  }
+  const migration = migrationStatus();
+  if (migration) {
+    return fail(migration.result, migration.reason);
   }
   const file = profilePath(name);
   const loaded = loadProfile(file);
@@ -655,6 +697,10 @@ function commandWrite(options) {
   }
   if (!isProfileName(name)) {
     return fail("invalid", "bad-profile-name");
+  }
+  const migration = migrationStatus();
+  if (migration) {
+    return fail(migration.result, migration.reason);
   }
   if (options.prFixSharedWithImpl === null) {
     return fail("invalid", "usage");

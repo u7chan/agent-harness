@@ -5,8 +5,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-HELPER="$SKILL_DIR/scripts/resolve-model-spec.sh"
+HELPER="$SCRIPT_DIR/../resolve-model-spec.sh"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/model-spec-live-test-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 

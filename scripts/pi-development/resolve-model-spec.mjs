@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Resolve one provider/model/thinking specification through the installed pi
+ * Resolve one shared provider/model/thinking specification through the installed pi
  * runtime and print the result as one key=value line.
  *
  * `resolve-model-spec.sh` resolves the pi package roots (following the `pi`

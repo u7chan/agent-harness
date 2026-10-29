@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Resolve the installed pi package root and run resolve-model-spec.mjs.
+# Shared resolver: locate the installed pi package and run resolve-model-spec.mjs.
 #
 # This wrapper stays thin: it locates the pi package root (following the `pi`
 # command's symlink chain) and forwards every argument to the .mjs, which loads

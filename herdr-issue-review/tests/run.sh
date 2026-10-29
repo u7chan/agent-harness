@@ -132,16 +132,16 @@ check_contains "the gate links the delegation boundary reference" "$GATE_TEXT" \
 # before the agent starts.
 check_contains "the reviewer section names the effective profile" "$REVIEWER_TEXT" \
   '実効プロファイル'
-check_contains "the reviewer section links the Team profiles section" "$REVIEWER_TEXT" \
-  '../herdr-pi-issue-pr-workflow/SKILL.md#team-profiles'
+check_contains "the reviewer section links the shared profiles contract" "$REVIEWER_TEXT" \
+  '../_docs/pi-development.md'
 check_contains "the reviewer section resolves the profile" "$REVIEWER_TEXT" \
-  'scripts/team-record.sh resolve'
+  'scripts/pi-development/team-record.sh resolve'
 check_contains "the reviewer section bases the spec on the profile review" "$REVIEWER_TEXT" \
   'review=<provider>/<model>/<thinking>'
 check_contains "the reviewer section overlays only the user values" "$REVIEWER_TEXT" \
   'ユーザーが指定した provider / model / thinking だけを上書きする'
 check_contains "the reviewer section re-validates the composed spec" "$REVIEWER_TEXT" \
-  'scripts/resolve-model-spec.sh --provider <provider> --model <model> --thinking <thinking>'
+  'scripts/pi-development/resolve-model-spec.sh --provider <provider> --model <model> --thinking <thinking>'
 check_contains "the reviewer section starts only on result=ok" "$REVIEWER_TEXT" \
   '`result=ok` のときだけ起動する'
 check_contains "the reviewer section stops for a non-ok user specification" "$REVIEWER_TEXT" \
