@@ -1,61 +1,57 @@
 ---
 name: herdr-pi-pr-review-workflow
-description: >
-  既存の Draft PR を、現在の窓口兼開発担当と別ペインの Pi Reviewer でレビュー・修正し、
-  最大3ラウンドで検証済みLGTM、対象スレッドのResolve、Draft解除まで進める。
-  Issueなしの口頭FB・軽微な修正にも使う。単発レビューではなく、修正ループとDraft解除を依頼されたときに使う。
-  Requires Herdr: the reviewer runs in the current workspace and worktree.
+description: Run a Draft PR review/fix loop with a Pi reviewer in Herdr, through verified LGTM and Ready. No Issue required.
 ---
 
-# PR レビュー進行
+# PR Review Workflow
 
-現在のエージェントが窓口・開発・修正・進行を兼任し、独立した Pi Reviewer だけを別ペインで動かす。
-Issueは不要。口頭FBの整理、最初の実装、ブランチ作成、Draft PR作成はこのスキルの開始前に済ませる。
-単発のレビュー依頼には [review](../review/SKILL.md) を使い、勝手に修正ループやDraft解除を始めない。
+The current agent handles user feedback, development, fixes, and coordination; only an independent Pi reviewer runs in another pane.
+No Issue is required. Settle the feedback, initial implementation, branch, and Draft PR before starting this skill.
+For a one-shot review, use [review](../review/SKILL.md) instead; do not silently start a fix loop or mark the PR ready.
 
-## 責任境界
+## Boundaries
 
-- ペイン、Pi起動、委譲、非同期の結果返却は [herdr](../herdr/SKILL.md) を正とする。
-- GitHubの読み書きは [gh](../gh/SKILL.md) のdispatcherだけを使う。
-- レビュー基準、再チェック、LGTM検証、Resolveの対象と手順は [review](../review/SKILL.md)、特に [再チェック手順](../review/references/recheck.md) を正とし、ここに複製しない。
-- 窓口のprovider / model / thinkingは変更しない。別の司令塔、`impl`、`pr-fix`、`ui-tester`は起動しない。
-- Reviewerは実装・コミット・pushをしない。レビューイベントは`COMMENT`だけとし、`APPROVE`、マージ、Issueのクローズは行わない。
-- 状態は現在の会話だけで管理する。ラウンド、head、未解決指摘、ペインIDをファイルへ永続化せず、新しい実行基盤も作らない。
+- Follow [Herdr](../herdr/SKILL.md) for panes, Pi startup, delegation, and asynchronous result delivery.
+- Use the [GH](../gh/SKILL.md) dispatcher for every GitHub read and write.
+- [Review](../review/SKILL.md), especially its [recheck procedure](../review/references/recheck.md), owns review criteria, rechecks, LGTM verification, and Resolve policy. Do not duplicate those rules here.
+- Keep the current agent's provider, model, and thinking unchanged. Do not start another coordinator, `impl`, `pr-fix`, or `ui-tester`.
+- The reviewer must not implement, commit, or push. Use only `COMMENT` reviews; never `APPROVE`, merge, or close an Issue.
+- Track rounds, heads, unresolved findings, and pane IDs only in the current conversation. Do not persist run state or add a workflow runtime.
 
-## 開始条件
+## Preflight
 
-副作用の前に次を確認する。失敗・不明・対象の曖昧さがあれば停止し、推測で補わない。
+Before any side effect, check the following. Stop on failure, an unknown result, or an ambiguous target; do not guess.
 
-1. Herdrの`Preflight`と`Caller pinning`を通し、現在のworkspaceとpaneを固定する。`pi`も必要。
-2. 対象PRを一意に特定し、`pr.read`でリポジトリ、base、head、状態を固定する。対象はopenかつ未マージのDraft PR。Issueの有無は開始条件にしない。
-3. 対象リポジトリの指示とGit状態を読む。対象checkout、作業ブランチ、push済みHEADがPRのheadと一致し、予期しない作業ツリー変更がないことを確認する。保護されたbaseへ直接pushしない。
-4. 変更目的、完了条件、維持する契約、運用・互換要件を、PR本文と合意済みの依頼から整理する。口頭FB由来の条件は委譲本文にも明記する。重要な未決定をReviewerの推測で埋めない。
-5. リポジトリ・依頼が要求するテスト、check、formatter、linter等をすべて現在のheadで成功させる。失敗・未実行・実行不能は`blocked`として停止する。既存の検証結果を使う場合も、そのheadと対象範囲を確認する。
+1. Pass Herdr's Preflight and Caller pinning checks, fixing the current workspace and pane. Require `pi` too.
+2. Identify one PR and pin its repository, base, head, and state with `pr.read`. Require an open, unmerged Draft PR, not an Issue reference.
+3. Read the repository instructions and Git state. Confirm the checkout, work branch, and pushed HEAD match the PR head, with no unexpected working-tree changes. Never push directly to a protected base.
+4. Extract the change's purpose, completion criteria, preserved contracts, and operational/compatibility requirements from the PR body and agreed request. Include conditions from verbal feedback in the delegation. Do not let the reviewer invent important missing decisions.
+5. Pass every required test, check, formatter, and linter on the current head. Failed, skipped, or unavailable required verification means `blocked`; stop. Reuse existing evidence only after checking its head and scope.
 
-## Reviewerの設定と起動
+## Reviewer Setup
 
-保存先、選択順、読み書き、エラーの正本は [Pi Development Profiles](../_docs/pi-development.md)。以下のスクリプトは、このスキルの親（パッケージルート）から解決する。
+[Pi Development Profiles](../_docs/pi-development.md) owns storage, selection, I/O, and errors. Resolve the following scripts from this skill's parent directory, the package root.
 
 ```bash
 scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role review
 ```
 
-`review`だけを検証・解決し、使わない役割や`pr_fix_shared_with_impl`で開始を妨げない。
-`result=ok`の設定を再利用し、使用profileとReviewerのprovider / model / thinkingを報告する。
-この実行で指定された値はprofileより優先し、保存設定を自動で書き換えない。
+Validate and resolve only `review`; unused roles and `pr_fix_shared_with_impl` must not gate startup.
+Reuse a `result=ok` specification and report its profile, provider, model, and thinking.
+Run-local explicit values override the profile without automatically rewriting it.
 
-明示指定を合成する場合は`pi --list-models`の正確なIDを使い、完全なspecを次で再検証する。
+When composing explicit overrides, use exact IDs from `pi --list-models` and revalidate the complete specification:
 
 ```bash
 scripts/pi-development/resolve-model-spec.sh \
   --provider <provider> --model <model> --thinking <level>
 ```
 
-`result=ok`以外は起動しない。profileが欠落・不正・未解決なら、完全な明示specが検証できる場合を除き、設定の修復または不足値の確認のため停止する。環境既定や別モデルへ黙ってフォールバックしない。
-`reason=migration-required`なら、明示specの有無によらず[設定移行](../_docs/pi-development-migration.md)のため停止する。
-このスキルはbootstrapも行わず、profileや`active`を自動保存・変更しない。
+Start only on `result=ok`. If a profile is missing, invalid, or unresolved, stop for repair or missing input unless a complete explicit specification validates. Never silently fall back to runtime defaults or another model.
+On `reason=migration-required`, stop for [migration](../_docs/pi-development-migration.md), even with an explicit specification.
+Do not bootstrap or automatically save/change profiles or `active`.
 
-Herdrの単一ペイン手順で、現在のworkspaceの空き対話シェルを優先し、なければ現在のpaneから明示的にsplitする。新しいworkspaceやworktreeは作らない。
+Follow Herdr's single-pane procedure: prefer an empty interactive shell in the current workspace; otherwise split explicitly from the current pane. Do not create a workspace or worktree.
 
 ```bash
 herdr agent start pr-review --kind pi --pane <pane-id> -- \
@@ -63,32 +59,32 @@ herdr agent start pr-review --kind pi --pane <pane-id> -- \
 herdr pane rename <pane-id> pr-review
 ```
 
-JSON応答のIDとlabelを確認し、対話準備完了と実効provider / model / thinkingが確定設定と一致することを画面・状態から検証する。起動引数だけを証拠にしない。不明・不一致なら委譲せず停止する。
-このrunの全ラウンドで同じReviewerを使う。
+Read IDs from JSON responses and confirm the label. Verify interactive readiness and the effective provider, model, and thinking against the settled specification using the screen and runtime state. Startup arguments alone are not evidence. Stop before delegation on an unknown value or mismatch.
+Use the same reviewer for every round of this run.
 
-## レビューと修正
+## Review and Fixes
 
-委譲はHerdrの`scripts/parent-delegate-async.sh`、返却は`scripts/child-return-result.sh`を使う。`--wait`やsleepによる長いpollで親を塞がず、委譲したらターンを終える。
-委譲本文にはリポジトリの絶対パス、指示、PR、base・作業ブランチ、head、ラウンド、変更目的・完了条件・運用互換要件、検証結果、読み取り専用の責務、期待する返却を含める。
+Delegate through Herdr's `scripts/parent-delegate-async.sh` and return through `scripts/child-return-result.sh`. End the turn after delegation; do not block the parent with `--wait` or long sleep-based polling.
+Include the absolute repository path, instructions, PR, base/work branches, head, round, purpose, completion criteria, operational/compatibility requirements, verification, read-only responsibilities, and expected report.
 
-1. **Round 1**: ReviewerにreviewスキルのPRモードを明示依頼する。GitHubへ結果を投稿・検証し、review ID / URL、対象head、指摘件数、Blocker、検証済みLGTMの有無を`completed`または`blocked`で返却させる。プロンプト送信や未検証のLGTM報告を完了扱いしない。
-2. **修正**: Blockerがあれば窓口自身が投稿済みフィードバックを読み、範囲を広げずに修正する。必要な全検証を成功させ、コミット・pushし、リポジトリ規約に従って該当コメントへ返信する。窓口は修正だけを理由にスレッドをResolveしない。結果不明のpushや失敗した検証では進めない。
-3. **Round 2 / Round 3**: 確認済みの修正push後、同じReviewerに[再チェック手順](../review/references/recheck.md)を明示依頼する。過去の未解決指摘の再分類と、その正本が定める最新headのレビューの両方を必須にする。分類返信だけではLGTMにならない。運用・互換要件も引き継ぐ。
-4. 再チェックの委譲には、このworkflowコンテキストの自動Resolveを明示指定する。実行条件・返信確認・対象・軽量チェックは再チェック手順に従う。Reviewerが実行せず窓口へ引き渡す場合は、検証済み対象集合`(thread_id, root_comment_id, reviewer_login, classification_reply_id)`を返却させ、その集合を正として処理する。対象をfresh readから再構成しない。各Resolve後は`review-threads.read`で`resolved=true`を確認する。
+1. **Round 1**: Explicitly request the Review skill's PR mode. Require a posted, verified GitHub review and a `completed` or `blocked` report with review ID/URL, reviewed head, finding counts, Blockers, and verified LGTM status. Prompt delivery or an unverified LGTM claim is not completion.
+2. **Fixes**: When Blockers remain, the current agent reads the posted feedback and fixes it without expanding scope. Pass all required verification, commit, push, and reply to relevant comments as repository instructions require. Do not resolve threads merely because a fix was pushed. Never advance on an unknown push result or failed verification.
+3. **Round 2 / Round 3**: After a confirmed fix push, explicitly request the same reviewer's [recheck procedure](../review/references/recheck.md): both reclassification of prior unresolved findings and the latest-head review within that reference's scope. Classification replies alone cannot establish LGTM. Carry forward operational/compatibility requirements.
+4. Explicitly designate workflow-context auto-resolve in the recheck delegation. Follow the canonical recheck procedure for eligibility, reply confirmation, targets, and lightweight checks. On handoff, require the verified target set `(thread_id, root_comment_id, reviewer_login, classification_reply_id)` and treat that set as authoritative; do not reconstruct targets from a fresh read. After each Resolve, confirm `resolved=true` through `review-threads.read`.
 
-初回を含め最大3ラウンド。現在のheadに対する検証済みLGTMがありBlockerがなければ、3回を待たず完了判定へ進む。Round 3後もBlockerがあれば追加レビューせずDraftのまま停止し、残条件と根拠を報告する。
-途中の`blocked`、重要な判断不能、headの変化、未確認の書き込み結果も停止条件とする。Nit / Consider / FYIや別Issue候補だけでは、reviewスキルが認めたLGTMを妨げない。
+Allow at most three rounds, including the initial review. A verified LGTM for the current head with no Blocker advances to completion immediately. If a Blocker remains after Round 3, stop with the PR still Draft and report the remaining condition and evidence; do not add a round.
+Also stop on `blocked`, important uncertainty, a head change, or an unconfirmed write. Nit / Consider / FYI findings and separate Issue candidates alone do not block LGTM accepted by the Review skill.
 
-## 完了とDraft解除
+## Completion and Ready
 
-このスキルによるレビュー・修正・Draft解除の実行依頼は、以下の条件を満たした後の`pr.ready`までを含む。追加の承認待ちは設けないが、単発レビュー依頼をその承認に読み替えない。
+A request to run this review/fix/Ready workflow includes `pr.ready` after the conditions below, without another approval wait. A one-shot review request does not authorize Ready.
 
-1. 必須検証が現在のPR headですべて成功し、pushを確認できていること。
-2. 最新headをカバーするreviewスキルのLGTMが投稿・検証済みで、Blockerがないこと。
-3. 最新の再チェックから引き継いだResolve対象がすべて処理・再取得確認済みであること。対象外の会話は開いたまま報告する。LGTM自体を全スレッドのResolve指示にしない。
-4. **Draft解除の直前**に`pr.read`し、open・未マージ・Draftで、headが検証とLGTMの対象に一致することを再確認する。差異・失敗・不明なら停止する。
-5. GH dispatcherの`pr.ready`に対象と明示的な`grant: "sensitive-write"`を渡す。
-6. **Draft解除の直後**にも`pr.read`し、open・未マージ・`draft=false`・同じheadを確認して初めて完了とする。`failed` / `unknown_outcome`やheadの変化を成功扱いせず、自動再試行しない。
+1. All required verification has passed on the current PR head, and the push is confirmed.
+2. A posted, verified Review-skill LGTM covers the latest head, with no Blocker.
+3. Every Resolve target from the latest recheck has been processed and confirmed by re-read. Leave other conversations open and report them; LGTM itself does not authorize resolving all threads.
+4. **Immediately before Ready**, use `pr.read` to confirm open, unmerged, Draft state and a head matching the verification and LGTM. Stop on a mismatch, failure, or unknown result.
+5. Call the GH dispatcher's `pr.ready` with the target and explicit `grant: "sensitive-write"`.
+6. **Immediately after Ready**, use `pr.read` again. Complete only after confirming open, unmerged, `draft=false`, and the same head. Do not count `failed`, `unknown_outcome`, or a changed head as success, and never retry automatically.
 
-PR、profileまたは明示設定の出所、Reviewerのspec・pane、最新head、検証、レビュー回数、LGTM、Resolve結果、残る任意指摘・対象外会話、Draft解除を報告する。Reviewerのペインは開いたまま残す。
-スキル変更を含むPRなら、マージ後に[配布・ロールアウト](../_docs/skill-distribution.md)が必要なことも伝える。
+Report the PR, profile or explicit-spec origin, reviewer specification/pane, latest head, verification, round count, LGTM, Resolve results, remaining optional findings/conversations, and Ready status. Keep the reviewer pane open.
+For a PR that changes skills, also prompt the post-merge [rollout](../_docs/skill-distribution.md).

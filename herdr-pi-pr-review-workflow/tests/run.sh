@@ -12,27 +12,29 @@ text = skill.read_text()
 root = skill.parent.parent
 assert skill.parent.name in json.loads((root / 'package.json').read_text())['pi']['skills']
 for value in (
-    'Issueは不要', '現在のエージェント', '窓口のprovider / model / thinkingは変更しない',
-    '`impl`、`pr-fix`、`ui-tester`は起動しない',
+    'No Issue is required', 'The current agent',
+    "Keep the current agent's provider, model, and thinking unchanged",
+    'Do not start another coordinator, `impl`, `pr-fix`, or `ui-tester`',
     '../herdr/SKILL.md', '../gh/SKILL.md', '../review/SKILL.md',
     '../review/references/recheck.md', '../_docs/pi-development.md',
     'scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role review',
-    '環境既定や別モデルへ黙ってフォールバックしない', 'migration-required',
-    'bootstrapも行わず', '起動引数だけを証拠にしない',
-    'parent-delegate-async.sh', 'child-return-result.sh', '委譲したらターンを終える',
-    '初回を含め最大3ラウンド', 'Round 3後もBlockerがあれば', 'Draftのまま停止',
-    '分類返信だけではLGTMにならない', 'workflowコンテキストの自動Resolve',
+    'Never silently fall back to runtime defaults or another model', 'migration-required',
+    'Do not bootstrap', 'Startup arguments alone are not evidence',
+    'parent-delegate-async.sh', 'child-return-result.sh', 'End the turn after delegation',
+    'at most three rounds, including the initial review',
+    'If a Blocker remains after Round 3', 'stop with the PR still Draft',
+    'Classification replies alone cannot establish LGTM', 'workflow-context auto-resolve',
     '(thread_id, root_comment_id, reviewer_login, classification_reply_id)',
-    'resolved=true', '必須検証が現在のPR headですべて成功',
-    'grant: "sensitive-write"', 'draft=false', '同じhead',
-    '自動再試行しない', 'ペインは開いたまま',
+    'resolved=true', 'All required verification has passed on the current PR head',
+    'grant: "sensitive-write"', 'draft=false', 'the same head',
+    'never retry automatically', 'Keep the reviewer pane open',
 ):
     assert value in text, value
 assert 'herdr-pi-issue-pr-workflow/' not in text, 'no dependency on the Issue workflow'
-completion = text.split('## 完了とDraft解除\n', 1)[1]
-assert completion.index('Draft解除の直前') < completion.index('5. GH dispatcherの`pr.ready`')
-assert completion.index('5. GH dispatcherの`pr.ready`') < completion.index('Draft解除の直後')
-assert '単発レビュー依頼をその承認に読み替えない' in completion
-assert 'headが検証とLGTMの対象に一致' in completion
+completion = text.split('## Completion and Ready\n', 1)[1]
+assert completion.index('Immediately before Ready') < completion.index('5. Call the GH dispatcher')
+assert completion.index('5. Call the GH dispatcher') < completion.index('Immediately after Ready')
+assert 'A one-shot review request does not authorize Ready' in completion
+assert 'a head matching the verification and LGTM' in completion
 print('PR review workflow start, delegation, 3-round, Resolve and Ready contracts passed')
 PY
