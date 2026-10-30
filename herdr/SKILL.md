@@ -22,7 +22,7 @@ Delegation requires both `$HERDR_WORKSPACE_ID` and `$HERDR_PANE_ID`. If either i
 
 ## Resolve the delegation target
 
-This section is authoritative for candidate resolution, branching, and stop conditions. A request for "another pane" (別ペイン) means another pane in the current workspace of the current Herdr server, not a physical neighbor. A request that names a Herdr worktree workspace instead of a pane follows [Worktree workspaces](#worktree-workspaces). These rules are an operational safeguard for skill-compliant agents; they do not add a technical enforcement boundary.
+This section is authoritative for candidate resolution, branching, and stop conditions. A request for "another pane" ("別ペイン") means another pane in the current workspace of the current Herdr server, not a physical neighbor. A request that names a Herdr worktree workspace instead of a pane follows [Worktree workspaces](#worktree-workspaces). These rules are an operational safeguard for skill-compliant agents; they do not add a technical enforcement boundary.
 
 The invariant and responsibility split required for a hard boundary are defined in [Technical delegation boundary](references/technical-delegation-boundary.md). Do not infer a stronger guarantee from this skill or from the wrappers.
 
@@ -46,7 +46,7 @@ Select a candidate only when exactly one pane satisfies the explicitly stated co
 
 ### Spatial neighbors
 
-For "左", "右", "上", "下", ask exactly the requested direction:
+For a requested direction ("左"/"右"/"上"/"下" or "left"/"right"/"up"/"down"), ask for exactly that direction:
 
 ```bash
 herdr pane neighbor \
