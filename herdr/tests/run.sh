@@ -1220,9 +1220,8 @@ markdown_check() { # <skill-dir>...
   "$MARKDOWN_CHECK" "$@"
 }
 
-# A copy of the skill markdown, the examples a reference links into, and the
-# one other-skill file that herdr/SKILL.md links to.  The negative tests mutate
-# this copy so the real tree stays clean.
+# A copy of the skill markdown and the one other-skill file that herdr/SKILL.md
+# links to.  The negative tests mutate this copy so the real tree stays clean.
 MARKDOWN_FIXTURE_ROOT="$TEST_TMP/markdown-fixture"
 
 setup_markdown_fixture() {
@@ -1230,7 +1229,6 @@ setup_markdown_fixture() {
   mkdir -p "$MARKDOWN_FIXTURE_ROOT/herdr/references" "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow"
   cp "$HERDR_DIR/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/herdr/SKILL.md"
   cp "$HERDR_DIR"/references/*.md "$MARKDOWN_FIXTURE_ROOT/herdr/references/"
-  cp -R "$HERDR_DIR/examples" "$MARKDOWN_FIXTURE_ROOT/herdr/examples"
   cp "$HERDR_DIR/../herdr-pi-issue-pr-workflow/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow/SKILL.md"
 }
 

@@ -52,7 +52,6 @@ Add supporting files only when they have a concrete responsibility:
   SKILL.md
   actions.json
   references/
-  examples/
   scripts/
   tests/
 ```
@@ -66,8 +65,6 @@ directories: `scripts/pi-development/` owns development profile I/O and exact
 Pi model validation, with its own tests. Its user-owned settings contract is
 in [pi-development.md](pi-development.md). Removing a consumer must not remove
 these helpers; this is shared tooling, not a workflow runtime or another skill.
-
-An `examples/` directory holds the generalized, read-only shape of a user-owned setup that a skill describes (for example `herdr/examples/operator-team/`). Its values are placeholders, it is not runnable as shipped, and it carries no code the harness executes.
 
 ## Design constraints
 
