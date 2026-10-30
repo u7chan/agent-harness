@@ -17,6 +17,18 @@ A skill may consist only of instructions or include a small, purpose-built harne
 
 Each top-level skill directory contains a `SKILL.md` file that describes when and how to use that skill.
 
+- [Issue-to-PR workflow](herdr-pi-issue-pr-workflow/SKILL.md): delegate a defined
+  Issue to an implementation team; finish with a reviewed Draft PR.
+- [PR review workflow](herdr-pi-pr-review-workflow/SKILL.md): keep the current
+  agent as developer, add only a Pi Reviewer, and review/fix an existing Draft
+  PR for at most three rounds before verified LGTM, eligible Resolve, and Ready.
+  An Issue is not required.
+
+Both use the user-owned [development profiles](_docs/pi-development.md) under
+`pi-development/`; the shared helpers do not belong to either skill. Existing
+users migrate with [the backed-up procedure](_docs/pi-development-migration.md)
+as part of rollout, not by installing unmerged skill changes.
+
 ## Prerequisites
 
 Linux remains the full CI baseline: the measurements in [_docs/skill-distribution.md](_docs/skill-distribution.md) were taken on Linux, and the existing [contract-tests](.github/workflows/contract-tests.yml) job runs on `ubuntu-latest`. Linux and WSL keep their existing Bash/GNU-tool invocation and PATH; there is no automatic macOS setup applied to other platforms. WSL has not been separately real-machine tested for this change, and native Windows shells (PowerShell/cmd) are outside the support scope.
@@ -39,7 +51,11 @@ Commands used by the harnesses and by this repository's documented procedures:
 
 `curl` is not a dependency: no script in this repository invokes it. The gh dispatcher talks to the GitHub API through the gh CLI, and the only `curl` occurrence in harness code is a retry-classification pattern in `gh/scripts/common/http.sh` that matches gh CLI error text.
 
-Only [explain-video](explain-video/SKILL.md#prerequisites) additionally requires Node.js, FFmpeg/ffprobe, the Playwright/Chromium environment, and fonts covering the caption language. FFmpeg remains optional for other workflows; it is not a repository-wide prerequisite.
+The shared development profile/model helpers require Node.js.
+[explain-video](explain-video/SKILL.md#prerequisites) additionally requires
+Node.js, FFmpeg/ffprobe, the Playwright/Chromium environment, and fonts covering
+the caption language. FFmpeg remains optional for other workflows; it is not a
+repository-wide prerequisite.
 
 ## Install
 

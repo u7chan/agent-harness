@@ -1,5 +1,5 @@
 /**
- * Pure helpers for team profiles.
+ * Pure helpers for shared development team profiles.
  *
  * A team profile is a user asset that lives outside the repository. It holds
  * the provider/model/thinking specification of one named team composition, so a
@@ -9,7 +9,7 @@
  * This module must not import pi and must not perform I/O. The wrapper
  * (`team-record.sh`) starts the CLI, the CLI (`team-record.mjs`) reads and
  * writes the user asset and calls the model-spec resolver, and
- * `herdr-pi-issue-pr-workflow/tests/team-record.sh` imports this module
+ * `scripts/pi-development/tests/team-record.sh` imports this module
  * directly, on machines without an installed pi.
  */
 
@@ -21,7 +21,7 @@ export const DEFAULT_PROFILE_NAME = "default";
 /** File that names the profile a run uses by default. */
 export const ACTIVE_FILE_NAME = "active";
 
-/** Role names of this skill, in team-table order. */
+/** Development role names, in full-team table order. */
 export const ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix", "ui-tester"]);
 
 /** Roles a profile must provide; `ui-tester` is the optional extra role. */
@@ -193,11 +193,30 @@ export function buildProfile(roles, prFixSharedWithImpl) {
  * proposal and approval path.
  *
  * @param {unknown} raw parsed JSON
+ * @param {{onlyRole?: string}} options read-only projection; absent for a full team
  * @returns {{result: "ok", profile: object} | {result: "invalid", reason: string}}
  */
-export function validateProfile(raw) {
+export function validateProfile(raw, { onlyRole = "" } = {}) {
   if (!isPlainObject(raw)) {
     return { result: "invalid", reason: "bad-record" };
+  }
+  // A review-only consumer must not depend on unused model specifications or
+  // the impl/pr-fix composition. Projection is read-only; full-team writes
+  // and active-profile switches keep their existing validation contract.
+  if (onlyRole) {
+    if (!ROLE_NAMES.includes(onlyRole)) {
+      return { result: "invalid", reason: "bad-roles" };
+    }
+    if (!isPlainObject(raw.roles)) {
+      return { result: "invalid", reason: "bad-roles" };
+    }
+    if (!Object.prototype.hasOwnProperty.call(raw.roles, onlyRole)) {
+      return { result: "invalid", reason: "missing-role" };
+    }
+    const spec = readRoleSpec(raw.roles[onlyRole]);
+    return spec
+      ? { result: "ok", profile: { roles: { [onlyRole]: spec } } }
+      : { result: "invalid", reason: "bad-role-spec" };
   }
   if (typeof raw.pr_fix_shared_with_impl !== "boolean") {
     return { result: "invalid", reason: "bad-shared" };

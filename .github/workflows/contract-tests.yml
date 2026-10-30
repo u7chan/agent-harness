@@ -2,8 +2,8 @@ name: contract-tests
 
 # Runs the gh dispatcher contract suite, the action catalog consistency
 # check, the review payload and recheck tests, the playwright skill mock tests,
-# the Herdr async wrapper tests, the herdr-pi-issue-pr-workflow model-spec and
-# team-profile tests, the herdr-issue-review start-gate documentation
+# the Herdr async wrapper tests, shared development model-spec and team-profile
+# tests, both PR workflow documentation contracts, the herdr-issue-review start-gate documentation
 # contract, and the markdown link and anchor check over every
 # skill's SKILL.md and references on every push and pull request. All checks are
 # hermetic: they run unauthenticated with no credentials, no network access, no
@@ -50,8 +50,14 @@ jobs:
       - name: Run Herdr async wrapper tests
         run: herdr/tests/run.sh
 
-      - name: Run herdr-pi-issue-pr-workflow model-spec tests
+      - name: Run shared development model-spec and team-profile tests
+        run: scripts/pi-development/tests/run.sh
+
+      - name: Run herdr-pi-issue-pr-workflow documentation contracts
         run: herdr-pi-issue-pr-workflow/tests/run.sh
+
+      - name: Run herdr-pi-pr-review-workflow documentation contracts
+        run: herdr-pi-pr-review-workflow/tests/run.sh
 
       # The start-gate suite reads herdr-issue-review/SKILL.md only; it needs neither
       # Herdr nor pi, so it runs in the same hermetic job.

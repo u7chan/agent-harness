@@ -61,6 +61,12 @@ Instruction-only skills use natural-language judgment and existing tools directl
 
 Checks that span every skill live at the repository root under `scripts/` rather than inside one skill (for example `scripts/check-markdown-links.sh`), and CI runs them directly over the skill directories.
 
+Small deterministic helpers used by multiple skills also live outside skill
+directories: `scripts/pi-development/` owns development profile I/O and exact
+Pi model validation, with its own tests. Its user-owned settings contract is
+in [pi-development.md](pi-development.md). Removing a consumer must not remove
+these helpers; this is shared tooling, not a workflow runtime or another skill.
+
 An `examples/` directory holds the generalized, read-only shape of a user-owned setup that a skill describes (for example `herdr/examples/operator-team/`). Its values are placeholders, it is not runnable as shipped, and it carries no code the harness executes.
 
 ## Design constraints

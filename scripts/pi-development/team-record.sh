@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run team-record.mjs, which owns the team-profile user asset.
+# Run the shared development team-profile CLI.
 #
 # This wrapper stays thin: it only checks that node is available and forwards
 # every argument (including --help and --resolver) to the .mjs. The profile
