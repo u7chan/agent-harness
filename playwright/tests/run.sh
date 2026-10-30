@@ -153,20 +153,28 @@ rc=$?
 check_eq "1l symlinked artifact root is rejected" "$rc" "1"
 check_contains "1m symlink rejection explains the artifact path" "$out" 'artifact directory is a symlink'
 
+# --- 1n. shasum fallback --------------------------------------------------
+# pw.sh also runs on macOS, where sha256sum does not exist. Keep the simulated
+# PATH minimal so the fallback is the only hash path left, and record the
+# shasum invocation: a pass then means the fallback branch ran, not that the
+# wrapper merely exited quietly. Artifact IDs stay covered by 1h and 1j.
 hash_fallback_bin="$WORK/hash-fallback-bin"
 mkdir -p "$hash_fallback_bin"
-for command_name in bash cat cut mktemp rm; do
+ln -s "$(command -v cat)" "$hash_fallback_bin/cat"
+for command_name in bash mktemp rm; do
   ln -s "$(command -v "$command_name")" "$hash_fallback_bin/$command_name"
 done
-cat > "$hash_fallback_bin/shasum" <<'EOF'
+shasum_log="$WORK/shasum.log"
+cat > "$hash_fallback_bin/shasum" <<EOF
 #!/bin/sh
+printf '%s ' "\$@" > "$shasum_log"
 printf '%064d  -\n' 0
 EOF
 chmod +x "$hash_fallback_bin/shasum"
-out="$(PATH="$hash_fallback_bin" /bin/bash "$PW" --help 2>&1)"
+out="$(PATH="$hash_fallback_bin" PW_SESSION=fallback /bin/bash "$PW" --help 2>&1)"
 rc=$?
 check_eq "1n shasum fallback keeps the wrapper usable" "$rc" "2"
-check_not_contains "1o shasum fallback does not report a missing hash command" "$out" 'no SHA-256 command found'
+check_contains "1o shasum fallback asks shasum for SHA-256" "$(cat "$shasum_log" 2>/dev/null)" '-a 256 '
 
 # --- 2. truncation --------------------------------------------------------
 out="$(SHIM_BIG=1 PW_SNAPSHOT_MAX=200 PW_SESSION=t bash "$PW" click e2 2>/dev/null)"

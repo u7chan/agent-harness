@@ -38,10 +38,11 @@ elif [ -n "${PLAYWRIGHT_MCP_OUTPUT_DIR:-}" ]; then
   PW_ARTIFACT_DIR="$PLAYWRIGHT_MCP_OUTPUT_DIR"
 else
   PW_ARTIFACT_DIR_AUTO=1
-  PW_ARTIFACT_ID="$(printf '%s\0%s' "$(pwd -P)" "$PW_SESSION" | hash_input | cut -c1-16)" || {
+  PW_ARTIFACT_HASH="$(printf '%s\0%s' "$(pwd -P)" "$PW_SESSION" | hash_input)" || {
     printf '[pw] ERROR: no SHA-256 command found (tried sha256sum, shasum, openssl)\n' >&2
     exit 1
   }
+  PW_ARTIFACT_ID="${PW_ARTIFACT_HASH:0:16}"
   PW_ARTIFACT_ROOT="${TMPDIR:-/tmp}/playwright-cli"
   PW_ARTIFACT_DIR="$PW_ARTIFACT_ROOT/$PW_ARTIFACT_ID"
 fi
