@@ -236,20 +236,20 @@ HerdrやGitHubの操作の周囲に別の再試行、キュー、状態マシン
 
 ## Completion
 
-Complete only when all of the following are confirmed:
+次の条件が**すべて確認できた場合だけ**完了とする。
 
-- the Issue implementation is pushed to the PR head;
-- every required verification has succeeded on the current PR head;
-- the PR exists and remains Draft;
-- the current PR head matches the commit covered by the latest verified Review-skill LGTM review (including a recheck's latest-head review under its canonical scope), with no Blocker;
-- the PR body and the commit messages follow the close keyword decision for the target PR determined at the Kickoff gate;
-- no required review fix remains unaddressed;
-- when a ui-tester is specified only, every item it took on is either verified as passing on the current PR head or reported as unverified with its reason, and every item it passed on the current PR head has its evidence attached in that head's evidence comment, judged by reading that comment ([ui-tester verification](#ui-tester-verification)); the ui-tester condition adds to, and never replaces, the review LGTM requirement;
-- every thread the latest recheck classified `Resolved` has been resolved after reply confirmation and the lightweight checks (this workflow's auto-resolve), while `Partial`, `Unresolved`, `Unknown`, other authors' threads, and user-decision discussions remain open;
-- a `ui-tester` the run included but never delegated to is closed with `herdr pane close <pane-id>` and the one line in [Completion cleanup](references/ui-tester-role.md#completion-cleanup), while every pane that took a delegation stays open.
+- Issueの実装がPRのheadへpushされている。
+- 現在のPR headで必須の検証がすべて成功している。
+- PRが存在し、Draftのままである。
+- 現在のPR headが、Reviewスキルによる最新の検証済みLGTMレビュー（正本に定める範囲での再チェック時の最新headレビューを含む）の対象コミットに一致し、Blockerがない。
+- PR本文とコミットメッセージが、Kickoff gateで対象PR向けに決定したクローズキーワード方針に従っている。
+- 必須のレビュー修正が残っていない。
+- **`ui-tester`を指定した場合だけ**、担当したすべての項目について、現在のPR headでpassが確認されたか、未検証の理由とともにunverifiedとして報告されている。さらに、現在のheadでpassとなった項目には、同じheadの証跡コメントへ証拠が添付されており、そのコメントを読み直して確認している（[ui-tester verification](#ui-tester-verification)）。この条件はレビューのLGTM条件に追加するもので、置き換えではない。
+- 最新の再チェックで`Resolved`に分類された全スレッドが、返信確認と軽量チェック後にResolve済みである（このワークフローのauto-resolve）。`Partial`、`Unresolved`、`Unknown`、ほかの投稿者のスレッド、ユーザー判断待ちの議論は開いたままにする。
+- 実行に含めた`ui-tester`のうち、起動したが一度も委譲しなかったペインは`herdr pane close <pane-id>`で閉じ、[Completion cleanup](references/ui-tester-role.md#completion-cleanup)の1行を報告している。委譲を受けたすべてのペインは開いたままにする。
 
-Conversation resolution follows the Review skill's Resolve policy, which is canonical in its recheck reference (`references/recheck.md`). Outside this workflow it remains explicit instruction only. Within the fix → recheck loop, auto-resolve is delegated: the recheck carries the workflow's auto-resolve designation, and after a verified LGTM the threads it classified `Resolved` are resolved by the reviewer or, on handoff, by the orchestrator using the reported verified target set, each confirmed by a `review-threads.read` re-check of `resolved=true` with the reply confirmation and lightweight checks that recheck.md defines. Every thread the latest recheck did not classify `Resolved` remains open. A verified LGTM never auto-resolves a thread by itself. Do not automatically mark the PR ready, close panes other than the unused `ui-tester` pane above, merge the PR, or close the Issue.
+会話のResolveはReviewスキルの方針を正本とし、その再チェック参照（`references/recheck.md`）に従う。ワークフロー外ではResolveに明示指示が必要。ワークフロー内の修正→再チェックではauto-resolveを委譲する。再チェックにworkflowコンテキストのauto-resolve指定を付け、検証済みLGTMの後で、`Resolved`に分類されたスレッドをレビュアー、または引き継ぎを受けたorchestratorが、報告された検証済み対象集合に基づいてResolveする。各Resolveは、再チェック正本が要求する返信確認・軽量チェックを行い、`review-threads.read`で`resolved=true`を再確認する。最新の再チェックで`Resolved`と分類されなかったスレッドは開いたままにする。検証済みLGTMだけでスレッドが自動Resolveされることはない。PRを自動でReadyにしたり、上記未使用の`ui-tester`以外のペインを閉じたり、PRをマージしたり、Issueをクローズしたりしない。
 
-Close the unused `ui-tester` pane once completion is confirmed with `herdr pane close <pane-id>`: the pane this workflow created that received no delegation is closed, and the closure is reported as one line. Keep a user-created pane, a pane that received a delegation, and every pane when the run fails or stops before completion; this is the only pane closure the workflow performs on its own, and `herdr tab close` and `herdr workspace close` are never used for it, because they would close delegated panes too.
+未使用の`ui-tester`ペインは、完了が確認できてから`herdr pane close <pane-id>`で閉じる。このワークフローが作成し、一度も委譲していないペインだけを閉じ、その結果を1行で報告する。ユーザーが作成したペイン、委譲を受けたペイン、実行が失敗または完了前に停止した場合のすべてのペインは残す。これがワークフローによる唯一の自動ペインクローズであり、委譲済みペインまで閉じる可能性のある`herdr tab close`や`herdr workspace close`は使わない。
 
-Report the Issue, the origin of the used team specification (the [effective team profile](#team-profiles) or this run's approval), the target PR position (`対象 PR: 1/2` or `対象 PR: single`, with the base branch difference when the PR is stacked), base and work branches, Draft PR, latest commit, verification, review round count, separate Issue candidates if any, unresolved optional feedback or conversations, and every created pane's role and observed state, including the `ui-tester` participation line, its Draft PR re-judgment, the closure line when one was closed, and the latest head's evidence comment when one was posted or reused. When the PR's changed files include any skill, the report must also prompt the post-merge rollout: after merging, run the rollout procedure in [_docs/skill-distribution.md](../_docs/skill-distribution.md). Leave the panes available for inspection unless the user explicitly requests cleanup, except the unused `ui-tester` pane closed above.
+Issue、採用チーム仕様の由来（[実効チームプロファイル](#team-profiles)または今回の承認）、対象PRの位置（`対象 PR: 1/2`または`対象 PR: single`。スタックしたPRの場合はbaseブランチとの差も記載）、base/workブランチ、Draft PR、最新コミット、検証、レビューラウンド数、別Issue候補、残存する任意の指摘・会話、作成した全ペインのロールと観測状態を報告する。`ui-tester`参加判定の1行、Draft PR時点の再判定、閉じた場合の終了行、証跡コメントを投稿または再利用した場合は最新headのコメントも含める。PRの変更ファイルにスキルが1つでも含まれる場合は、マージ後に[_docs/skill-distribution.md](../_docs/skill-distribution.md)のロールアウト手順を実行するよう報告内で案内する。明示的なクリーンアップ依頼がない限り、未使用`ui-tester`の例外を除いて、ペインは確認可能な状態で残す。
