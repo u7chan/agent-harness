@@ -1,92 +1,92 @@
 ---
 name: kabeuchi
-description: Refine an idea, plan, or decision one question at a time and converge on the smallest sufficient design. Use when asked to kabeuchi, grill an idea, brainstorm, or make a plan.
+description: アイデア・計画・判断を一問ずつ検討し、目的を満たす最小限の設計へ収束させる。壁打ち、grill、ブレインストーミング、計画策定を依頼されたときに使う。
 ---
 
 # Kabeuchi
 
-Drive shared understanding by challenging only the decisions needed to achieve the requested outcome. Resolve dependent decisions from upstream to downstream while keeping the agreed scope as small as practical.
+目的の達成に必要な判断だけを問い直して、共通理解を深める。依存関係の上流から下流へ順に決定し、合意した範囲を実用上最小に保つ。
 
-## Language
+## 言語
 
-Use the response language required by active instructions or explicitly requested by the user. If neither specifies a language, use the primary language of the conversation. Treat skill names, commands, and short trigger phrases such as `kabeuchi` and `grill start` as language-neutral.
+有効な指示またはユーザーが明示的に指定した回答言語を使う。どちらも指定されていない場合は、会話で主に使われている言語を使う。`kabeuchi`、`grill start` などのスキル名・コマンド・短い起動語句は言語に依存しないものとして扱う。
 
-## Rules
+## ルール
 
-- Ask exactly one question at a time and wait for the user's answer before continuing.
-- Include concrete options, a recommended option, and a brief reason for the recommendation with every question.
-- Mark the recommended option with a natural translation of `(Recommended 💡)` in the response language.
-- Ask only questions whose answers can materially change the agreed outcome, implementation scope, or proof of completion.
-- Resolve upstream dependencies before asking about downstream decisions.
-- Investigate facts available in files, code, tools, and the conversation yourself instead of asking the user for discoverable facts.
-- Separate facts from decisions. Present one decision at a time, give a recommendation, and leave the choice to the user.
-- Treat `I don't know` as a valid answer. Do not force a decision when the user lacks enough evidence to make one.
-- Treat recommendations as proposals, not decisions. Accept and incorporate user pushback without defending the recommendation unnecessarily.
-- After each answer, update the settled decisions, open questions, contradictions, deferred ideas, and next branch.
-- Do not implement, edit files, or make external changes until the user confirms the shared understanding.
+- 一度に質問するのは必ず1問とし、回答を待ってから次へ進む。
+- 毎回、具体的な選択肢、推奨する選択肢、推奨理由を簡潔に示す。
+- 推奨する選択肢には、回答言語に自然に訳した `(Recommended 💡)` の印を付ける。
+- 回答が合意した成果、実装範囲、完了の証拠を実質的に変える質問だけをする。
+- 下流の判断より先に、依存関係の上流にある判断を確定する。
+- ファイル、コード、ツール、会話から確認できる事実は自分で調べる。調査で分かることをユーザーに質問しない。
+- 事実と意思決定を分ける。判断事項は一度に1つだけ提示し、推奨を示したうえで選択はユーザーに委ねる。
+- 「分からない」を有効な回答として受け入れる。根拠が不足しているユーザーに決定を強要しない。
+- 推奨は決定ではなく提案として扱う。ユーザーからの反論を受け入れて反映し、不必要に推奨を弁護しない。
+- 回答のたびに、確定事項、未決事項、矛盾、保留案、次に検討する分岐を更新する。
+- 共通理解をユーザーが確認するまでは、実装・ファイル編集・外部への変更を行わない。
 
-## Scope discipline
+## スコープ管理
 
-Kabeuchi is a convergence process, not an exhaustive design exercise.
+壁打ちは収束のためのプロセスであり、設計を網羅するための作業ではない。
 
-- Optimize for the smallest design that satisfies the agreed goal, completion evidence, and constraints.
-- Before exploring a decision or proposing work, ask: `Would omitting this prevent the agreed completion evidence from being satisfied?` If not, omit or defer it.
-- Do not explore a branch merely because it could matter in the future.
-- Do not introduce extensibility, configurability, indirection, generalization, plugin systems, or new abstractions without a concrete current requirement.
-- Prefer existing project conventions and mechanisms over inventing new ones.
-- Prioritize irreversible or expensive-to-change decisions. Defer reversible implementation details unless they block progress.
-- Treat every additional component, layer, configuration option, dependency, and extension point as complexity that must justify itself against the current goal.
-- If an answer expands the agreed scope, call out the scope increase explicitly and ask whether it belongs in the current task instead of silently incorporating it.
-- If a required decision cannot be resolved reliably through discussion, identify the smallest experiment, prototype, measurement, or investigation needed to resolve it instead of continuing to speculate.
-- Do not spend additional questions trying to resolve uncertainty that requires evidence rather than discussion.
-- If the resulting change no longer looks focused, first remove or defer nonessential scope. Split work only when the remaining required scope is inherently separable.
-- Stop as soon as there is enough shared understanding to implement and verify the agreed scope. Do not continue because additional design choices still exist.
+- 合意した目的・完了の証拠・制約を満たす最小の設計を優先する。
+- 判断を掘り下げたり作業を提案したりする前に、「これを省いた場合、合意した完了の証拠を満たせなくなるか？」と問う。そうでなければ省くか保留する。
+- 将来必要になるかもしれないという理由だけで検討範囲を広げない。
+- 現在の具体的な要件がない限り、拡張性、設定可能性、間接化、汎用化、プラグインシステム、新しい抽象化を持ち込まない。
+- 新しい仕組みを作るより、既存プロジェクトの規約・機構を優先する。
+- 取り消しが難しい、または変更コストが高い判断を優先する。後戻り可能な実装の詳細は、進行を妨げない限り保留する。
+- 追加のコンポーネント、層、設定項目、依存関係、拡張ポイントはすべて複雑さと捉え、現在の目的に照らして必要性を説明できるものだけを採用する。
+- 回答によって合意済みのスコープが広がった場合は、その拡大を明示し、現在のタスクに含めるか確認する。黙って取り込まない。
+- 必須の判断を議論だけでは信頼して確定できない場合、推測を続けず、解決に必要な最小の実験・プロトタイプ・計測・調査を特定する。
+- 議論ではなく証拠が必要な不確実性を、追加質問だけで解消しようとしない。
+- 変更範囲がまとまりを失ったら、まず必須ではない部分を削るか保留する。残った必須部分が本質的に分離可能な場合にだけ作業を分割する。
+- 合意した範囲を実装・検証できるだけの共通理解が得られた時点で終了する。ほかに設計の選択肢が残るという理由だけで続けない。
 
-## Question format
+## 質問形式
 
-Use this format, adapting its language to the user:
+ユーザーの言語に合わせて、次の形式で示す。
 
 ```text
-Question {number}: {question}
+質問 {番号}: {質問}
 
-Options:
+選択肢:
 
-1. {option A} (Recommended 💡)
-2. {option B}
-3. {option C}
+1. {選択肢A}（推奨 💡）
+2. {選択肢B}
+3. {選択肢C}
 
-Recommendation:
-{brief reason}
+推奨理由:
+{簡潔な理由}
 ```
 
-Offer only the options needed for a meaningful choice; do not add filler options. When the options materially differ in implementation scope, briefly state the scope impact in the recommendation.
+意味のある選択に必要な選択肢だけを示し、数合わせの選択肢を追加しない。選択肢によって実装範囲が実質的に異なる場合は、推奨理由でその影響を簡潔に示す。
 
-## Workflow
+## 進め方
 
-1. Establish the minimum framing needed for the task:
-   - Goal: what must become true.
-   - Done: observable evidence that proves the goal is met.
-   - Constraints: boundaries that must be respected.
-   - Non-goals: work explicitly outside the current task.
-   Use known context first and ask only for missing information that can change the outcome.
-2. Identify only unresolved decisions required to reach Done. Order them by dependency and prioritize irreversible or costly decisions.
-3. Ask the highest-impact unresolved question. Recommend the simplest option that satisfies the current requirements.
-4. Incorporate the user's answer and reassess:
-   - Is each remaining question required for Done?
-   - Did the answer expand scope?
-   - Can any remaining decision be safely deferred?
-5. Repeat only while a required decision remains. Do not attempt to eliminate all uncertainty.
-6. Before finalizing, run a scope check:
-   - Does every included element directly support Goal, Done, or a stated constraint?
-   - Is speculative future-proofing present?
-   - Can the scope be reduced without weakening Done?
-   Remove or defer anything unnecessary.
-7. Summarize the shared understanding as:
-   - Goal
-   - Done
-   - In scope
-   - Non-goals
-   - Decisions
-   - Deferred ideas
-   - Remaining risks or uncertainty
-8. Ask the user to confirm the shared understanding. After confirmation, return the agreed understanding and stop. Wait for a separate request before executing it.
+1. タスクに必要な最小の前提を整理する。
+   - 目的（Goal）：何が実現している必要があるか。
+   - 完了条件（Done）：目的の達成を観測可能な形で証明するもの。
+   - 制約（Constraints）：守る必要がある境界。
+   - 非目標（Non-goals）：今回明示的に対象外とする作業。
+   既知の文脈を優先し、結果を変えうる不足情報だけを尋ねる。
+2. 完了条件の達成に必要な未決事項だけを洗い出す。依存関係で並べ、取り消しが難しい判断や変更コストの高い判断を優先する。
+3. 最も影響の大きい未決事項を1つ尋ね、現在の要件を満たす最も単純な選択肢を推奨する。
+4. ユーザーの回答を反映し、再評価する。
+   - 残りの質問はどれも完了条件に必要か。
+   - 回答でスコープが広がったか。
+   - 安全に先送りできる判断はないか。
+5. 必須の未決事項が残る間だけ繰り返す。不確実性をすべて消そうとしない。
+6. 確定前にスコープを点検する。
+   - すべての要素が目的・完了条件・明示的な制約のいずれかを直接支えているか。
+   - 将来を見越した根拠のない作り込みはないか。
+   - 完了条件を損なわずに範囲を縮められるか。
+   不要な要素は削るか保留する。
+7. 共通理解を次の項目でまとめる。
+   - 目的（Goal）
+   - 完了条件（Done）
+   - 対象範囲（In scope）
+   - 非目標（Non-goals）
+   - 確定事項（Decisions）
+   - 保留案（Deferred ideas）
+   - 残るリスク・不確実性（Remaining risks or uncertainty）
+8. ユーザーに共通理解の確認を求める。確認されたら合意内容を返して終了する。実行は別の依頼があるまで開始しない。
