@@ -1,112 +1,91 @@
 ---
 name: herdr-pi-issue-pr-workflow
 description: >
-  Orchestrate a GitHub Issue from implementation through final review of a Draft PR using role-specific Pi agents in Herdr panes.
-  Use when the user asks to run this Pi-only Issue-to-PR workflow, including kickoff team selection, implementation, review, and review fixes.
-  Requires Herdr: every role agent runs in a pane of the current Herdr workspace.
+  Herdrのペインで役割ごとにPiエージェントを起動し、GitHub Issueの実装からDraft PRの最終レビューまでを統括する。
+  Pi専用のIssue→PRワークフロー（チーム編成、実装、レビュー、修正）を依頼されたときに使う。
+  Herdr必須。各役割のエージェントは現在のHerdrワークスペース内のペインで動作する。
 ---
 
 # Pi Issue PR Workflow
 
-Coordinate the workflow; do not implement or fix the Issue in the orchestrator pane.
+ワークフローの調整だけを行う。orchestratorのペインでIssueの実装・修正はしない。
 
 ## Boundaries
 
-Load and follow the existing skills instead of duplicating their behavior:
+既存スキルを読み、その動作を重複実装せず正本に従う。
 
-- [Herdr](../herdr/SKILL.md) for panes, Pi agent startup, asynchronous delegation, and result delivery.
-- [GH](../gh/SKILL.md) for every GitHub read and write.
-- [Review](../review/SKILL.md) for full PR reviews, rechecks, and the conversation-resolution policy.
+- ペイン、Piエージェント起動、非同期委譲、結果返却は[Herdr](../herdr/SKILL.md)。
+- GitHubの読み書きはすべて[GH](../gh/SKILL.md)。
+- PR全体のレビュー、再チェック、会話のResolve方針は[Review](../review/SKILL.md)。
 
-Those skills are authoritative for their safety and operation rules. Keep all agents in the current Herdr workspace and worktree. Do not add a workflow runtime, persistent state, or a static provider/model catalog. The persistent state this rules out is the process state of a run, such as the current phase, the review round, the reviewed head, and unresolved Blockers. The [team profiles](#team-profiles) are the one exception, because the Issue requires them: they hold named team compositions only, never the process state of a run.
+これらのスキルを安全性と操作ルールの正本とする。すべてのエージェントは現在のHerdrワークスペースとworktree内で動かす。ワークフロー専用のランタイム、永続的な実行状態、固定のprovider/model一覧を追加しない。永続化禁止の対象は現在フェーズ、レビューラウンド、レビュー済みhead、未解決Blockerなど実行ごとの進行状態である。[チームプロファイル](#team-profiles)だけはIssueの要求に基づく例外で、名前付きのチーム編成のみを保存し、実行の進行状態は保存しない。
 
 ## Local review before filing an Issue
 
-Apply the table below before filing an Issue; follow
-[`herdr-issue-review`](../herdr-issue-review/SKILL.md) for the procedure.
+Issue起票前に次の表を適用する。手順は[`herdr-issue-review`](../herdr-issue-review/SKILL.md)に従う。
 
-| Change | Local review before filing |
+| 変更種別 | 起票前のローカルレビュー |
 |---|---|
-| New feature or large change | Required |
-| Obvious bug fix or small change | May be skipped |
-| Not clearly either | Required |
+| 新機能・大きな変更 | 必須 |
+| 明白なバグ修正・小さな変更 | 省略可 |
+| どちらとも判断できない | 必須 |
 
-Weight is the change's size and uncertainty, not its diff size: a new feature, a
-new contract, an interface change, and a change to an existing behavior are
-large even when only a few lines move, because the run they start is sized to
-them. The skip is for a change whose fix and verification are already obvious
-from the report — a typo, a broken link, a failure with one identified cause —
-where the review only delays the work. When in doubt, review.
+変更の大小は差分行数ではなく、変更規模と不確実性で判断する。新機能、新たな契約、インターフェース変更、既存動作の変更は、差分が数行でも大きな変更とする。その実行内容がそれに応じた規模になるためである。省略可能なのは誤字、リンク切れ、原因が1つに特定された障害など、報告だけで修正方法と検証方法が明らかで、レビューが作業を遅らせるだけの場合。迷ったらレビューする。
 
-This rule covers every Issue filed from this workflow's work, including a
-separate Issue candidate it reports at review time ([Initial review](#initial-review)).
-A local review is not the pull request review: the `review` role still reviews
-the pull request, and this requirement never replaces it.
+このルールは、このワークフローが起票するすべてのIssueに適用する。レビュー時に報告した別Issue候補（[Initial review](#initial-review)）も含む。ローカルレビューはPRレビューの代わりではない。`review`ロールによるPRレビューは別途必須である。
 
 ## Preflight
 
-Before any workflow side effect:
+ワークフローの副作用を発生させる前に、次を確認する。
 
-1. Require an unambiguous GitHub Issue reference. If it is absent, ask for it.
-2. Run the Herdr preflight and require `HERDR_WORKSPACE_ID` in addition to the Herdr skill's checks.
-3. Require `pi` and obtain the live model catalog with `pi --list-models`.
-4. Read the Issue and its conversation comments through the GH skill.
-5. Read the target repository's instructions and inspect its Git and worktree state.
+1. 一意に特定できるGitHub Issue参照を要求する。なければユーザーに尋ねる。
+2. Herdrの事前検証を通し、Herdrスキルの条件に加えて`HERDR_WORKSPACE_ID`を必須とする。
+3. `pi`を必須とし、`pi --list-models`から実際に利用可能なモデル一覧を取得する。
+4. GHスキルでIssue本文と会話コメントを読む。
+5. 対象リポジトリの指示とGit/worktreeの状態を確認する。
 
-For the orchestrator-first worktree team, the task text handed to the
-orchestrator follows
-[the kickoff task template](references/kickoff-task-template.md); the template
-holds the task-text format, and the team table and approval rules stay in
-[Kickoff gate](#kickoff-gate).
+orchestrator-first方式のworktreeチームでは、orchestratorへ渡すタスク文面は[キックオフ用テンプレート](references/kickoff-task-template.md)に従う。テンプレートが定めるのはタスク文の形式だけで、チーム表と承認ルールは[Kickoff gate](#kickoff-gate)を正本とする。
 
-Stop on an ambiguous repository, unexpected worktree changes, or unavailable required tooling. Do not guess a target, discard changes, or create a replacement workspace.
+リポジトリが曖昧、worktreeに想定外の変更がある、必須ツールが利用できない場合は停止する。対象を推測したり、変更を破棄したり、代替ワークスペースを作成したりしない。
 
 ## Team specification
 
-The logical roles are `impl`, `review`, and `pr-fix`. `ui-tester` is an optional extra role. Every physical agent is Pi. A complete physical agent specification contains all of:
+論理ロールは`impl`、`review`、`pr-fix`で、`ui-tester`は任意の追加ロール。実際に起動するエージェントはすべてPiとする。物理エージェントの完全な仕様には、次の3つを必ず含める。
 
-- the exact provider ID;
-- the exact model ID under that provider in `pi --list-models`;
-- one thinking level supported by that exact model: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`.
+- 正確なprovider ID。
+- `pi --list-models`で当該provider配下に存在する正確なmodel ID。
+- そのモデルがサポートするthinkingレベル（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`のいずれか）。
 
-`pr-fix` may be assigned to the `impl` agent instead of a distinct agent. The `review` role must always use a distinct agent and must not edit the implementation. `ui-tester` is a distinct physical agent too, and is never started when the specification does not include it. A run without a `ui-tester` keeps the behavior described here without an extra pane or condition. The `ui-tester` does not edit the implementation, commit, edit the PR, post GitHub reviews, or post PR comments: its findings are triage input to the orchestrator, where reproducible functional defects are mandatory fixes and other findings may join the same fix round, while the `review` role remains the authority for Blocker determination. The `ui-tester`'s task text, re-verification, completion, and environment separation are in [the ui-tester role reference](references/ui-tester-role.md).
+`pr-fix`は独立エージェントではなく`impl`に兼務させてもよい。`review`は必ず別エージェントであり、実装を編集してはならない。`ui-tester`も独立した物理エージェントで、仕様に含まれない場合は起動しない。`ui-tester`を使わない実行には、余分なペインや条件を追加しない。`ui-tester`は実装の編集、コミット、PR編集、GitHubレビュー投稿、PRコメント投稿を行わない。指摘はorchestratorのトリアージ材料となり、再現可能な機能不具合は必須修正、それ以外は同じ修正ラウンドに含めてよい。一方、Blocker判定の正本は`review`ロールである。`ui-tester`のタスク文面、再検証、完了、環境分離は[ui-testerロール参照](references/ui-tester-role.md)に定める。
 
-Use `pi --list-models` to validate every explicit provider/model pair, but do not treat its thinking yes/no column as level validation. Resolve each full specification through the helper, which asks the installed Pi runtime's public API for the exact model and the supported/clamped thinking levels:
+明示されたprovider/modelの組は`pi --list-models`で検証する。ただし、そのthinking列のyes/noをレベル検証に使わない。完全な仕様は次のヘルパーで解決する。ヘルパーはインストール済みPiランタイムの公開APIから当該モデルと、サポート対象およびclamp後のthinkingレベルを確認する。
 
 ```bash
 scripts/pi-development/resolve-model-spec.sh \
   --provider <provider> --model <model> --thinking <level>
 ```
 
-It prints one key=value line with `provider`, `model`, `requested`, `supported`, `effective`, `result`, and `thinking_level_map`, and exits nonzero unless `result=ok`. Only `result=ok` (the effective level equals the requested level) resolves the specification; every other result is unresolved, so stop instead of silently choosing a Pi default, accepting a clamped level, maintaining aliases, or inferring an unavailable ID. Treat a partial, invalid, ambiguous, unsupported, or clamped specification as unresolved.
+出力は`provider`、`model`、`requested`、`supported`、`effective`、`result`、`thinking_level_map`を含む1行のkey=value形式で、`result=ok`以外は非0終了する。`result=ok`（実効レベルが指定レベルと一致）の場合だけ仕様確定とする。それ以外は未解決として停止する。Piのデフォルトへの無断切り替え、clampされたレベルの受け入れ、aliasの独自管理、未提供IDの推測を行わない。指定の一部欠落、不正、曖昧、非対応、clamp済みの仕様はすべて未解決とする。
 
 ## Team profiles
 
-A team composition the user approves is stored as a named user-owned profile.
-The storage, selection, validation, helper commands, and output contract are
-defined in [Pi Development Profiles](../_docs/pi-development.md), independently
-of this skill. Use `scripts/pi-development/team-record.sh` from the package
-root. This workflow always resolves the full team, never a role-only projection.
+ユーザーが承認したチーム編成は、ユーザーが所有する名前付きプロファイルとして保存する。保存、選択、検証、ヘルパーコマンド、出力契約はスキル外の[Pi Development Profiles](../_docs/pi-development.md)を正本とする。パッケージルートから`scripts/pi-development/team-record.sh`を使う。このワークフローではロール単位の部分投影ではなく、常にチーム全体を解決する。
 
-Ordinary runs never rewrite profiles. Run-local overrides and an excluded
-`ui-tester` leave the stored composition unchanged. Only explicit `use`/`write`
-operations and the bootstrap below change the master.
+通常の実行ではプロファイルを書き換えない。実行限定の上書きや`ui-tester`の除外は保存済み編成を変えない。正本を変更できるのは明示的な`use`/`write`操作、および次の初期化だけ。
 
-Bootstrap — turning the team this run settles into `default` — happens only when all of these hold:
+この実行で合意したチームを`default`として初期化（bootstrap）するのは、次の条件が**すべて**成立したときだけ。
 
-- `result=missing`;
-- `reason=no-profiles`;
-- `profiles_present=false`;
-- `source=default`, meaning `active` is absent;
-- the run named no `--profile`.
+- `result=missing`
+- `reason=no-profiles`
+- `profiles_present=false`
+- `source=default`（`active`が存在しない）
+- 実行で`--profile`が指定されていない
 
-Bootstrap writes the settled team with `write --profile default` and adds no approval wait. It never happens when `profiles_present=true` and only the selected name is missing, when `active` is broken, or when an explicit profile is missing: those return to the proposal path, and a save happens only on an explicit user instruction. An unreadable `profiles/` or `active` is no exception to the `profiles_present=false` condition: the run reports `result=invalid` (with an empty `profiles_present` for the profile set), so it never bootstraps.
+初期化では合意した編成を`write --profile default`で保存し、承認待ちは追加しない。`profiles_present=true`なのに選択名だけが存在しない場合、`active`が壊れている場合、明示指定のプロファイルがない場合は初期化しない。これらは提案経路に戻り、ユーザーが明示した場合だけ保存する。`profiles/`や`active`を読み取れない場合も`profiles_present=false`の例外ではない。`result=invalid`（プロファイル集合の`profiles_present`は空）となるため初期化しない。
 
-Nothing but the team specification is stored. The target PR is not stored, so it gates reuse only by being unresolved; the `ui-tester` task never gates reuse, because it always has the default in [the ui-tester role reference](references/ui-tester-role.md#default-task) unless this run supplies one. Every stored part — a provider, model, thinking, or the composition — is reused only when this run does not state it ([Kickoff gate](#kickoff-gate)).
+保存するのはチーム仕様のみ。対象PRは保存しないため、再利用を妨げるのは対象PRが未確定の場合だけ。`ui-tester`のタスクも再利用条件にはしない。今回指定がなければ[ui-testerロール参照の既定タスク](references/ui-tester-role.md#default-task)が使われるため。保存済みのprovider、model、thinking、編成の各値は、今回の実行でその値が指定されていない場合だけ再利用する（[Kickoff gate](#kickoff-gate)）。
 
-An unmigrated asset reports `migration-required`, never a first-run absence;
-this workflow never bootstraps over it. Follow the backed-up, manual
-[profile migration](../_docs/pi-development-migration.md) before continuing.
+未移行の資産は初回起動時の欠落ではなく`migration-required`を返す。その上に初期化しない。継続前にバックアップを伴う手動の[プロファイル移行](../_docs/pi-development-migration.md)を行う。
 
 ## Kickoff gate
 
