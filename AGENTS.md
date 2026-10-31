@@ -7,7 +7,7 @@
 - Branch names must use lowercase kebab-case with a type prefix, such as `feat/add-action-filter`.
 - Commit messages must use an English Conventional Commit prefix, such as `feat(gh): add action filter`.
 - PR descriptions must be written in Japanese and include `Issues`, `Why`, `Summary`, `Changes`, `Verification`, and `Rollout`. `Rollout` states whether the post-merge rollout procedure in [_docs/skill-distribution.md](_docs/skill-distribution.md) applies: `Rollout: 必要` when the PR changes any skill, otherwise `Rollout: 不要`.
-- Write skill documents in Japanese. Keep code, commands, identifiers, runtime fixed lines, and quoted text in their original language. English skills that are not yet migrated stay in English until a separate translation change.
+- Write review, improvement, kabeuchi, and Herdr skills in Japanese, and all other skills in English.
 - Quoted text inside a skill keeps its original language and is marked with a code span or quotation marks so a reader can tell it from leftover text: runtime fixed lines, trigger words and phrases the user says, and headings of Japanese-language documents.
 - Runtime output follows the conversation language unless an active instruction or the user overrides it; the `## Language` section of [kabeuchi/SKILL.md](kabeuchi/SKILL.md) is the authoritative rule and applies to every skill.
 - When addressing PR feedback, reply to the relevant comment.
