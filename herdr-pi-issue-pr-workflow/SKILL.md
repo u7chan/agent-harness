@@ -128,7 +128,7 @@ GitHubはdefaultブランチへ到達したコミットメッセージ中のク�
 
 **チーム全体の提案についてユーザーの明示的な承認を待つ。** 承認前にはブランチの作成・切り替え、ペイン作成、エージェント起動、GitHub書き込みを行わない。割当がすべて有効かつ確定し、対象PRも確定した場合だけ、承認されたチームを要約して追加の承認ラウンドなしに進む。
 
-合意済みチームは今回の実行で使い、保存プロファイルを変更しない。編成は実行限定であり、保存済み`ui-tester`の除外、`pr-fix`の分離、provider/model/thinkingの上書きは保存先に反映しない。唯一の自動保存は[Team profiles](#team-profiles)の条件によるbootstrapで、`team-record.sh write --profile default`で保存する。それ以外は明示指示がある場合だけ`team-record.sh write --profile <name>`を使い、`--pr-fix-shared-with-impl`や参加ロールの選択を含む合意済みの編成そのものを保存する。今回指定された値はプロファイルより優先し、上書きされた保存値を黙って使わず、未解決の値も保存しない。「編成見せて」の依頼では、`resolve`の出力からチーム表を表示するだけで、承認待ちも変更も行わない。
+合意済みチームは今回の実行で使い、保存プロファイルを変更しない。編成は実行限定であり、保存済み`ui-tester`の除外、`pr-fix`の分離、provider/model/thinkingの上書きは保存先に反映しない。唯一の自動保存は[Team profiles](#team-profiles)の条件によるbootstrapで、`team-record.sh write --profile default`で保存する。それ以外は明示指示がある場合だけ`team-record.sh write --profile <name>`を使い、`--pr-fix-shared-with-impl`や参加ロールの選択を含む合意済みの編成そのものを保存する。今回指定された値はプロファイルより優先し、上書きされた保存値を黙って使わず、未解決の値も保存しない。`編成見せて`の依頼では、`resolve`の出力からチーム表を表示するだけで、承認待ちも変更も行わない。
 
 ## Start the team
 
