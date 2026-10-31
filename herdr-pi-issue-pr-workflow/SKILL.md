@@ -89,76 +89,74 @@ scripts/pi-development/resolve-model-spec.sh \
 
 ## Kickoff gate
 
-Decide whether a `ui-tester` joins using the [ui-tester participation](references/ui-tester-role.md#participation) rule, state the decision as its fixed one line in every kickoff reply, and continue. That reference owns the line's wording; this gate keeps only the rule that every kickoff reply prints one of its forms and never restates them. The decision is automatic and adds no approval wait; the user can override it in the same reply.
+[ui-testerの参加ルール](references/ui-tester-role.md#participation)に従って`ui-tester`の参加を決め、すべてのキックオフ返信に参照先で定められた固定の1行を表示して進む。文面の正本は参照先であり、ここでは再定義しない。この判定は自動で、承認待ちを追加しない。ユーザーは同じ返信で判定を上書きできる。
 
-If any role assignment, agent specification, or target PR determination is unresolved, inspect the Issue and relevant repository context, then propose the complete team before continuing. Preserve every valid value the user supplied.
+ロールの割当、エージェント仕様、対象PRのどれかが未確定なら、Issueと関連リポジトリの情報を確認し、進行前にチーム全体を提案する。ユーザーが指定した有効な値はすべて維持する。
 
-Reuse the [team profiles](#team-profiles) before proposing:
+提案前に[チームプロファイル](#team-profiles)の再利用を検討する。
 
-1. Resolve the effective profile with `scripts/pi-development/team-record.sh resolve [--profile <name>]`, adding `--require-role ui-tester` when the participation decision includes a `ui-tester`. A request such as `fallback で` selects that profile for this run with `--profile fallback` and never changes `active`; `fallback に切り替えて` is the separate `use fallback` in [Team profiles](#team-profiles). On `reason=migration-required`, stop for the migration instead of proposing a replacement team.
-2. Skip the table and the approval wait only when all of these hold: `result=ok`; this run supplies no explicit provider, model, or thinking value; this run states no composition itself, meaning neither whether `pr-fix` shares the `impl` agent nor a `ui-tester` composition of its own (the participation decision, derived from the Issue or overridden by the user in the same reply, decides this run's team only and never states the composition); and the target PR is determined. Print exactly one line, listing the profile and the roles that join, and the participation line, then continue to [Start the team](#start-the-team):
+1. `scripts/pi-development/team-record.sh resolve [--profile <name>]`で実効プロファイルを解決する。`ui-tester`参加判定がある場合は`--require-role ui-tester`を追加する。「`fallback で`」は今回の実行のプロファイル選択なので`--profile fallback`とし、`active`は変えない。「`fallback に切り替えて`」は別操作の`use fallback`（[Team profiles](#team-profiles)）。`reason=migration-required`なら代替チームを提案せず移行のために停止する。
+2. 次の条件が**すべて**成立する場合だけ、表と承認待ちを省略する。すなわち、`result=ok`で、今回の実行でprovider/model/thinkingが一切明示されず、`pr-fix`が`impl`を兼務するかどうかや独自の`ui-tester`構成も指定されていないこと（Issueから導いた参加判定、または同じ返信でユーザーが上書きした参加判定は今回の参加ロールを決めるだけで、編成の明示指定とはみなさない）、そして対象PRが確定していること。この場合はプロファイルと参加するロールを示す次の**1行だけ**と参加判定の1行を出し、[Start the team](#start-the-team)へ進む。
 
    ```text
    前回承認編成を使用: profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]
    ```
 
-   The profile carries the composition, so a run that states the composition never reuses it: it returns to the proposal path and waits for approval, because reuse would silently keep a stored composition the run overrode. A participation decision the user overrode is not such a statement either, so it keeps the reuse path: whatever its origin, it settles this run's team only. It overrides a stored `ui-tester` in one direction only: when the decision includes the role, `--require-role` makes a profile without it `unresolved`; when the decision excludes it, the profile is reused without the role while the stored profile keeps it, because excluding a role never rewrites a profile.
-3. Otherwise propose the complete team as described in this section and wait for approval, keeping every rule below unchanged. When the run has no profile at all, the settled team becomes `default` by bootstrap, and only under the conditions in [Team profiles](#team-profiles); every other case returns here and saves only on an explicit user instruction.
+   編成はプロファイルに含まれるため、今回の実行で編成が明示されていれば再利用せず、提案と承認待ちへ進む。そうしないと今回の指定より保存済み編成を優先してしまう。参加判定の上書きは編成の明示指定ではないため、再利用経路を維持する。参加判定は出所に関係なく今回のチームだけに適用する。保存済み`ui-tester`を上書きするのは一方向だけ。参加する場合は`--require-role`によりロールのないプロファイルを`unresolved`にする。参加しない場合はロールを除いてプロファイルを再利用するが、保存済み編成から`ui-tester`は削除しない。
+3. それ以外はこの節のルールに従ってチーム全体を提案し、承認を待つ。プロファイルがまったくない場合に限り、合意したチームを[Team profiles](#team-profiles)の条件で`default`として初期化する。それ以外の保存はユーザーの明示指示がある場合だけ。
 
-Use a table containing:
+提案には次の表を使う。
 
 | Role | Assignee | Provider | Model | Thinking | Selection reason |
 |---|---|---|---|---|---|
 
-The team table and the approval rules in this section remain the authority;
-[the kickoff task template](references/kickoff-task-template.md) only fixes
-the format of the task text handed to the orchestrator.
+この節のチーム表と承認ルールを正本とし、[キックオフ用テンプレート](references/kickoff-task-template.md)はorchestratorに渡すタスク文面の形式だけを規定する。
 
-Choose task-adaptively: right-size model capability and thinking for each role, and reserve stronger reasoning for complexity that requires it. State uncertainty and tradeoffs; do not invent pricing, quota, latency, or capability claims.
+モデル能力とthinkingはタスクに合わせ、必要な複雑さにだけ強い推論能力を割り当てる。不確実性とトレードオフを明示し、価格・クォータ・遅延・能力に関する根拠のない主張をしない。
 
-Assign `pr-fix` to `impl` by default. Propose a distinct fixer only when there is a concrete handoff benefit, such as different required expertise, likely context pressure, or changes spanning independently understandable areas. Explain that reason in the proposal.
+標準では`impl`に`pr-fix`を兼務させる。別担当を提案するのは、専門知識が異なる、コンテキスト負荷が見込まれる、独立して理解できる領域に変更がまたがるなど、具体的な引き継ぎ上の利点がある場合だけ。その理由を提案に示す。
 
-Determine the target PR for this run from the Issue body and the repository conventions, and state it in the proposal:
+Issue本文とリポジトリ規約から、今回の実行で作る対象PRを決定して提案に明記する。
 
-- When they describe a multi-PR plan (for example an infrastructure PR ① and a UI PR ② built on ①'s branch), state the PR this run produces as `対象 PR: <position>/<total>` (for example `対象 PR: 1/2`). Each run produces exactly one PR; a multi-PR Issue is completed by sequential runs, whose later runs reuse the previous run's role panes ([Sequential runs](references/sequential-runs.md)).
-- Otherwise state `対象 PR: single`.
-- If a plan exists but this run's position cannot be determined, do not guess: keep the target unresolved in this proposal and wait for the existing approval instead of adding a separate stop or approval loop.
+- 複数PR計画（例：インフラPR①のブランチを基にUI PR②を作る）がある場合、今回作るPRの位置を`対象 PR: <position>/<total>`（例：`対象 PR: 1/2`）と記載する。1回の実行で作るPRは必ず1件。複数PRのIssueは連続した実行で完了し、後続の実行では前回のロールペインを再利用する（[Sequential runs](references/sequential-runs.md)）。
+- それ以外は`対象 PR: single`。
+- 計画はあるが今回の位置を確定できない場合は、推測せず提案内で対象を未解決のままにし、追加の停止・承認ループを作らず既存の承認を待つ。
 
-State the close keyword decision in the same proposal, because GitHub interprets closing keywords in commit messages when they reach the default branch. A closing keyword (`close #<issue>`, `closes`, `fixes`, `resolves`, and their forms) is written in the PR body and in the commit messages only when this PR is the last PR of the plan and repository conventions require a closing keyword; otherwise both use a non-closing reference such as `Related to #<issue>`. A repository convention alone does not establish lastness: when the Issue describes no plan, default to no closing keyword and let the approved proposal establish otherwise. For a stacked PR whose base branch differs from the work branch, state the base difference and the merge-time keyword risk. Split and spelling examples are in [the multi-PR Issue reference](references/multi-pr-issue.md).
+GitHubはdefaultブランチへ到達したコミットメッセージ中のクローズキーワードを解釈するため、その使用判断も同じ提案に含める。`close #<issue>`、`closes`、`fixes`、`resolves`などのクローズキーワードをPR本文とコミットメッセージに使うのは、今回が計画の最後のPRで、かつリポジトリ規約がキーワードを要求する場合だけ。それ以外は両方で`Related to #<issue>`などの非クローズ参照を使う。リポジトリ規約だけでは最後のPRとは判断できない。Issueに計画がない場合はクローズキーワードなしを既定とし、承認済み提案で別途定められた場合にだけ従う。スタックしたPRでbaseブランチとworkブランチが異なる場合、その差とマージ時のクローズキーワードの危険性を明記する。分割と綴りの例は[複数PRのIssue参照](references/multi-pr-issue.md)を参照する。
 
-A task this run supplies for the `ui-tester` is preserved as-is and written into the delegation body; it does not add a column to the team table. Without one, the task is the default in [the ui-tester role reference](references/ui-tester-role.md#default-task), and no approval waits on it.
+今回の実行で指定された`ui-tester`タスクはそのまま保持して委譲文に含め、チーム表へ列を追加しない。指定がなければ[ui-testerの既定タスク](references/ui-tester-role.md#default-task)を使い、タスクについて追加承認を待たない。
 
-Wait for explicit approval of the complete proposal. Before approval, do not create or switch branches, create panes, start agents, or perform GitHub writes. Only when all assignments are complete and valid and the target PR is determined, summarize the resolved team and proceed without an additional approval round.
+**チーム全体の提案についてユーザーの明示的な承認を待つ。** 承認前にはブランチの作成・切り替え、ペイン作成、エージェント起動、GitHub書き込みを行わない。割当がすべて有効かつ確定し、対象PRも確定した場合だけ、承認されたチームを要約して追加の承認ラウンドなしに進む。
 
-Once the team is settled, this run uses that team without changing the stored profiles. The composition applies to this run only: a settled team is not written automatically, and a run that excludes a stored `ui-tester`, separates `pr-fix` from `impl`, or overrides a stored provider, model, or thinking value keeps the stored profile as it is. The one automatic save is bootstrap, under the conditions in [Team profiles](#team-profiles): the team is written with `team-record.sh write --profile default`. Every other save happens only on an explicit user instruction, with `team-record.sh write --profile <name>` and exactly the settled values, including the composition: `--pr-fix-shared-with-impl` and exactly the roles that join. A value supplied in this run wins over the profile: never silently keep a stored value the user overrode, and never write a value that does not resolve. When the user asks to see the team (`編成見せて`), print the table from the `resolve` output without waiting for approval; displaying the profile is not an approval and does not change it.
+合意済みチームは今回の実行で使い、保存プロファイルを変更しない。編成は実行限定であり、保存済み`ui-tester`の除外、`pr-fix`の分離、provider/model/thinkingの上書きは保存先に反映しない。唯一の自動保存は[Team profiles](#team-profiles)の条件によるbootstrapで、`team-record.sh write --profile default`で保存する。それ以外は明示指示がある場合だけ`team-record.sh write --profile <name>`を使い、`--pr-fix-shared-with-impl`や参加ロールの選択を含む合意済みの編成そのものを保存する。今回指定された値はプロファイルより優先し、上書きされた保存値を黙って使わず、未解決の値も保存しない。「編成見せて」の依頼では、`resolve`の出力からチーム表を表示するだけで、承認待ちも変更も行わない。
 
 ## Start the team
 
-After the team is settled:
+チーム確定後に次を行う。
 
-1. Determine the base branch from the current repository context and its instructions.
-2. Create the dedicated work branch required by those instructions. Use an existing work branch only when the user explicitly selected it. Do not push directly to a protected base branch.
-3. Decide per joining role whether this run reuses the pane this orchestrator has used for that role since an earlier run of the same Issue. Reuse it only under every condition in [Sequential runs](references/sequential-runs.md); when a condition fails or cannot be checked, treat the role as needing a new pane. This decision uses the current conversation only.
-4. Obtain one shell pane for each physical agent that needs one with the Herdr layout planner, which keeps the new panes in one planned grid and returns the created pane IDs in cell order:
+1. リポジトリの現状と指示からbaseブランチを決定する。
+2. 指示に従って専用workブランチを作る。既存のworkブランチは、ユーザーが明示的に選択した場合だけ使う。保護されたbaseへ直接pushしない。
+3. 各参加ロールについて、このorchestratorが同一Issueの以前の実行から使っているペインを再利用できるか判断する。[Sequential runs](references/sequential-runs.md)の条件を**すべて**満たす場合だけ再利用する。満たさない、または確認できない場合は新しいペインが必要とする。判断には現在の会話だけを使う。
+4. 新たに必要な物理エージェント1体につきシェルペインを1つ用意する。複数の場合はHerdrレイアウトプランナーで新規ペインをまとめてグリッドに配置し、セル順のIDを取得する。
 
    ```bash
    herdr/scripts/pane-layout.sh apply --count <new physical agents> --label <team label>
    ```
 
-   The count is the new panes only, never the reused ones, and it is never 0: when every joining role is reused, this step creates nothing and the planner is not called. A single new pane cannot use the planner, whose minimum count is 2: split it from the orchestrator pane with the Herdr skill's single-pane rules instead.
-5. Start an agent in every new pane with the validated values:
+   `--count`は**新規ペイン数だけ**であり、再利用分を含めない。0の場合は何も作らずプランナーも呼ばない。新規が1つの場合、最小数2のプランナーは使えないため、Herdrスキルの単一ペイン規則でorchestratorのペインから分割する。
+5. 各新規ペインで検証済みの値を使ってエージェントを起動する。
 
    ```bash
    herdr agent start <name> --kind pi --pane <pane-id> -- \
      --provider <provider> --model <model> --thinking <thinking>
    ```
 
-6. Apply responsibility-based agent names and pane labels to the new panes; a reused pane keeps the name and label it already carries.
-7. Inspect each started Pi pane's runtime status and verify that its effective provider, model, and thinking level exactly match the approved specification before sending work. If any value differs or cannot be verified, stop.
+6. 新規ペインには責務に基づいたエージェント名とペインラベルを付ける。再利用するペインの既存の名前とラベルは維持する。
+7. 作業を送る前に、起動した各Piペインのランタイム状態を確認し、実効provider/model/thinkingが承認済みの仕様と完全一致することを検証する。不一致・検証不能なら停止する。
 
-Start only the roles that joined: the `impl` agent (which carries `pr-fix` unless it is separate) and the `review` agent always, plus a `ui-tester` when the participation decision includes one. Pass the number of new panes to `pane-layout.sh apply --count <new physical agents>`, never the whole team count: a run without reuse passes the same count as before — two for a shared `impl`/`pr-fix` team, three when either `pr-fix` is separate or the `ui-tester` joins the shared team, and four when both — and a partial reuse lowers it, down to none when every role is reused. The planner keeps the new panes in one planned grid and creates a new labelled tab when the plan does not fit the caller's pane ([pane layout](../herdr/references/pane-layout.md#tab-policy)); a four-pane team can therefore open a new tab instead of staying in the current one. If any startup result is failed or unknown, do not start implementation and do not automatically close the panes that were created. Report the observed state.
+起動するのは参加ロールだけ。`impl`（独立させなければ`pr-fix`を兼務）と`review`は常に参加し、判定により`ui-tester`を追加する。`pane-layout.sh apply --count <new physical agents>`にはチーム総数ではなく新規ペイン数を渡す。再利用なしの場合、兼務チームは2つ、別`pr-fix`または`ui-tester`の片方を追加すると3つ、両方あれば4つとなる。部分再利用では新規数が減り、全ロール再利用なら0になる。プランナーは新規ペインを計画済みグリッドに収め、呼び出し元のタブに収まらない場合はラベル付きの新タブを作る（[pane layout](../herdr/references/pane-layout.md#tab-policy)）。そのため4ペインチームが新タブで起動する場合もある。起動結果が失敗・不明の場合、実装を開始せず、作成済みペインも自動で閉じない。観測した状態を報告する。
 
-Only `impl` receives a task at kickoff. Leave `review` and a separate `pr-fix` idle until their phases. `ui-tester` stays idle until the Draft PR as well. Compact every reused pane before this run's first delegation to it ([Sequential runs](references/sequential-runs.md)); compaction is a TUI command, not a task, so it does not change which role receives work when.
+開始時にタスクを受け取るのは`impl`だけ。`review`と独立した`pr-fix`は担当フェーズまで待機する。`ui-tester`もDraft PR作成まで待機する。再利用する各ペインは、この実行で最初の委譲をする前にcompactする（[Sequential runs](references/sequential-runs.md)）。compactはタスクではなくTUIコマンドなので、キックオフで作業を受け取るロールの条件は変わらない。
 
 ## Delegation contract
 
