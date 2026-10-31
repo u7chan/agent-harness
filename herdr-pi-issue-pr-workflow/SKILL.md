@@ -160,78 +160,79 @@ GitHubはdefaultブランチへ到達したコミットメッセージ中のク�
 
 ## Delegation contract
 
-Use the Herdr skill's asynchronous parent-to-child wrapper for each task. Include the role, Issue, base and work branches, current PR when available, repository instructions, phase-specific scope, and expected report. Never assume that agents share conversation context merely because they share a worktree, and never because a pane is reused: compaction does not carry the previous run's facts, so the task text does ([Sequential runs](references/sequential-runs.md)).
+各タスクではHerdrスキルの非同期親→子ラッパーを使用する。委譲文にロール、Issue、base/workブランチ、存在する場合はPR、リポジトリの指示、フェーズ固有の範囲、期待する報告を含める。同じworktreeを共有するからといって会話コンテキストを共有すると仮定しない。再利用したペインでも同様。compactで前回実行の事実は引き継がれないため、タスク文で渡す（[Sequential runs](references/sequential-runs.md)）。
 
-Each role must return `completed` or `blocked` through the direct-parent result helper. Its report must identify the work performed, verification, relevant commit or PR, and any unresolved condition. A submitted prompt is not proof of completion; inspect agent state and output before advancing. Await returns without blocking the orchestrator pane: a return is queued while the pane is executing tool calls, so do not hold the pane in long foreground commands such as `sleep`-based polling (see the Herdr skill's async delegation rules).
+各ロールは直接の親への結果返却ヘルパーを使い、`completed`または`blocked`を返す。報告には実施内容、検証、関係するコミットまたはPR、未解決条件を含める。プロンプト送信だけでは完了の証拠にならない。次のフェーズへ進む前にエージェントの状態と出力を確認する。orchestratorペインをブロックせずに返却を待つこと。親がツール呼び出し中は返却がキューに入るため、`sleep`を使った長いフォアグラウンドのポーリングで占有しない（Herdrの非同期委譲ルール参照）。
 
-`completed` requires every verification mandated by the Issue and repository instructions to have run and succeeded. A failed, skipped, or unavailable required check must return `blocked` with its command and result; never advance merely because verification finished.
+`completed`にはIssueとリポジトリの指示で要求される検証が**すべて実行され、成功したこと**が必要。必須チェックの失敗、スキップ、実行不能では、コマンドと結果を示して`blocked`を返す。検証が終了しただけでは進めない。
 
-Track the Issue, team assignments and pane IDs, base and work branches, current phase, PR, reviewed head, review round, and unresolved Blockers only in the current conversation. Do not write this process state to disk; the [team profiles](#team-profiles) hold team compositions only.
+Issue、チーム割当とペインID、base/workブランチ、現在のフェーズ、PR、レビュー済みhead、レビューラウンド、未解決Blockerは現在の会話内だけで追跡する。実行状態をディスクに書かない。[チームプロファイル](#team-profiles)には編成のみ保存する。
 
 ### Implementation
 
-Ask `impl` to:
+`impl`に次の作業を依頼する。
 
-1. read the Issue and comments;
-2. implement only the Issue scope and follow repository instructions;
-3. run and pass every required test, check, formatter, and linter;
-4. commit and push the work branch, applying the close keyword decision from the Kickoff gate to the commit messages;
-5. use the GH skill to create a Draft PR with the required repository-specific description, applying the same decision to the PR body;
-6. return the commit, verification results, and PR number and URL.
+1. Issueとコメントを読む。
+2. Issueの範囲に限って実装し、リポジトリの指示に従う。
+3. 必須のテスト、チェック、フォーマッター、リンターをすべて実行して成功させる。
+4. workブランチにコミットしてpushする。コミットメッセージにはKickoff gateで決めたクローズキーワード方針を適用する。
+5. GHスキルで、リポジトリ固有の必要な説明を含むDraft PRを作成する。PR本文にも同じ方針を適用する。
+6. コミット、検証結果、PR番号とURLを返す。
 
-Do not advance without successful required verification, a confirmed push, and a Draft PR. If required verification fails or cannot run, require `blocked` and stop before treating the implementation as complete. Do not treat an unknown Git or GitHub result as success or blindly repeat it.
+必須検証の成功、確認済みpush、Draft PRの作成がすべて揃うまで進まない。必須検証が失敗または実行不能なら`blocked`を要求し、実装完了とはみなさず停止する。Git/GitHubの不明な結果を成功とみなしたり、無条件に同じ操作を繰り返したりしない。
 
 ### ui-tester verification
 
-When the specification includes a `ui-tester`, re-decide participation from the Draft PR's actual diff ([Draft PR re-judgment](references/ui-tester-role.md#draft-pr-re-judgment)) and delegate only when the diff changes a user-visible surface. The `ui-tester`'s task may run in parallel with the Round 1 review. Delegate the task the Kickoff gate set — a task this run supplied, or otherwise the default E2E task; never replace a supplied task with the default.
+仕様に`ui-tester`がある場合、Draft PRの実際の差分をもとに[Draft PR re-judgment](references/ui-tester-role.md#draft-pr-re-judgment)で参加を再判定し、ユーザーに見える画面・操作が変更された場合だけ委譲する。`ui-tester`の作業はRound 1レビューと並行してよい。Kickoff gateで設定したタスク（今回指定されたタスク、なければ既定のE2Eタスク）を渡す。指定済みタスクを既定タスクで上書きしない。
 
-The `ui-tester` produces the evidence defined in [the ui-tester role reference](references/ui-tester-role.md#evidence) — screenshots by default, a WebM video only for a claim that lives in time, no GIF and no text overlays, every artifact inside `PW_ARTIFACT_DIR` and within the 10 MB attachment limit, with screenshots as the recorded fallback when a video cannot meet it. It returns each artifact's absolute path with the verification item it proves, and it never posts anything to GitHub itself, comments included: the orchestrator posts the evidence and checks the sizes before posting. The same evidence contract applies to the re-verification below.
+`ui-tester`は[証跡仕様](references/ui-tester-role.md#evidence)に従って証拠を生成する。通常はスクリーンショットとし、時間経過に依存する主張だけWebM動画を使う。GIFやテキストの重ね合わせは禁止。全成果物を`PW_ARTIFACT_DIR`内に置き、添付の10 MB上限を守る。動画が上限を満たせない場合はスクリーンショットを記録された代替とする。検証項目ごとに証明する成果物の絶対パスを返す。`ui-tester`自身はコメントを含めGitHubへ投稿しない。orchestratorが投稿前にサイズを確認し、証跡を投稿する。以下の再検証も同じ証跡契約に従う。
 
-Post the evidence the return carries with the GH skill's `comments.create` and an explicit `grant`, as the PR comment whose shape is fixed in [the evidence posting shape](references/ui-tester-role.md#evidence-posting). The comment's body starts with the marker that names the head and references every attachment, and the orchestrator searches the PR comments for that marker before posting. A comment for the same head is reused only when its body already names every item this return passes; when items were added, post a new comment, since `comments.update` cannot add attachments. A fix push moves the head, so each head gets its own comment, at most one per review round.
+返却された証跡は、GHスキルの`comments.create`と明示的な`grant`で、[証跡コメントの形式](references/ui-tester-role.md#evidence-posting)に従ってPRコメントとして投稿する。本文の先頭にはheadを示すマーカーを付け、全添付に言及する。投稿前にPRコメントからそのマーカーを検索する。同じheadのコメントを再利用できるのは、その本文に今回返却された全項目がすでに記載されている場合だけ。項目が追加された場合は新しいコメントを作る（`comments.update`では添付を追加できないため）。修正pushでheadが変わった場合はheadごとにコメントを分け、各レビューラウンドにつき最大1件とする。
 
-Before posting, check every artifact exists, keeps an attachment-eligible extension, and is within 10 MB — the gh CLI's own check does not stop a Free-plan attachment at 10 MB. Treat `MISSING_DEPENDENCY`, `ATTACH_UNSUPPORTED`, and `ATTACH_INVALID` as deterministic pre-write errors (`retryable=false`): report the cause and stop before completion instead of retrying. Treat `unknown_outcome` as unknown: read the PR comments for the marker before deciding, and stop with the observed state when that read cannot settle it. Never report completion while an item the return passed has no attached evidence.
+投稿前に成果物の存在、添付可能な拡張子、10 MB以内のサイズをすべて確認する。gh CLI自身のチェックではFreeプランの10 MB制限を検出できない。`MISSING_DEPENDENCY`、`ATTACH_UNSUPPORTED`、`ATTACH_INVALID`は再試行不能な書き込み前エラー（`retryable=false`）とし、原因を報告して完了前に停止する。`unknown_outcome`は不明として扱い、PRコメントのマーカーを再確認して判断する。再確認で確定できない場合は観測した状態を報告して停止する。返却された項目に添付証拠がないまま完了を報告しない。
 
-The `ui-tester` adds no review round. The `ui-tester`'s findings are triage input: reproducible functional defects are mandatory fixes, other findings may join the same fix round, and the `review` role remains the authority for Blocker determination. The `ui-tester`'s fixes are routed to the assigned `pr-fix` agent; a fix push that addresses `ui-tester` findings is a normal fix push and consumes the existing three-round review budget. After Round 3, a mandatory `ui-tester` finding stops the run and is reported without extra rounds.
+`ui-tester`はレビューラウンドを追加しない。その指摘はトリアージの入力となり、再現可能な機能不具合は修正必須、それ以外の指摘は同じ修正ラウンドで扱ってよい。Blocker判定の正本は`review`ロール。`ui-tester`の指摘による修正は担当`pr-fix`へ渡す。`ui-tester`の修正pushも通常の修正pushであり、既存の3ラウンドのレビュー予算を消費する。Round 3後に必須の`ui-tester`指摘が残る場合は、ラウンドを追加せず停止して報告する。
 
-After every fix push, the `ui-tester` re-verifies on the latest head, limited to the reported items and the affected scope, and reports each as pass or unverified. Paid-API verification for the `ui-tester` is off by default and the Issue's verification policy wins. The `ui-tester`'s task text, re-verification checklist, and environment separation values are in [the ui-tester role reference](references/ui-tester-role.md).
+各修正push後、`ui-tester`は最新headで、報告済み項目と影響範囲に限定して再検証し、それぞれpassまたはunverifiedを報告する。`ui-tester`による有料API検証は既定で無効とし、Issueの検証ポリシーを優先する。タスク文面、再検証チェックリスト、環境分離値は[ui-testerロール参照](references/ui-tester-role.md)を正本とする。
 
 ### Initial review
 
-Give the PR URL or number to `review` and explicitly ask it to use the Review skill in PR mode. The reviewer posts its result to GitHub and returns the review round, head commit, finding counts, and whether a Blocker remains.
+`review`へPRのURLまたは番号を渡し、ReviewスキルのPRモードを明示的に依頼する。レビュアーは結果をGitHubに投稿し、レビューラウンド、headコミット、指摘件数、Blockerの有無を返す。
 
-Pass the user's operational and compatibility requirements from the request to the reviewer in the delegation text; the Review skill records the applied assumption in every review result. Report any separate Issue candidates without counting them as findings or blocking LGTM.
+ユーザーが依頼した運用・互換性要件を、委譲文でレビュアーへ引き継ぐ。Reviewスキルは適用した前提をすべてのレビュー結果に記録する。別Issueの候補は指摘件数に含めず、LGTMを妨げずに報告する。
 
-The reviewer never implements a fix, approves the PR, or merges it. Nit, Consider, and FYI findings do not block this workflow when the Review skill reports LGTM.
+レビュアーは修正実装、PRのAPPROVE、マージを行わない。ReviewスキルがLGTMを報告した場合、Nit、Consider、FYIはワークフローを妨げない。
 
 ### Review fixes
 
-When a Blocker remains, send the PR and exact posted feedback to the assigned `pr-fix` agent. If `impl` owns `pr-fix`, reuse the same agent and pane.
+Blockerが残る場合、担当`pr-fix`へPRと実際に投稿された指摘を正確に渡す。`impl`が`pr-fix`を兼務する場合は同じエージェントとペインを使う。
 
-Ask the fixer to:
+修正担当に次を依頼する。
 
-1. read the current PR feedback through the GH skill;
-2. address the reported Blockers without expanding scope;
-3. rerun and pass every required verification for the updated head;
-4. commit and push the fix;
-5. reply to the relevant review comments when required by repository instructions;
-6. return the commit, verification, replies, and unresolved feedback.
+1. GHスキルで現在のPRフィードバックを読む。
+2. スコープを広げずに報告済みBlockerへ対処する。
+3. 更新後のheadに必要な検証をすべて再実行して成功させる。
+4. 修正をコミットしてpushする。
+5. リポジトリの指示で必要な場合は該当レビューコメントへ返信する。
+6. コミット、検証結果、返信、未解決フィードバックを返す。
 
-The fixer must return `blocked` when required verification fails or cannot run. It must not resolve review conversations.
+必須検証が失敗または実行不能の場合、修正担当は`blocked`を返す。修正担当はレビュー会話をResolveしてはならない。
 
 ### Review loop
 
-After a confirmed fix push, ask the same `review` agent explicitly to recheck all prior unresolved findings and review the latest head using the Review skill's recheck procedure (`review/references/recheck.md`). Carry forward the user's operational and compatibility requirements. Do not request only normal PR mode or make the recheck optional: the delegation must require both reclassification of the prior root comments and the latest-head review within that reference's scope. Recheck replies alone are never sufficient to establish LGTM.
+修正pushを確認した後、同じ`review`エージェントにReviewスキルの再チェック手順（`review/references/recheck.md`）を明示的に依頼し、以前の未解決指摘をすべて再チェックするとともに最新headをレビューさせる。ユーザーの運用・互換性要件も引き継ぐ。通常のPRモードだけを依頼したり、再チェックを任意にしたりしない。委譲には以前の未解決rootコメントの再分類と、正本の定める範囲での最新headレビューの**両方**を必須として記載する。再分類への返信だけではLGTMの根拠にならない。
 
-The recheck delegation also carries this workflow's auto-resolve designation: after posting its classification replies and a verified LGTM, the reviewer either resolves the threads it classified `Resolved` (see Completion) or hands the verified target set to the orchestrator, which then resolves them. The Review skill's recheck reference (`references/recheck.md`, "Workflow コンテキストの自動 Resolve") is the canonical rule for the trigger, the reply confirmation, the lightweight checks, and the execution; the workflow only designates auto-resolve and never restates or re-derives that policy. On handoff, the reviewer's recheck report must include each target as the tuple `(thread_id, root_comment_id, reviewer_login, classification_reply_id)` (see the Review skill's recheck reporting spec), and the orchestrator treats that reported set as the target authority rather than re-deriving targets from a fresh read. The orchestrator resolves each target with `review-threads.resolve` and confirms completion by re-reading it with `review-threads.read` and verifying `resolved=true`.
+再チェック委譲では、このワークフローのauto-resolve指定も渡す。分類返信を投稿しLGTMを検証した後、レビュアーが`Resolved`と分類したスレッドをResolveする（[Completion](#completion)参照）か、検証済み対象をorchestratorへ引き渡してからorchestratorがResolveする。Reviewスキルの再チェック参照（`references/recheck.md`の「Workflow コンテキストの自動 Resolve」）がトリガー、返信確認、軽量チェック、実行の正本となる。ワークフロー側はauto-resolveを指定するだけで、方針を再定義・再導出しない。引き継ぎ時の報告には、各対象を`(thread_id, root_comment_id, reviewer_login, classification_reply_id)`の組で含める（Reviewスキルの再チェック報告仕様参照）。orchestratorは新しい読み取り結果から対象を再導出せず、報告された集合を正本とする。各対象に`review-threads.resolve`を実行し、`review-threads.read`で読み直して`resolved=true`を確認する。
 
-Count the initial PR-wide review as Round 1 and allow at most three review rounds in total.
+最初のPR全体レビューをRound 1と数え、合計最大3ラウンドとする。
 
-- If the latest verified review of the current head posts LGTM with no Blocker, complete the workflow.
-- If a Blocker remains before Round 3, repeat fix then recheck.
-- If a Blocker remains after Round 3, stop and report the remaining failure condition and evidence.
-- If any agent returns `blocked`, stop the phase and request the needed decision or input.
+- 最新headの検証済みレビューでBlockerがなくLGTMが投稿された場合、ワークフローを完了する。
+- Round 3より前にBlockerが残る場合は、修正と再チェックを繰り返す。
+- Round 3後もBlockerが残る場合は停止し、残った失敗条件と証拠を報告する。
+- いずれかのエージェントが`blocked`を返した場合、そのフェーズを停止し、必要な判断または入力を求める。
 
-Do not introduce a separate retry, queue, or state machine around Herdr or GitHub operations.
+HerdrやGitHubの操作の周囲に別の再試行、キュー、状態マシンを追加しない。
+
 
 ## Completion
 
