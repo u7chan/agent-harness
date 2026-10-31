@@ -66,6 +66,18 @@ Pi model validation, with its own tests. Its user-owned settings contract is
 in [pi-development.md](pi-development.md). Removing a consumer must not remove
 these helpers; this is shared tooling, not a workflow runtime or another skill.
 
+## CI
+
+`contract-tests` is the only workflow. Every remote action it calls is pinned to a full commit SHA and keeps the release tag in a trailing comment, so a diff shows which release moved:
+
+```yaml
+- uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+```
+
+Never point a pin at a floating tag such as `@v4`: the tag can be moved to another commit under the same name, which is the reason for the pin. Pins are updated, not edited, through the Dependabot `github-actions` pull request that runs weekly; it moves the SHA and the comment together. Adding an action means adding a pinned `uses:` and letting Dependabot take over from there.
+
+This policy covers `uses:` references only. Runner images (`runs-on`), container images, and tools installed inside a `run:` step are out of scope, and a reusable workflow caller would keep its own pinned ref. There are none of the latter in this repository today.
+
 ## Design constraints
 
 - Keep `SKILL.md` minimal. Put deterministic validation and tool constraints in scripts or schemas.

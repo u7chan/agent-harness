@@ -1,0 +1,9 @@
+version: 2
+# Keep the SHA pins in .github/workflows/: Dependabot moves the commit SHA and
+# the trailing version comment together, so no pin is updated by hand.
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
