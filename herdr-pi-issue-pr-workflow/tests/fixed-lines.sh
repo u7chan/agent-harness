@@ -78,7 +78,7 @@ check_contains "participation line keeps the ambiguous form" "$PARTICIPATION_TEX
 check_contains "SKILL.md points the gate at the participation rule" "$KICKOFF_TEXT" \
   'references/ui-tester-role.md#participation'
 check_contains "SKILL.md keeps the one-line kickoff reply rule" "$KICKOFF_TEXT" \
-  'in every kickoff reply'
+  'すべてのキックオフ返信'
 check_not_contains "SKILL.md does not restate the include form" "$SKILL_TEXT" \
   'ui-tester: 同梱'
 check_not_contains "SKILL.md does not restate the exclude form" "$SKILL_TEXT" \

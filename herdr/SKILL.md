@@ -1,11 +1,11 @@
 ---
 name: herdr
-description: Delegate work to coding agents in sibling Herdr panes. Use when the user explicitly mentions Herdr or asks to delegate, inspect, prompt, or coordinate another agent in a separate pane, including requests using the Japanese term "別ペイン" without mentioning Herdr. Requires HERDR_ENV=1.
+description: Herdr の別ペインにいるコーディングエージェントへ作業を委譲する。Herdr の明示指定、または Herdr という名前を挙げずに「別ペイン」への委譲・調査・プロンプト送信・エージェント間調整を依頼された場合に使う。HERDR_ENV=1 が必要。
 ---
 
 # Herdr
 
-Use the existing `herdr` CLI for pane and agent operations. Do not create a workspace, worktree, or pane implicitly.
+ペインとエージェントの操作には既存の `herdr` CLI を使う。ワークスペース、worktree、ペインを暗黙的に作成しない。
 
 ## Preflight
 
@@ -14,39 +14,39 @@ test "${HERDR_ENV:-}" = 1 || exit 1
 command -v herdr >/dev/null || exit 1
 ```
 
-Resolve pane and workspace IDs from Herdr JSON responses. Do not guess IDs. Create or remove a worktree workspace only when the user explicitly requests it; use `herdr worktree create` and `herdr worktree remove`, and pin the source checkout with `--cwd "$PWD"` (or `--workspace "$HERDR_WORKSPACE_ID"`) because an unpinned call follows the client's focused workspace instead of the caller's cwd.
+ペイン ID とワークスペース ID は Herdr の JSON 応答から解決し、推測しない。worktree ワークスペースの作成・削除は、ユーザーが明示的に依頼した場合だけ `herdr worktree create` と `herdr worktree remove` で行う。呼び出し元のチェックアウトを `--cwd "$PWD"`（または `--workspace "$HERDR_WORKSPACE_ID"`）で固定すること。固定しない呼び出しは、呼び出し元の cwd ではなくクライアントでフォーカス中のワークスペースに従う。
 
 ## Caller pinning
 
-Delegation requires both `$HERDR_WORKSPACE_ID` and `$HERDR_PANE_ID`. If either is empty, or the `$HERDR_PANE_ID` workspace prefix does not match `$HERDR_WORKSPACE_ID`, fail closed: stop instead of falling back to argument-less commands. Take IDs only from Herdr JSON responses; never infer them from display order, labels, model names, UI focus, or the TUI's selected machine.
+委譲には `$HERDR_WORKSPACE_ID` と `$HERDR_PANE_ID` の両方が必要。いずれかが空、または `$HERDR_PANE_ID` のワークスペース接頭辞が `$HERDR_WORKSPACE_ID` と一致しない場合は、引数なしコマンドへフォールバックせず、fail closed で停止する。ID は Herdr の JSON 応答だけから取得する。表示順、ラベル、モデル名、UI フォーカス、TUI で選択中のマシンから推測しない。
 
 ## Resolve the delegation target
 
-This section is authoritative for candidate resolution, branching, and stop conditions. A request for "another pane" ("別ペイン") means another pane in the current workspace of the current Herdr server, not a physical neighbor. A request that names a Herdr worktree workspace instead of a pane follows [Worktree workspaces](#worktree-workspaces). These rules are an operational safeguard for skill-compliant agents; they do not add a technical enforcement boundary.
+この節を候補の解決、分岐、停止条件の正本とする。「別ペイン」「another pane」は、物理的に隣接するペインではなく、現在の Herdr サーバーにある呼び出し元のワークスペース内の別ペインを意味する。ペインではなく Herdr の worktree ワークスペースが指定された場合は [Worktree workspaces](#worktree-workspaces) に従う。これらはスキルに従うエージェント向けの運用上の安全策であり、技術的な強制境界を追加するものではない。
 
-The invariant and responsibility split required for a hard boundary are defined in [Technical delegation boundary](references/technical-delegation-boundary.md). Do not infer a stronger guarantee from this skill or from the wrappers.
+強い境界に必要な不変条件と責務分担は [Technical delegation boundary](references/technical-delegation-boundary.md) に定義されている。このスキルやラッパーから、それ以上の保証を推論しない。
 
 ### Server scope
 
-Workspace IDs, pane IDs, and agent names are server-local: they are unique only within one Herdr server, and another server can expose the same `w1:p1`, workspace ID, or agent name. Normal delegation never crosses servers — its scope is the caller pane's inherited `herdr` context, and `$HERDR_WORKSPACE_ID` within that one server.
+ワークスペース ID、ペイン ID、エージェント名はサーバー内でのみ一意であり、別サーバーにも同じ `w1:p1`、ワークスペース ID、エージェント名が存在しうる。通常の委譲はサーバーをまたがない。範囲は呼び出し元ペインが継承した `herdr` コンテキストと、そのサーバー内の `$HERDR_WORKSPACE_ID` に限定される。
 
-The machine selected in the Herdr TUI does not switch the CLI's target server: an in-pane `herdr` command keeps using the session/socket context its pane inherited, whatever the UI shows as selected. Never resolve a delegation target from the selected machine. Cross-machine delegation is out of scope for normal delegation; when a request points outside the current server, stop and ask the user.
+Herdr TUI で選択するマシンを変えても、CLI の対象サーバーは切り替わらない。ペイン内の `herdr` コマンドは、UI で選択されているマシンに関係なく、ペインが継承したセッション/socket のコンテキストを使い続ける。選択中のマシンから委譲先を解決しない。別マシンへの委譲は通常の委譲の対象外であり、現在のサーバー外を指す依頼は停止してユーザーに確認する。
 
 ### Candidate set
 
-Build candidates only from the response of:
+候補は次の応答だけから組み立てる。
 
 ```bash
 herdr pane list --workspace "$HERDR_WORKSPACE_ID"
 ```
 
-Exclude `$HERDR_PANE_ID` itself. A pane in another workspace is a candidate only when the edge is allowed by [Worktree workspaces](#worktree-workspaces), and then resolve it from `herdr pane list --workspace <that-workspace-id>` or from the `herdr worktree create` response, never from a mixed inventory. Global `workspace list`, argument-less `pane list` and `agent list`, `pane layout`, `herdr machine list` and other cross-machine combined inventories, and UI focus are read-only investigation aids; never select a delegation candidate from them.
+`$HERDR_PANE_ID` 自身は除外する。別ワークスペースのペインは [Worktree workspaces](#worktree-workspaces) で許可された辺の場合だけ候補となる。その場合も、混合インベントリではなく `herdr pane list --workspace <that-workspace-id>` または `herdr worktree create` の応答から解決する。全体の `workspace list`、引数なしの `pane list` や `agent list`、`pane layout`、`herdr machine list`、その他のマシン横断の統合一覧、UI フォーカスは読み取り専用の調査資料としてだけ使い、そこから委譲候補を選ばない。
 
-Select a candidate only when exactly one pane satisfies the explicitly stated conditions. Zero or multiple matches, unknown pane metadata, and JSON or API errors branch the same way: do not infer an alternative candidate, and move on to [When the requested agent is absent](#when-the-requested-agent-is-absent) or ask the user.
+明示された条件を満たすペインがちょうど 1 つの場合だけ選択する。0 件、複数件、不明なペインメタデータ、JSON/API エラーは同様に扱う。代替候補を推測せず、[When the requested agent is absent](#when-the-requested-agent-is-absent) へ進むかユーザーに確認する。
 
 ### Spatial neighbors
 
-For a requested direction ("左"/"右"/"上"/"下" or "left"/"right"/"up"/"down"), ask for exactly that direction:
+方向（「左」「右」「上」「下」または `left`/`right`/`up`/`down`）が指定された場合は、その方向だけを問い合わせる。
 
 ```bash
 herdr pane neighbor \
@@ -54,109 +54,102 @@ herdr pane neighbor \
   --direction <left|right|up|down>
 ```
 
-For a direction-less "隣" (next to), query all four directions from the same origin, deduplicate the returned `neighbor_pane_id` values, and use them only when exactly one satisfies the explicit conditions; if several remain, ask which direction or pane. Each direction returns at most one neighbor; Herdr resolves it by distance, overlap, and layout order.
+方向を指定しない「隣」は、同じ起点から 4 方向すべてを問い合わせ、返された `neighbor_pane_id` を重複排除し、明示された条件を満たすペインがちょうど 1 つのときだけ使用する。複数残る場合は方向またはペインを質問する。各方向で返る隣接ペインは最大 1 つで、Herdr は距離・重なり・レイアウト順で解決する。
 
-Read only `neighbor_pane_id` as the target. When the field is omitted or null there is no neighbor; never fall back to the origin `pane_id`. Do not use `--current`, a neighbor call without `--pane`, or an argument-less `pane layout` to resolve a target. A nonzero exit, malformed JSON, or a workspace mismatch is a stop condition: do not fall back to a global search.
+対象として読むのは `neighbor_pane_id` だけ。フィールドが存在しない、または null なら隣接ペインはない。`pane_id`（起点）へフォールバックしない。対象の解決に `--current`、`--pane` なしの neighbor、引数なしの `pane layout` を使わない。終了コードが非 0、不正な JSON、ワークスペース不一致の場合は停止し、グローバル検索へフォールバックしない。
 
-If the directional neighbor is occupied and does not match the request, do not overwrite it and do not switch direction silently; ask the user. An empty interactive-shell neighbor may run the requested agent.
+方向指定の隣接ペインが使用中で依頼条件に一致しなければ、上書きも無断の方向変更もせずユーザーに確認する。空の対話シェルであれば、依頼されたエージェントを実行できる。
 
 ## When the requested agent is absent
 
-Branch without widening the search beyond the current workspace:
+検索対象を現在のワークスペースより広げずに分岐する。
 
-- Non-spatial request: prefer an existing empty interactive shell in `$HERDR_WORKSPACE_ID`; do not split while one is available.
-- Spatial request: use the resolved neighbor when it is an empty interactive shell. If there is no neighbor and the request named no direction, split explicitly from `$HERDR_PANE_ID` to create the adjacent pane. When the requested direction cannot be created safely, do not guess another direction; ask the user.
-- If no pane in `$HERDR_WORKSPACE_ID` is available, split explicitly from `$HERDR_PANE_ID`.
+- 位置指定なし：`$HERDR_WORKSPACE_ID` 内の既存の空の対話シェルを優先する。空きがあれば分割しない。
+- 位置指定あり：解決した隣接ペインが空の対話シェルなら使用する。隣接ペインがなく、方向も指定されていない場合は、`$HERDR_PANE_ID` から明示的に分割して隣のペインを作る。指定方向に安全に作れない場合は別方向を推測せず、ユーザーに確認する。
+- `$HERDR_WORKSPACE_ID` 内に利用可能なペインがなければ、`$HERDR_PANE_ID` から明示的に分割する。
 
-Read every split and agent-start ID from the JSON responses. After starting, verify interactive readiness plus the user-specified provider, model, and thinking settings before delegating; an unknown value is not a match. Start the agent as described in [Pane operations](#pane-operations). Do not equate "requested agent absent" with "no available pane": splitting is not the default response to a missing agent.
+分割とエージェント起動で返る ID はすべて JSON 応答から読む。起動後、委譲前に対話可能な状態と、ユーザー指定の provider、model、thinking 設定を検証する。不明な値を一致とみなさない。起動は [Pane operations](#pane-operations) に従う。「指定エージェントがいない」と「利用可能なペインがない」を同一視しない。エージェント不在時の標準動作が分割というわけではない。
 
 ## Multi-pane layout
 
-When one round needs several sibling agent panes, plan the whole layout
-instead of splitting ad hoc:
+1 回の作業で複数の兄弟エージェントペインが必要な場合、場当たり的に分割せずレイアウト全体を計画する。
 
 ```bash
 herdr/scripts/pane-layout.sh apply --count <panes> --label <team>
 ```
 
-`plan --count <n> --area <WxH>` previews the same grid without touching Herdr.
-`apply` creates exactly `--count` panes and returns their IDs in cell order.
-Constants, grid selection, tab policy, and failure behavior are in
-[Pane layout](references/pane-layout.md).
+`plan --count <n> --area <WxH>` で Herdr を変更せずに同じグリッドをプレビューできる。
+`apply` は `--count` 個ちょうどのペインを作成し、セル順で ID を返す。定数、グリッド選定、タブ方針、失敗時の動作は [Pane layout](references/pane-layout.md) を参照する。
 
-Two exceptions apply to a planned layout, and only there:
+計画済みレイアウトに限り、次の 2 つの例外がある。
 
-- it does not adopt an unrelated empty shell pane, because the planner cannot
-  move an existing pane into a planned cell. Single-pane delegation keeps the
-  reuse rule of [When the requested agent is absent](#when-the-requested-agent-is-absent).
-- it may create a tab without asking when the planner reports that the current
-  tab cannot hold the team. Creating a workspace or worktree still requires an
-  explicit user request.
+- 無関係な空のシェルを流用しない。プランナーは既存ペインを計画したセルへ移動できないため。単一ペインの委譲では [When the requested agent is absent](#when-the-requested-agent-is-absent) の再利用ルールを維持する。
+- 現在のタブにチームが収まらないとプランナーが報告した場合は、確認なしで新しいタブを作成してよい。ワークスペースや worktree の作成には引き続き明示的なユーザー依頼が必要。
 
 ## Async delegation
 
-Normal delegation is fire-and-forget. Do not use `--wait`. Send the task to an existing agent, then inspect its state and terminal output on a later turn with `herdr agent get` and `herdr agent read`.
+通常の委譲は fire-and-forget で、`--wait` を使わない。既存エージェントへタスクを送り、後のターンで `herdr agent get` と `herdr agent read` を使って状態とターミナル出力を確認する。
 
-Use the thin wrappers for the direct-parent result flow:
+親子間の直接的な結果返却には、次の薄いラッパーを使う。
 
 ```bash
 herdr/scripts/parent-delegate-async.sh <child-pane> "<prompt>"
 herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<body>"
 ```
 
-The parent wrapper is the mandatory route for a new parent-to-child delegation and for any additional task that expects a result return. Resolve the target as defined in [Resolve the delegation target](#resolve-the-delegation-target) and pass the returned pane ID, never an agent name. Treat the wrapper as part of the candidate: if it is unavailable, was not executed, exits nonzero, or you can predict that it would reject the edge, the candidate is invalid — re-resolve within an allowed edge or report blocked. Do not rebuild the wrapper prompt by hand and do not fall back to raw `herdr agent prompt`, another wrapper, or `pane send-text`. After a transport failure or an unknown result, do not resend without confirming state first, and keep a scope reject distinct from a transport failure. The child wrapper's own raw `herdr agent prompt` call is its fixed return transport, not a license for raw parent-to-child prompts. Cross-server delegation stays unsupported even when the user explicitly names a pane on another Herdr server: stop there.
+新しい親→子の委譲、および結果の返却を期待する追加タスクには、必ず親ラッパーを使う。[Resolve the delegation target](#resolve-the-delegation-target) に従って対象を解決し、エージェント名ではなく返されたペイン ID を渡す。ラッパーも候補の成立条件の一部として扱う。ラッパーがない、実行されていない、非 0 で終了する、あるいはその辺を拒否すると予測できる場合、候補は無効。許可された辺で対象を解決し直すか `blocked` を報告する。ラッパー用プロンプトを手作業で再構築せず、生の `herdr agent prompt`、別ラッパー、`pane send-text` へフォールバックしない。通信失敗や結果不明の場合、状態を確認せずに再送しない。scope 拒否と通信失敗は区別する。子ラッパー内部の生の `herdr agent prompt` は固定された返却経路であり、親→子で生のプロンプトを送る許可ではない。別 Herdr サーバーへの委譲は、ユーザーが対象ペインを明示しても非対応なので停止する。
 
-The parent wrapper verifies the caller's own pane, classifies the edge to the child pane (see [Worktree workspaces](#worktree-workspaces)), and only then adds the current `$HERDR_PANE_ID` with its resolved display name plus the absolute child-wrapper path to the prompt. The child wrapper returns one status and free-form body to that pane and applies the same scope check in the reverse direction before it writes: a rejected edge exits 3 with `scope-reject: <reason>` on stderr and writes nothing to the target. Each delegation edge has exactly one direct parent; see [Async delegation](references/async-delegation.md) for the wrapper protocol, display names, failure handling, and worktree rules.
+親ラッパーは呼び出し元自身のペインを検証し、子への辺を分類する（[Worktree workspaces](#worktree-workspaces)）。その後で、現在の `$HERDR_PANE_ID`、解決した表示名、子ラッパーの絶対パスをプロンプトへ追加する。子ラッパーは状態 1 つと自由形式の本文をそのペインへ返し、書き込みの直前に逆方向の同じスコープ検証を行う。拒否された辺では終了コード 3 で、stderr に `scope-reject: <reason>` を出し、対象には何も書き込まない。各委譲の辺には直接の親が必ず 1 つだけ存在する。ラッパーのプロトコル、表示名、失敗処理、worktree ルールは [Async delegation](references/async-delegation.md) を参照する。
 
-The wrappers validate their arguments and environment, call the existing `herdr agent prompt` command, and propagate its result. The parent wrapper additionally calls read-only `herdr pane get` once to resolve the parent display name; if that lookup fails, the prompt keeps the bare pane ID. They do not wait, retry, queue, persist state, or create Herdr resources.
+ラッパーは引数と環境を検証し、既存の `herdr agent prompt` を実行して結果を伝播する。親ラッパーは親の表示名を解決するために読み取り専用の `herdr pane get` も 1 回呼ぶ。取得失敗時はプロンプト内でペイン ID だけを使用する。ラッパーは待機、再試行、キューイング、状態永続化、Herdr リソース作成を行わない。
 
-Waiting for a return must not block the parent. A return is injected into the parent pane as a prompt, and Pi queues it as steering while the parent is executing tool calls, so it is processed only after the current assistant turn finishes them. Do not occupy the parent with long foreground commands such as `sleep`-based polling while awaiting a return: end the turn so the injected prompt starts the next one, or keep any foreground command short. Otherwise every queued return waits for that command to end, time out, or be aborted.
+結果の返却待ちで親をブロックしない。返却は親ペインへプロンプトとして注入され、親がツール呼び出し中なら Pi が steering としてキューへ入れ、現在のアシスタントターンのツール呼び出し完了後に処理する。`sleep` によるポーリングのような長いフォアグラウンドコマンドで親を占有しない。ターンを終了して注入プロンプトに次のターンを開始させるか、フォアグラウンドコマンドを短く保つ。そうしなければ、キュー内の返却はコマンドの終了・タイムアウト・中断まで処理されない。
 
-If a return to a working parent exposes an agent-kind-specific problem, stop and record the reproduction. Do not add waiting or queueing to the wrappers.
+作業中の親への返却でエージェント種別に固有の問題が見つかった場合は、停止して再現手順を記録する。ラッパーへ待機やキューイングを追加しない。
 
 ## Worktree workspaces
 
-Delegation crosses a workspace boundary only through an edge that server-side state or a recorded grant allows. There are three allowed edges:
+委譲がワークスペース境界を越えられるのは、サーバー側状態または記録された grant が辺を許可する場合だけ。許可される辺は次の 3 種。
 
-- `same-workspace` — source and target are the same workspace, as before.
-- `worktree-team` — both workspaces report the same `worktree.repo_root` in `herdr workspace list`, and exactly one of them is a linked worktree (`worktree.is_linked_worktree`). The parent checkout may delegate into its linked worktree, and the linked worktree may return to the parent checkout. Two linked worktrees (siblings) and two checkouts of one repository carry the same `repo_root` but are not this edge.
-- `granted` — an unexpired record in the delegation-scope file covers the edge, in either direction. Use `herdr/scripts/scope-grant.sh` to record, list, and revoke grants when a human authorizes an edge the shape rules do not derive; `--target-repo` grants every workspace of that repository, not one workspace ID. Records are keyed by workspace ID, which is server-local, and the file is shared per user, so a grant also covers a same-ID workspace pair on another Herdr server of that user; cross-server delegation stays unsupported.
+- `same-workspace`：送信元と送信先が同じワークスペース。
+- `worktree-team`：`herdr workspace list` で両ワークスペースの `worktree.repo_root` が同じで、片方だけがリンク済み worktree（`worktree.is_linked_worktree`）である。元チェックアウトからリンク済み worktree への委譲と、worktree から元チェックアウトへの返却が可能。2 つのリンク済み worktree 同士、または同じリポジトリの 2 つのチェックアウトは、`repo_root` が同じでも該当しない。
+- `granted`：委譲スコープファイルに、両方向に適用される有効期限内の記録が存在する。形状ルールから導けない辺を人間が承認した場合は `herdr/scripts/scope-grant.sh` で grant を記録・一覧・取消する。`--target-repo` は特定のワークスペース ID ではなく、そのリポジトリの全ワークスペースに grant を与える。記録はサーバー内でのみ一意なワークスペース ID をキーとし、ファイルはユーザー単位で共有される。そのため、同一ユーザーの別 Herdr サーバーに同じ ID のワークスペースペアがあっても記録上は適用されるが、サーバー間の委譲は引き続き非対応。
 
-The wrappers classify every edge with `herdr/scripts/lib/scope.sh` immediately before they write. A rejected edge exits 3 with `scope-reject: <reason>` on stderr and writes nothing to the target, so a scope reject stays distinct from a transport failure. Anything that cannot be decided is a reject: a failed or malformed `herdr workspace list`, a workspace the server does not report, a missing repository relation, and a self target (the caller's own pane). The grant file is a record of human intent, not a permission boundary; see [Technical delegation boundary](references/technical-delegation-boundary.md).
+ラッパーは書き込み直前に `herdr/scripts/lib/scope.sh` で各辺を分類する。拒否時は終了コード 3、stderr に `scope-reject: <reason>` を出し、対象に何も書かない。scope 拒否は通信失敗と区別する。判断不能なものもすべて拒否する。例：`herdr workspace list` の失敗・不正な結果、サーバーに存在しないワークスペース、リポジトリ間の関係不明、呼び出し元自身のペイン。grant ファイルは人間の意思の記録であって権限境界ではない。[Technical delegation boundary](references/technical-delegation-boundary.md) を参照する。
 
-Read-only discovery (`herdr workspace list`, `herdr worktree list --cwd "$PWD"`, `herdr pane list --workspace <linked-workspace-id>`) stays allowed, and the worktree lifecycle commands stay available when the user explicitly requests them.
+読み取り専用の探索（`herdr workspace list`、`herdr worktree list --cwd "$PWD"`、`herdr pane list --workspace <linked-workspace-id>`）は引き続き許可する。worktree のライフサイクル操作は、ユーザーが明示的に依頼した場合に引き続き使用できる。
 
-A workspace created with `herdr workspace create --cwd <path>` carries no worktree information, so the shape rules derive no edge for it; see [Workspaces without worktree information](references/async-delegation.md#workspaces-without-worktree-information).
+`herdr workspace create --cwd <path>` で作成したワークスペースには worktree 情報がないため、形状ルールから辺を導けない。[Workspaces without worktree information](references/async-delegation.md#workspaces-without-worktree-information) を参照する。
 
-When the user asks for a team to run self-contained in a worktree workspace, start and coordinate it as described in [Worktree workspace teams](references/worktree-workspace-teams.md).
-In the orchestrator-first composition the parent creates the worktree, starts exactly one orchestrator in its root pane with `worktree-team-start.sh`, and passes the worktree environment block; the orchestrator then creates and starts the team ([Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)).
+ユーザーが worktree ワークスペース内で自己完結するチームを依頼した場合は、[Worktree workspace teams](references/worktree-workspace-teams.md) に従って起動・調整する。
+orchestrator-first 構成では、親が worktree を作成し、`worktree-team-start.sh` でそのルートペインに orchestrator をちょうど 1 つ起動し、worktree 環境ブロックを渡す。その後 orchestrator がチームを作成・起動する（[Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)）。
 
 ### Scope intent and intended crossings
 
-The scope guard prevents mistakes — an unintended write into an unrelated workspace or pane — rather than forbidding an intended crossing. A `scope-reject` is a checkpoint that asks the caller to stop and verify the edge, not a prohibition of the act, and the guard stays the operational safeguard of [Technical delegation boundary](references/technical-delegation-boundary.md), not a permission boundary. Complete an intended crossing through one of these routes:
+スコープガードの目的は、無関係なワークスペースやペインへの意図しない書き込みを防ぐことであり、意図した越境を一律に禁止することではない。`scope-reject` は、辺の検証を求めるための停止地点であって操作そのものの禁止ではない。また、ガードは [Technical delegation boundary](references/technical-delegation-boundary.md) でいう運用上の安全策であり、権限境界ではない。意図した越境は次のいずれかの経路で完了する。
 
-1. Match the target against live state: resolve the workspace and pane with `herdr workspace list` and `herdr pane list --workspace <workspace-id>`, and confirm that they are the ones the user named.
-2. Record the reason and prefer a grant: a human records the edge with `herdr/scripts/scope-grant.sh grant --source <workspace> --target <workspace>|--target-repo <path> --by <name> --task <issue-or-pr>`, and the normal wrapper path crosses it. Both wrappers check the grant immediately before they write, so this is the preferred route.
-3. Let the user drive: when the rules derive no allowed edge, a grant does not cover the edge, the user prefers to drive the team, or the parent must not write into the target workspace, the user runs the commands, as in [Fallback: user-started teams](references/worktree-workspace-teams.md#fallback-user-started-teams). The human is then the writing party.
+1. 実際の状態と対象を照合する。`herdr workspace list` と `herdr pane list --workspace <workspace-id>` でワークスペースとペインを解決し、ユーザーが指定した対象と一致することを確認する。
+2. 理由を記録し、grant を優先する。人間が `herdr/scripts/scope-grant.sh grant --source <workspace> --target <workspace>|--target-repo <path> --by <name> --task <issue-or-pr>` で辺を記録し、通常のラッパー経由で越境する。両ラッパーが書き込み直前に grant を検証するため、これを優先経路とする。
+3. ユーザー自身に実行してもらう。形状ルール上の許可された辺がなく、grant も適用されない場合、ユーザーが自分でチームを操作したい場合、または親が対象ワークスペースへ書き込んではならない場合は、[Fallback: user-started teams](references/worktree-workspace-teams.md#fallback-user-started-teams) のようにユーザーがコマンドを実行する。この場合の書き込み主体は人間となる。
 
-Bypassing the check after a reject stays prohibited. A raw cross-workspace `herdr agent prompt` or `herdr agent start`, and a hand-rebuilt wrapper prompt, are not routes; "the user asked for it" is not a reason for a raw prompt, because that request completes through route 2 or route 3.
+拒否後に検証を迂回することは禁止。ワークスペースをまたぐ生の `herdr agent prompt` や `herdr agent start`、手で再構築したラッパープロンプトは越境経路ではない。「ユーザーが依頼した」は生のプロンプトを使う理由にはならず、その依頼は上記 2 または 3 の経路で実現する。
 
 ## Pane operations
 
-Inspect the current workspace before any explicitly requested pane operation:
+明示的に依頼されたペイン操作の前に、現在のワークスペースを確認する。
 
 ```bash
 herdr pane list --workspace "$HERDR_WORKSPACE_ID"
 herdr pane get <pane-id>
 ```
 
-When starting an agent, use an existing interactive pane in `$HERDR_WORKSPACE_ID` and a responsibility-based name. If none is available, split from `$HERDR_PANE_ID` without changing focus. Read the returned pane and agent IDs from JSON, then prompt the pane ID without `--wait`.
+エージェント起動時は `$HERDR_WORKSPACE_ID` にある既存の対話ペインを使い、責務に基づいた名前を付ける。利用できるペインがなければ、フォーカスを変えずに `$HERDR_PANE_ID` から分割する。返されたペインとエージェントの ID を JSON から読み、ペイン ID に対して `--wait` なしでプロンプトを送る。
 
-After starting the agent, set the pane label to the same responsibility-based name with `herdr pane rename <pane-id> <name>`, then verify `herdr pane get <pane-id>` returns that `label`. The agent name and pane label are separate; without a manual pane label, `show_agent_labels_on_pane_borders = true` displays the detected agent kind, such as `codex`.
+起動後、`herdr pane rename <pane-id> <name>` でペインラベルを同じ責務名に設定し、`herdr pane get <pane-id>` がその `label` を返すことを確認する。エージェント名とペインラベルは別物。手動でラベルを付けない場合、`show_agent_labels_on_pane_borders = true` では `codex` など検出されたエージェント種別が表示される。
 
 ## Rules
 
-- Keep shared work in the current workspace and worktree.
-- Create a Herdr worktree workspace only when the user explicitly requests it; ordinary independent-branch work stays in the current workspace and worktree (see [Worktree workspaces](#worktree-workspaces)).
-- Do not close panes, kill agents, stop the Herdr server, or manage raw Git worktrees unless explicitly requested. One standing exception: the herdr-pi-issue-pr-workflow closes the `ui-tester` pane it created and never delegated to with `herdr pane close <pane-id>` when that workflow completes ([herdr-pi-issue-pr-workflow](../herdr-pi-issue-pr-workflow/SKILL.md#completion)).
-- Never prompt or start an agent across a workspace boundary directly; use the wrappers or `herdr/scripts/worktree-team-start.sh`, which classify the edge first, and stop on `scope-reject` instead of retrying around it ([Scope intent and intended crossings](#scope-intent-and-intended-crossings)).
+- 共有作業は現在のワークスペースと worktree 内で行う。
+- Herdr の worktree ワークスペースはユーザーの明示依頼がある場合だけ作成する。通常の独立ブランチでの作業は、現在のワークスペースと worktree に留める（[Worktree workspaces](#worktree-workspaces)）。
+- 明示依頼がない限り、ペインのクローズ、エージェントの強制終了、Herdr サーバーの停止、生の Git worktree 管理を行わない。例外は 1 つだけ。`herdr-pi-issue-pr-workflow` は完了時に自身が作成し、一度も委譲していない `ui-tester` ペインを `herdr pane close <pane-id>` で閉じる（[herdr-pi-issue-pr-workflow](../herdr-pi-issue-pr-workflow/SKILL.md#completion)）。
+- ワークスペース境界を越えてエージェントを直接起動したりプロンプトを送ったりしない。まず辺を分類するラッパーまたは `herdr/scripts/worktree-team-start.sh` を使い、`scope-reject` なら迂回や再試行をせず停止する（[Scope intent and intended crossings](#scope-intent-and-intended-crossings)）。

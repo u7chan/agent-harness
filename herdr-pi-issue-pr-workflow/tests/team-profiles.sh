@@ -15,22 +15,22 @@ gate = text.split('## Kickoff gate\n', 1)[1].split('\n## ', 1)[0]
 for value in (
     '../_docs/pi-development.md',
     'result=missing', 'reason=no-profiles', 'profiles_present=false', 'source=default',
-    'never bootstraps', 'migration-required',
+    'となるため初期化しない', 'migration-required',
 ):
     assert value in team, value
 for value in (
     'scripts/pi-development/team-record.sh resolve',
-    'states the composition never reuses it',
-    'a settled team is not written automatically',
-    'Every other save happens only on an explicit user instruction',
+    '編成が明示されていれば再利用せず',
+    '編成は実行限定であり',
+    'それ以外は明示指示がある場合だけ',
     'team-record.sh write --profile default',
     '前回承認編成を使用: profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]',
 ):
     assert value in gate, value
 assert '--only-role' not in gate, 'the Issue workflow must still validate the full team'
-assert 'the PR exists and remains Draft' in text
-assert 'Do not automatically mark the PR ready' in text
+assert 'PR が存在し、Draft のままである' in text
+assert 'PR を自動で Ready にしたり' in text
 assert 'herdr-pi-issue-pr-workflow/scripts/' not in text
-assert '`herdr tab close` and `herdr workspace close` are never used' in text
+assert '`herdr tab close` や `herdr workspace close` は使わない' in text
 print('Issue workflow team/bootstrap/Draft contracts passed')
 PY

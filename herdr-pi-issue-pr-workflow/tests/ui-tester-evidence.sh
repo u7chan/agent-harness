@@ -79,7 +79,7 @@ check_contains "the delegation body carries the evidence contract" "$ROLE_TEXT" 
 
 # --- role boundary ---------------------------------------------------------
 
-check_contains "ui-tester does not post PR comments" "$SKILL_TEXT" 'post PR comments'
+check_contains "ui-tester does not post PR comments" "$SKILL_TEXT" 'PR コメント投稿を行わない'
 check_contains "the reference states who posts the evidence" "$ROLE_TEXT" \
   'posting belongs to the orchestrator'
 check_contains "the orchestrator checks sizes before posting" "$ROLE_TEXT" \
@@ -112,23 +112,23 @@ check_contains "comments.update cannot add attachments" "$ROLE_TEXT" \
 # The orchestrator's posting procedure: one comment per head, an explicit
 # grant, a pre-post existence and size check, and no guessing on failures.
 check_contains "the orchestrator posts the returned evidence" "$SKILL_TEXT" \
-  'Post the evidence the return carries'
+  '返却された証跡は'
 check_contains "posting uses comments.create" "$SKILL_TEXT" 'comments.create'
-check_contains "posting carries an explicit grant" "$SKILL_TEXT" 'explicit `grant`'
+check_contains "posting carries an explicit grant" "$SKILL_TEXT" '明示的な `grant`'
 check_contains "a same-head comment is reused only when covered" "$SKILL_TEXT" \
-  'already names every item this return passes'
+  '今回返却された全項目がすでに記載されている'
 check_contains "a fix push posts a new comment" "$SKILL_TEXT" \
-  'A fix push moves the head'
+  '修正 push で head が変わった'
 check_contains "artifacts are checked before posting" "$SKILL_TEXT" \
-  'Before posting, check every artifact exists'
+  '投稿前に成果物の存在'
 check_contains "attachment pre-write errors stop without retrying" "$SKILL_TEXT" \
-  'Treat `MISSING_DEPENDENCY`, `ATTACH_UNSUPPORTED`, and `ATTACH_INVALID` as deterministic pre-write errors (`retryable=false`): report the cause and stop before completion instead of retrying.'
+  '再試行不能な書き込み前エラー'
 check_contains "unknown_outcome is not guessed" "$SKILL_TEXT" \
-  'Treat `unknown_outcome` as unknown'
+  '`unknown_outcome` は不明として扱い'
 check_contains "completion requires the attached evidence" "$SKILL_TEXT" \
-  'has its evidence attached in that head'
+  '同じ head の証跡コメントへ証拠が添付'
 check_contains "completion never ignores a passed item" "$SKILL_TEXT" \
-  'Never report completion while an item the return passed has no attached evidence'
+  '添付証拠がないまま完了を報告しない'
 
 # --- dependencies ----------------------------------------------------------
 
