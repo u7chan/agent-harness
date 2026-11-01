@@ -51,39 +51,41 @@ check_contains "return format documents video timelines" "$ROLE_TEXT" \
 check_contains "return format documents fallbacks" "$ROLE_TEXT" \
   'fallback: video -> screenshots; <reason>'
 check_contains "artifact lines belong to the item above them" "$ROLE_TEXT" \
-  'belongs to the item above it'
+  'その上の項目に属する'
 check_contains "a visual item returns at least one artifact" "$ROLE_TEXT" \
-  'required for every item whose'
+  '視覚的な全項目で必須'
 check_contains "a video timeline is optional and video-only" "$ROLE_TEXT" \
-  'optional, video-only, and written for the orchestrator'
+  '任意で動画専用'
 
 # --- evidence rules --------------------------------------------------------
 
 check_contains "screenshots are the default evidence" "$ROLE_TEXT" \
-  'Default to screenshots'
+  '既定はスクリーンショット'
 check_contains "video is for time-direction claims only" "$ROLE_TEXT" \
-  'only for a claim that lives in time'
+  '時間に依存する主張'
 check_contains "the video format is WebM" "$ROLE_TEXT" 'WebM'
-check_contains "GIF is out of scope" "$ROLE_TEXT" 'Never produce a GIF'
+check_contains "GIF is out of scope" "$ROLE_TEXT" 'GIF を生成せず'
 check_contains "text overlays are out of scope" "$ROLE_TEXT" 'drawtext'
 check_contains "artifacts live under PW_ARTIFACT_DIR" "$ROLE_TEXT" \
-  'Keep every artifact under `PW_ARTIFACT_DIR`'
+  'すべての成果物を `PW_ARTIFACT_DIR` の下に置き'
 check_contains "the attachment limit is 10 MB" "$ROLE_TEXT" '10 MB'
-check_contains "ffmpeg is optional" "$ROLE_TEXT" 'ffmpeg is optional'
+check_contains "ffmpeg is optional" "$ROLE_TEXT" 'ffmpeg は任意'
 check_contains "a dropped video is recorded as a fallback" "$ROLE_TEXT" \
-  'fall back to screenshots and record the fallback'
+  'スクリーンショットへフォールバックし'
+check_contains "a dropped video is recorded as a fallback" "$ROLE_TEXT" \
+  'フォールバックを返却に記録'
 check_contains "artifact names describe the content" "$ROLE_TEXT" \
-  'name it after its content'
+  '内容に基づいて名前を付ける'
 check_contains "the delegation body carries the evidence contract" "$ROLE_TEXT" \
-  'the [evidence](#evidence) contract'
+  '[evidence](#evidence) 契約'
 
 # --- role boundary ---------------------------------------------------------
 
 check_contains "ui-tester does not post PR comments" "$SKILL_TEXT" 'PR コメント投稿を行わない'
 check_contains "the reference states who posts the evidence" "$ROLE_TEXT" \
-  'posting belongs to the orchestrator'
+  '投稿は orchestrator に属する'
 check_contains "the orchestrator checks sizes before posting" "$ROLE_TEXT" \
-  'checks the size of every artifact before it posts'
+  '投稿前にすべての成果物のサイズを確認する'
 check_contains "SKILL.md defers to the evidence contract" "$SKILL_TEXT" \
   'references/ui-tester-role.md#evidence'
 
@@ -95,19 +97,19 @@ check_contains "SKILL.md defers to the evidence contract" "$SKILL_TEXT" \
 check_contains "the marker carries the full head SHA" "$ROLE_TEXT" \
   '<!-- pi-issue-pr-workflow:ui-evidence head=<head SHA> -->'
 check_contains "the orchestrator posts the returned artifacts" "$ROLE_TEXT" \
-  'The orchestrator posts the returned artifacts'
+  'orchestrator は返却された成果物を PR コメントへ投稿'
 check_contains "the evidence never goes into the PR body" "$ROLE_TEXT" \
-  'never into the'
+  'PR 本文には入れない'
 check_contains "one comment carries one head" "$ROLE_TEXT" \
-  'One comment carries one head'
+  '1 つのコメントは 1 つの head を扱う'
 check_contains "images are inline references with alt text" "$ROLE_TEXT" \
-  'an image is an inline reference with its alt text'
+  'alt テキスト付きのインライン参照'
 check_contains "videos render as standalone players" "$ROLE_TEXT" \
-  'a video is a standalone paragraph'
+  '動画は単独の段落'
 check_contains "every attachment is referenced" "$ROLE_TEXT" \
-  'every attachment is referenced'
+  'すべての添付を参照する'
 check_contains "comments.update cannot add attachments" "$ROLE_TEXT" \
-  'because `comments.update` cannot add attachments'
+  '`comments.update` では添付を追加できない'
 
 # The orchestrator's posting procedure: one comment per head, an explicit
 # grant, a pre-post existence and size check, and no guessing on failures.

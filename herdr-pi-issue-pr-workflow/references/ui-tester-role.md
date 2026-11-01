@@ -1,37 +1,20 @@
 # ui-tester role
 
-Record formats for the optional `ui-tester` role, the rules that decide
-whether it joins a run, and the environment separation values it uses. The
-role rules are in [Team specification](../SKILL.md#team-specification) and
-[ui-tester verification](../SKILL.md#ui-tester-verification); this file owns
-the participation decision, the default task, the evidence contract, its
-posting shape, and the one-line report forms.
+任意の `ui-tester` ロールの記録形式、そのロールが実行に参加するかを決めるルール、使用する環境分離の値を定める。ロールのルールは [Team specification](../SKILL.md#team-specification) と [ui-tester verification](../SKILL.md#ui-tester-verification) にある。このファイルは、参加判定、既定タスク、証跡契約、その投稿形式、1 行の報告形式を所有する。
 
 ## Participation
 
-Participation is decided at the Kickoff gate from the Issue body and comments
-plus the target repository's conventions. The decision adds no approval round,
-and the user can override it in the same reply. It is one of three:
+参加は Kickoff gate で、Issue 本文とコメント、および対象リポジトリの規約から決める。判定は承認ラウンドを追加せず、ユーザーは同じ返信で上書きできる。次の 3 つのいずれかである。
 
-- include — the Issue, its comments, or the repository conventions name a
-  user-visible surface (a screen, a page, a component, a rendered document, or
-  a message the user receives) that the change can affect;
-- exclude — the change is backend, CLI, or an internal refactor only, and no
-  user-visible surface is named;
-- ambiguous — the material does not settle it. Include the role and re-decide
-  from the Draft PR's actual diff.
+- include — Issue、そのコメント、またはリポジトリ規約が、変更の影響を受けうるユーザー可視のサーフェス（画面、ページ、コンポーネント、レンダリングされる文書、ユーザーが受け取るメッセージ）を名指ししている。
+- exclude — 変更がバックエンド、CLI、内部リファクタリングだけであり、ユーザー可視のサーフェスが名指しされていない。
+- ambiguous — 材料では確定できない。ロールを含め、Draft PR の実際の差分から再判定する。
 
-Never stack guesses to reach a decision: quote the Issue text that supports it
-in the one line, and keep the ambiguous state when the material does not settle
-the case.
+推測を積み重ねて判断に到達しない。判断を支える Issue の文面を 1 行に引用し、材料が確定しない場合は ambiguous のままにする。
 
-Playwright availability decides participation too. The Playwright skill is
-available when `playwright/scripts/pw.sh` exists and `PW_BIN` (default
-`playwright-cli`) is executable. When it is unavailable, exclude the role and
-name that reason in the line; a task the user supplies overrides this and is
-used for the delegation.
+Playwright の可用性も参加を決める。Playwright スキルは、`playwright/scripts/pw.sh` が存在し、`PW_BIN`（既定 `playwright-cli`）が実行可能な場合に利用できる。利用できない場合はロールを除外し、その理由を 1 行に記す。ユーザーが指定したタスクはこれを上書きし、委譲に使う。
 
-State the decision as exactly one line in the kickoff reply:
+判定はキックオフ返信にちょうど 1 行で示す。
 
 ```text
 ui-tester: 同梱（<根拠>）
@@ -41,69 +24,39 @@ ui-tester: 同梱（曖昧: <根拠>; Draft PR の差分で再判定）
 
 ## Default task
 
-The task is E2E verification of the Issue's user-visible surface through the
-Playwright skill. It is the task whenever this run supplies no other one, so it
-never waits for approval; a task this run supplies is preserved as-is and is
-never replaced by the default.
+タスクは、Playwright スキルを通した Issue のユーザー可視サーフェスの E2E 検証である。今回の実行が別のタスクを指定しない場合は常にこのタスクになるため、承認待ちにはならない。今回指定されたタスクはそのまま保持し、既定タスクで置き換えない。
 
 ## Evidence
 
-The evidence proves the acceptance surface the task names, and the orchestrator
-posts it to the PR comment. The `ui-tester` never posts it and never comments
-on GitHub itself: it returns the files and their mapping to the verification
-items, and posting belongs to the orchestrator
-([ui-tester verification](../SKILL.md#ui-tester-verification)).
+証跡はタスクが名指しする受け入れサーフェスを証明し、orchestrator が PR コメントへ投稿する。`ui-tester` 自身は証跡を投稿せず、GitHub へコメントもしない。ファイルと検証項目への対応を返し、投稿は orchestrator に属する（[ui-tester verification](../SKILL.md#ui-tester-verification)）。
 
-- Default to screenshots: the smallest count that proves the surface — the
-  before and after states, or the completed state.
-- Record a video only for a claim that lives in time (an animation, a drag, a
-  multi-step flow). The format is WebM, the playwright-cli default.
-- Never produce a GIF and never add text overlays with ffmpeg drawtext.
-  Explain a video in the PR comment instead, by returning a short timeline with
-  clip times (`0:00-0:05 <step> / 0:05-0:12 <step>`).
-- Keep every artifact under `PW_ARTIFACT_DIR` and name it after its content,
-  because a post needs the body reference and the attachment path to be the
-  same literal string, and a video has no alt text.
-- The attachment size limit is 10 MB. A larger video is re-encoded with ffmpeg
-  by adjusting resolution and CRF until it fits; ffmpeg is optional and is not
-  a repository dependency. When it is unavailable or the re-encoded video is
-  still over 10 MB, fall back to screenshots and record the fallback in the
-  return instead of handing over a file over the limit.
+- 既定はスクリーンショットとする。サーフェスを証明する最小枚数（変更前と変更後の状態、または完了状態）にする。
+- 動画は、時間に依存する主張（アニメーション、ドラッグ、複数ステップのフロー）にだけ使う。形式は WebM で、playwright-cli の既定である。
+- GIF を生成せず、ffmpeg drawtext でテキストを重ねない。動画は PR コメントで短いタイムライン（`0:00-0:05 <step> / 0:05-0:12 <step>`）を返して説明する。
+- すべての成果物を `PW_ARTIFACT_DIR` の下に置き、内容に基づいて名前を付ける。投稿では本文の参照と添付パスが同じリテラル文字列である必要があり、動画には alt テキストがないためである。
+- 添付サイズの上限は 10 MB。超える動画は、収まるまで解像度と CRF を調整して ffmpeg で再エンコードする。ffmpeg は任意で、リポジトリの依存ではない。利用できない、または再エンコード後も 10 MB を超える場合は、スクリーンショットへフォールバックし、上限超過のファイルを渡す代わりにそのフォールバックを返却に記録する。
 
-The orchestrator checks the size of every artifact before it posts one.
+orchestrator は投稿前にすべての成果物のサイズを確認する。
 
 ## Evidence posting
 
-The orchestrator posts the returned artifacts to a PR comment, never into the
-PR body; this section fixes the comment shape it builds from the return.
+orchestrator は返却された成果物を PR コメントへ投稿し、PR 本文には入れない。この節は、返却から組み立てるコメントの形を定める。
 
-The first line is the marker that identifies the head, with the full SHA:
+最初の行は head を特定するマーカーで、完全な SHA を付ける。
 
 ```text
 <!-- pi-issue-pr-workflow:ui-evidence head=<head SHA> -->
 ```
 
-The marker's `pi-issue-pr-workflow` prefix is an existing-comment identifier, not
-this skill's distribution path: comments already posted under it are searched
-for before posting, so keep the literal prefix unchanged even though the skill
-directory was renamed.
+マーカーの `pi-issue-pr-workflow` プレフィックスは既存コメントの識別子であり、このスキルの配布パスではない。投稿前に、その配下ですでに投稿されたコメントを検索するため、スキルディレクトリが改名されてもリテラルのプレフィックスは変更しない。
 
-The body then names every item the return passed and references each artifact
-next to the item it proves, using the artifact's absolute path exactly as the
-return gives it:
+本文は、返却が渡した全項目を列挙し、各成果物をそれが証明する項目の隣で参照する。成果物の絶対パスは返却が渡したとおりに正確に使う。
 
-- an image is an inline reference with its alt text,
-  `![<what it shows>](<absolute path>)`, and the same path goes into
-  `attachments` as `<absolute path>#<what it shows>`;
-- a video is a standalone paragraph `![](<absolute path>)` so it renders as a
-  player, with the return's timeline below it, because a video has no alt
-  text;
-- every attachment is referenced: a file the body does not reference is
-  appended by the gh CLI and makes the post-write check undecidable.
+- 画像は alt テキスト付きのインライン参照 `![<what it shows>](<absolute path>)` とし、同じパスを `attachments` に `<absolute path>#<what it shows>` として入れる。
+- 動画は単独の段落 `![](<absolute path>)` にしてプレイヤーとしてレンダリングし、その下に返却のタイムラインを置く。動画には alt テキストがないためである。
+- すべての添付を参照する。本文が参照しないファイルは gh CLI が追加し、投稿後の検証を判定不能にする。
 
-One comment carries one head. The same head reuses its comment only when the
-body already names every item the new return passes; a missing item means a
-new comment, because `comments.update` cannot add attachments.
+1 つのコメントは 1 つの head を扱う。同じ head のコメントを再利用できるのは、本文が新しい返却の全項目をすでに列挙している場合だけである。項目が欠けていれば新しいコメントにする。`comments.update` では添付を追加できないためである。
 
 ```text
 <!-- pi-issue-pr-workflow:ui-evidence head=<head SHA> -->
@@ -118,44 +71,32 @@ new comment, because `comments.update` cannot add attachments.
 
 ## Draft PR re-judgment
 
-After the Draft PR exists and before delegating, re-decide participation from
-the actual diff. Delegate when the diff changes a user-visible surface; when it
-does not, do not delegate and leave the pane to
-[Completion cleanup](#completion-cleanup). Report the re-judgment as the same
-one line as at kickoff.
+Draft PR が存在した後、委譲前に実際の差分から参加を再判定する。差分がユーザー可視のサーフェスを変更する場合は委譲する。変更しない場合は委譲せず、ペインは [Completion cleanup](#completion-cleanup) に委ねる。再判定はキックオフと同じ 1 行で報告する。
 
 ## Completion cleanup
 
-Completion closes only the `ui-tester` pane this workflow created that received
-no delegation, once every other completion condition is confirmed, with
-`herdr pane close <pane-id>`, and reports exactly one line:
+完了時には、他の完了条件をすべて確認した後、このワークフローが作成して一度も委譲していない `ui-tester` ペインだけを `herdr pane close <pane-id>` で閉じ、ちょうど 1 行を報告する。
 
 ```text
 ui-tester: <pane-id> をクローズ（未委譲）
 ```
 
-Never close a user-created pane or a pane that received a delegation, and close
-nothing when the run fails or stops before completion. Only that single pane is
-closed: `herdr tab close` and `herdr workspace close` would close delegated
-panes with it, so they are not used for this cleanup.
+ユーザーが作成したペインや、委譲を受けたペインは閉じない。実行が失敗した、または完了前に停止した場合は何も閉じない。閉じるのはその 1 ペインだけである。`herdr tab close` や `herdr workspace close` は委譲済みペインも一緒に閉じるため、このクリーンアップには使わない。
 
 ## Delegation body
 
-The body uses the delegation contract that applies to every role and records:
+本文は全ロールに適用する委譲契約を使い、次を記録する。
 
-- the task set at the Kickoff gate (this run's task, or the default);
-- the target PR and its head SHA;
-- the scope the task names (the user-visible surface for a default E2E task);
-- the [evidence](#evidence) contract: the artifacts to return, their location
-  under `PW_ARTIFACT_DIR`, the 10 MB limit, and the video conditions;
-- the environment separation block below;
-- the expected return: one line per verification item, each with its artifact
-  lines.
+- Kickoff gate で設定したタスク（今回のタスク、または既定タスク）。
+- 対象 PR とその head SHA。
+- タスクが名指しする範囲（既定の E2E タスクならユーザー可視サーフェス）。
+- [evidence](#evidence) 契約: 返す成果物、`PW_ARTIFACT_DIR` 下の場所、10 MB 上限、動画の条件。
+- 下記の環境分離ブロック。
+- 期待する返却: 検証項目ごとに 1 行、それぞれに成果物の行を付ける。
 
 ## Return report
 
-The return states the head SHA and one line per item; every artifact line
-belongs to the item above it, so the item-to-artifact mapping is positional:
+返却は head SHA と項目ごとの 1 行を示す。各成果物の行はその上の項目に属するため、項目と成果物の対応は位置で決まる。
 
 ```text
 item: <verification item>
@@ -168,29 +109,20 @@ reason: <required for unverified>
 fallback: video -> screenshots; <reason>
 ```
 
-- `artifact:` repeats once per file and is required for every item whose
-  acceptance surface is visual.
-- `timeline:` is optional, video-only, and written for the orchestrator to
-  quote in the PR comment.
-- `fallback:` is optional and records evidence that was replaced, such as a
-  video over the 10 MB limit.
+- `artifact:` はファイルごとに繰り返し、受け入れサーフェスが視覚的な全項目で必須である。
+- `timeline:` は任意で動画専用であり、orchestrator が PR コメントに引用するために書く。
+- `fallback:` は任意で、置き換えた証跡（10 MB を超えた動画など）を記録する。
 
-After a fix push, the same block is used for the re-verified items; the
-re-verification scope is fixed in
-[ui-tester verification](../SKILL.md#ui-tester-verification). Per-item findings stay
-in the report for the orchestrator's triage, and the mandatory-check rule for
-`completed` is the one that applies to every role
-([Delegation contract](../SKILL.md#delegation-contract)).
+修正 push 後も、再検証した項目には同じブロックを使う。再検証の範囲は [ui-tester verification](../SKILL.md#ui-tester-verification) に定める。項目ごとの指摘は orchestrator のトリアージ用に報告へ残し、`completed` の必須チェックルールは全ロールに適用するルールである（[Delegation contract](../SKILL.md#delegation-contract)）。
 
 ## Environment separation
 
-Take the values from the target repository's conventions. Keep the ui-tester's
-state away from the implementation agent's state:
+値は対象リポジトリの規約から取得する。ui-tester の状態を実装エージェントの状態から分離する。
 
 | State | Variable | Note |
 |---|---|---|
-| pi session storage | `PI_CODING_AGENT_SESSION_DIR` | `--session-dir` wins over the environment variable |
-| Playwright session | `PW_SESSION` | named session; `playwright` by default |
-| Playwright artifacts | `PW_ARTIFACT_DIR` | screenshots, traces, downloads |
-| application state | the application's own variables | follow the application's README or implementation |
-| application ports | the application's own variables | bind a port the implementation agent does not use |
+| pi session storage | `PI_CODING_AGENT_SESSION_DIR` | `--session-dir` が環境変数より優先する |
+| Playwright session | `PW_SESSION` | 名前付きセッション。既定は `playwright` |
+| Playwright artifacts | `PW_ARTIFACT_DIR` | スクリーンショット、トレース、ダウンロード |
+| application state | アプリケーション自身の変数 | アプリケーションの README または実装に従う |
+| application ports | アプリケーション自身の変数 | 実装エージェントが使わないポートを束縛する |

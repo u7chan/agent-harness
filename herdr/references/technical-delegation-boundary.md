@@ -1,60 +1,32 @@
 # Technical delegation boundary
 
-This document defines the minimal technical contract required to enforce the
-delegation edge rule within one Herdr server for normal Herdr delegation, and
-records what the runtime must provide before that rule can be a hard boundary.
-`herdr/SKILL.md` remains authoritative for candidate selection and stop
-conditions. [`async-delegation.md`](async-delegation.md) remains authoritative
-for the wrapper protocol. Those operational rules reduce mistakes, but they do
-not form a hard permission boundary by themselves.
+この文書は、通常の Herdr 委譲において、1 つの Herdr サーバー内で委譲の辺ルールを強制するために必要な最小の技術契約を定義し、そのルールをハードな境界にする前にランタイムが提供すべきものを記録する。候補選択と停止条件の正本は `herdr/SKILL.md` にある。ラッパーのプロトコルの正本は [`async-delegation.md`](async-delegation.md) にある。これらの運用ルールは誤りを減らすが、それ自体がハードな権限境界を構成するわけではない。
 
 ## Decision
 
-Normal delegation stays within one Herdr server. Within that server, the
-repository-side rule allows exactly three delegation edges, and every other
-edge is rejected:
+通常の委譲は 1 つの Herdr サーバー内に留まる。そのサーバー内で、リポジトリ側のルールは次の 3 種類の委譲の辺だけを許可し、それ以外の辺はすべて拒否する。
 
-1. **same-workspace** — the source and target belong to one workspace.
-2. **worktree-team** — the source and target belong to workspaces that
-   `herdr workspace list` reports with the same `worktree.repo_root`, where
-   exactly one of the two workspaces is a linked worktree. This covers the
-   parent checkout delegating into its linked worktree and the linked worktree
-   returning to the parent checkout, and it excludes sibling worktrees (both
-   linked) and two checkouts of one repository (both unlinked).
-3. **granted** — an unexpired record in the delegation-scope file covers the
-   workspace pair or the target repository, in either direction.
+1. **same-workspace** — 送信元と送信先が同じワークスペースに属する。
+2. **worktree-team** — 送信元と送信先のワークスペースが `herdr workspace list` で同じ `worktree.repo_root` を報告し、2 つのうち片方だけがリンク済み worktree である。これには親チェックアウトからリンク済み worktree への委譲と、リンク済み worktree から親チェックアウトへの返却が含まれる。兄弟 worktree（両方がリンク済み）と同じリポジトリの 2 つのチェックアウト（どちらも未リンク）は除外する。
+3. **granted** — 委譲スコープファイルの有効期限内の記録が、ワークスペースペアまたは対象リポジトリを両方向にカバーする。
 
-This applies to:
+これは次に適用する。
 
-- a new parent-to-child delegation;
-- a follow-up sent to an existing child; and
-- a child-to-parent result return.
+- 新しい親→子の委譲。
+- 既存の子への追加タスク。
+- 子→親の結果返却。
 
-Edge (2) is derived from server-side state at classification time; edge (3) is
-a record of human intent. Neither is an enforcement boundary: the hard
-guarantee must be enforced by the component that ultimately dispatches input
-or mutates the target. A skill instruction, wrapper, environment variable,
-pane label, model name, grant file, or UI focus is not caller authentication.
+辺 (2) は分類時点のサーバー側状態から導出する。辺 (3) は人間の意思の記録である。どちらも強制境界ではない。ハードな保証は、最終的に入力をディスパッチする、または対象を変更するコンポーネントが強制しなければならない。スキルの指示、ラッパー、環境変数、ペインラベル、モデル名、grant ファイル、UI フォーカスは、呼び出し元の認証ではない。
 
-The edge rule reduces accidents; it does not forbid an intended crossing. An
-intended crossing is expressed as a recorded grant or as a command a human
-runs, so a raw prompt that bypasses the check is not one of its forms.
+辺ルールは事故を減らすが、意図した越境を禁止するものではない。意図した越境は、記録された grant または人間が実行するコマンドとして表現する。チェックを迂回する生のプロンプトは、その形式の 1 つではない。
 
 ## Threat model
 
-Assume a same-user agent process can bypass the wrapper, invoke a raw writable
-transport directly, spoof caller-controlled environment or request values, and
-retry through an equivalent raw path when the wrapper is unavailable or
-rejects. The boundary trusts the enforcing server's authoritative pane/workspace
-state and an authenticated source identity bound to the transport or a trusted
-broker; that identity includes the server the source pane belongs to. A
-compromised enforcing server, or a user intentionally exercising
-administrative authority over all workspaces, is outside this boundary.
+同一ユーザーのエージェントプロセスが、ラッパーを迂回し、生の書き込み可能トランスポートを直接呼び出し、呼び出し元が制御する環境値やリクエスト値を偽装し、ラッパーが利用できない、または拒否した場合に同等の生パスで再試行できると仮定する。境界は、強制サーバーの正本ペイン/ワークスペース状態と、トランスポートまたは信頼されたブローカーに結び付いた認証済み送信元同一性を信頼する。その同一性には、送信元ペインが属するサーバーも含まれる。侵害された強制サーバー、またはユーザーが全ワークスペースに対する管理権限を意図的に行使する場合は、この境界の対象外である。
 
 ## Authorization invariant
 
-Every normal write-capable operation must be authorized from trusted,
-server-side state immediately before the target mutation or input dispatch.
+通常の書き込み可能操作はすべて、対象の変更または入力のディスパッチの直前に、信頼できるサーバー側状態から認可しなければならない。
 
 ```text
 source = authenticated pane context bound to this request or connection
@@ -68,240 +40,133 @@ allow iff
   edge(source.workspace_id, target.workspace_id) is allowed
 ```
 
-The invariant compares server identity before workspace identity and requires
-an allowed edge instead of a workspace ID match. The current Herdr transport is
-server-local: one server owns and dispatches both panes, so the enforcing
-server can evaluate `source.server_id == target.server_id` against its own
-identity. The comparison is still part of the invariant. An enforcing
-component that can act on more than one server, such as a trusted broker, must
-represent server identity explicitly and keep it separate from workspace
-identity, because different servers can expose the same workspace ID. A
-workspace ID match alone never authorizes a write.
+不変条件は、ワークスペース同一性より先にサーバー同一性を比較し、ワークスペース ID の一致ではなく許可された辺を要求する。現在の Herdr トランスポートはサーバーローカルであり、1 つのサーバーが両方のペインを所有してディスパッチするため、強制サーバーは自身の同一性に対して `source.server_id == target.server_id` を評価できる。それでもこの比較は不変条件の一部である。信頼されたブローカーのように複数サーバーに作用できる強制コンポーネントは、サーバー同一性を明示的に表現し、ワークスペース同一性と分離しなければならない。別サーバーが同じワークスペース ID を公開しうるためである。ワークスペース ID の一致だけでは書き込みを認可しない。
 
-The enforcing component must evaluate `edge()` from its own authoritative
-state and from human authorization it can attribute, not from
-caller-supplied values. Until it does, the repository-side implementation in
-`herdr/scripts/lib/scope.sh` remains an operational safeguard that only a
-conforming agent follows.
+強制コンポーネントは、自身の正本状態と、帰属を確認できる人間の認可から `edge()` を評価しなければならない。呼び出し元が指定した値から評価してはならない。それが実現するまで、`herdr/scripts/lib/scope.sh` のリポジトリ側実装は、準拠したエージェントだけが従う運用上の安全策にとどまる。
 
-The invariant is semantic rather than API-name based. It applies regardless of
-which command, API method, protocol message, alias, explicit target, implicit
-focus, terminal mapping, or future writable route reaches the target.
+不変条件は API 名ではなく意味に基づく。どのコマンド、API メソッド、プロトコルメッセージ、エイリアス、明示的な対象、暗黙のフォーカス、ターミナルマッピング、将来の書き込み可能経路が対象に到達しても適用する。
 
-A rejected request must produce no target input or target-side mutation.
+拒否されたリクエストは、対象への入力も対象側の変更も発生させてはならない。
 
 ## Source identity
 
-The authorization source must be bound to the transport or to an equivalent
-trusted broker capability. Caller-controlled values are hints at most and must
-not establish identity.
+認可の送信元は、トランスポートまたは同等の信頼されたブローカー能力に結び付いていなければならない。呼び出し元が制御する値はせいぜいヒントであり、同一性の確立に使ってはならない。
 
-In particular, the boundary must not trust these values as proof of the caller:
+特に、境界は次の値を呼び出し元の証明として信頼してはならない。
 
-- `HERDR_WORKSPACE_ID` or `HERDR_PANE_ID`;
-- a caller-supplied pane or workspace ID;
-- a target ID or terminal ID;
-- labels, agent metadata, or model names;
-- the delegation-scope file or a grant id;
-- UI focus or foreground state, including the machine selected in the Herdr
-  TUI.
+- `HERDR_WORKSPACE_ID` または `HERDR_PANE_ID`。
+- 呼び出し元が指定したペイン ID またはワークスペース ID。
+- 対象 ID またはターミナル ID。
+- ラベル、エージェントメタデータ、モデル名。
+- 委譲スコープファイルまたは grant id。
+- UI フォーカスまたはフォアグラウンド状態。Herdr TUI で選択中のマシンも含む。
 
-If trusted source context is absent or invalid, a write-capable operation must
-fail closed rather than fall back to unauthenticated behavior.
+信頼できる送信元コンテキストがない、または不正な場合、書き込み可能操作は未認証の動作へフォールバックせず fail closed しなければならない。
 
 ## Target resolution and atomicity
 
-The target must be resolved from current authoritative state at dispatch time.
-A successful earlier lookup is not sufficient authorization if the target can
-move, disappear, or resolve differently before the write.
+対象はディスパッチ時点の現在の正本状態から解決しなければならない。以前の検索が成功していても、書き込み前に対象が移動、消滅、または別に解決されうるなら、それだけでは認可として不十分である。
 
-Authorization and dispatch must therefore observe a consistent source/target
-state. For operations whose destination is implicit, such as focus-based
-input, resolve the effective destination as part of the same authorization
-step.
+したがって認可とディスパッチは、一貫した送信元/対象状態を観測しなければならない。フォーカスベースの入力のように宛先が暗黙的な操作では、実効的な宛先を同じ認可ステップの一部として解決する。
 
-The boundary does not choose a delegation target. Candidate selection remains
-an agent-facing responsibility in `herdr/SKILL.md`.
+境界は委譲先を選択しない。候補選択は `herdr/SKILL.md` におけるエージェント向けの責務のままである。
 
 ## Guarantee scope
 
 ### Parent to child
 
-A normal parent request may write only to another existing pane on the same
-server when the edge to that pane's workspace is allowed: the same workspace,
-the linked-worktree relation derived from `herdr workspace list` state, or an
-unexpired human grant. Self, missing, stale, cross-server, sibling worktree,
-duplicate checkout, and ungranted cross-workspace targets are rejected.
+通常の親リクエストは、対象ペインのワークスペースへの辺が許可されている場合にだけ、同じサーバー上の別の既存ペインへ書き込める。許可されるのは、同じワークスペース、`herdr workspace list` の状態から導出されるリンク済み worktree の関係、または有効期限内の人間の grant である。自身、存在しない対象、古い対象、別サーバー、兄弟 worktree、重複チェックアウト、grant のないクロスワークスペースの対象は拒否する。
 
-This isolation guarantee does not prove that the selected target is the
-intended child. The skill remains responsible for candidate selection.
+この分離保証は、選択した対象が意図した子であることを証明しない。候補選択の責任は引き続きスキルにある。
 
 ### Child to parent
 
-A result return receives the same edge rule in the reverse direction.
+結果返却には、同じ辺ルールを逆方向に適用する。
 
-This does not prove a direct-parent relationship. Introducing persisted
-parent/child relationship state is outside this minimal boundary.
+これは直接の親子関係を証明しない。永続化された親子関係の状態を導入することは、この最小境界の対象外である。
 
 ### Cross-workspace and cross-server operations
 
-Normal delegation has no cross-server exception: a target on another server
-is outside normal delegation even when its workspace ID matches the source's.
-Cross-workspace control is limited to the worktree-team shape and to recorded
-grants; anything beyond those edges requires a separately designed capability
-with explicit authorization.
+通常の委譲にサーバー間の例外はない。別サーバー上の対象は、そのワークスペース ID が送信元と一致しても通常の委譲の対象外である。クロスワークスペース制御は worktree-team の形と記録された grant に限定される。それ以外の辺には、明示的な認可を備えた別設計の capability が必要である。
 
-A runtime-enforced cross-workspace capability must be separately
-authenticated and must not be invocable or inheritable by an agent process.
-Human intent expressed in a prompt or environment variable is not such a
-capability; neither is a grant file that an agent process can write.
+ランタイムが強制するクロスワークスペース capability は、別途認証され、エージェントプロセスから呼び出しも継承もできてはならない。プロンプトや環境変数で表現された人間の意思はそのような capability ではない。エージェントプロセスが書き込める grant ファイルも同様である。
 
 ## Responsibility boundary
 
 | Component | Responsibility |
 | --- | --- |
-| `herdr/SKILL.md` | Resolve candidates within an allowed edge and stop safely when no valid candidate exists. |
-| Delegation wrappers and `scope-grant.sh` | Classify the edge from live workspace state and recorded grants, provide the normal operational path, and preflight the caller's own context. |
-| Herdr or a trusted broker | Bind authenticated source context, resolve the live target, and enforce the authorization invariant, including the allowed-edge rule and human authorization, for every write-capable path. |
+| `herdr/SKILL.md` | 許可された辺の中で候補を解決し、有効な候補がない場合は安全に停止する。 |
+| Delegation wrappers and `scope-grant.sh` | live なワークスペース状態と記録された grant から辺を分類し、通常の運用経路を提供し、呼び出し元自身のコンテキストを事前検証する。 |
+| Herdr or a trusted broker | 認証済み送信元コンテキストを結び付け、live な対象を解決し、すべての書き込み可能経路に対して、許可された辺のルールと人間の認可を含む認可の不変条件を強制する。 |
 
-The wrappers may reject disallowed edges early, but that is a convenience
-check. Raw access must receive the same authorization outcome as the wrapper
-path.
+ラッパーは許可されない辺を早期に拒否してよいが、それは利便性のためのチェックである。生のアクセスも、ラッパー経路と同じ認可結果を受けなければならない。
 
 ## Minimal upstream contract
 
-The enforcing component must provide these properties:
+強制コンポーネントは次の性質を提供しなければならない。
 
-1. Bind an unforgeable source server/pane/workspace context to each
-   write-capable request or connection.
-2. Resolve the effective target — its server and current owning pane — from
-   authoritative state.
-3. Apply the authorization invariant before any target input or mutation,
-   including the allowed-edge rule and any human-recorded grant, evaluated
-   from state the caller cannot forge.
-4. Cover all writable transports and future writable aliases by semantic
-   policy, not by a repository-maintained allowlist of method names.
-5. Fail closed when source context, target resolution, or authorization is
-   unavailable.
-6. Keep authorization/scope rejection distinguishable from transport failure.
+1. 偽造不能な送信元サーバー/ペイン/ワークスペースのコンテキストを、各書き込み可能リクエストまたは接続に結び付ける。
+2. 実効的な対象（そのサーバーと現在所有するペイン）を正本状態から解決する。
+3. 対象への入力または変更の前に、許可された辺のルールと呼び出し元が偽造できない状態から評価した人間記録の grant を含む認可の不変条件を適用する。
+4. リポジトリが管理するメソッド名の許可リストではなく、意味的なポリシーですべての書き込み可能トランスポートと将来の書き込み可能エイリアスをカバーする。
+5. 送信元コンテキスト、対象の解決、認可のいずれかが利用できない場合は fail closed する。
+6. 認可/スコープの拒否を通信失敗と区別できるようにする。
 
-Until these properties are provided by the enforcing runtime, this repository
-must describe its skill and wrappers as operational safeguards rather than a
-hard permission boundary.
+強制ランタイムがこれらの性質を提供するまで、このリポジトリはスキルとラッパーを、ハードな権限境界ではなく運用上の安全策として説明しなければならない。
 
 ## Upstream dependency
 
-The enforcing runtime is upstream Herdr (github.com/herdrdev/herdr). Two
-runtime-side goals recorded in u7chan/agent-harness#208 — delegation from a
-parent workspace into a worktree workspace team, and enforcement of the
-delegation boundary by the runtime rather than by model compliance — are
-addressed in this repository only as an operational rule (edges 2 and 3 of
-[Decision](#decision)). Making them a hard boundary needs two runtime
-capabilities:
+強制ランタイムは上流の Herdr（github.com/herdrdev/herdr）である。u7chan/agent-harness#208 に記録されたランタイム側の 2 つの目標、つまり親ワークスペースから worktree ワークスペースチームへの委譲と、モデル準拠ではなくランタイムによる委譲境界の強制は、このリポジトリでは運用ルール（[Decision](#decision) の辺 2 と 3）としてだけ扱っている。それらをハードな境界にするには、ランタイムの 2 つの capability が必要である。
 
-1. **An authorized delegation scope evaluated from trusted source context.**
-   This repository now derives the allowed edges from `herdr workspace list`
-   state (`herdr/scripts/lib/scope.sh`) and from a human-recorded grant file
-   (`herdr/scripts/scope-grant.sh`), but both remain caller-side: the
-   classifier trusts the calling process, and the grant file is writable by an
-   agent. The runtime equivalent must come from server-side state and
-   human-only authorization: for example, worktree-creator ownership recorded
-   server-side, or a human-only `herdr scope grant` / `herdr scope revoke` that
-   an agent process cannot invoke or inherit. Scope rejection must also stay
-   distinguishable from transport failure (property 6 of [Minimal upstream
-   contract](#minimal-upstream-contract)). Both goals depend on it: with a
-   scope evaluated from trusted source context, the runtime can allow the
-   authorized parent-to-worktree-team edge and reject a raw bypass by the same
-   rule.
-2. **`herdr worktree remove --path <path>`.** A closed worktree workspace
-   currently has to be reopened before it can be removed, because removal
-   keys on a live workspace ID.
+1. **信頼できる送信元コンテキストから評価される認可済み委譲スコープ。** このリポジトリは現在、許可された辺を `herdr workspace list` の状態（`herdr/scripts/lib/scope.sh`）と人間が記録した grant ファイル（`herdr/scripts/scope-grant.sh`）から導出するが、どちらも呼び出し元側のままである。分類器は呼び出しプロセスを信頼し、grant ファイルはエージェントが書き込める。ランタイム側の同等機能は、サーバー側状態と人間だけの認可から提供されなければならない。たとえば、サーバー側に記録された worktree 作成者の所有権、またはエージェントプロセスが呼び出しも継承もできない人間専用の `herdr scope grant` / `herdr scope revoke` である。スコープ拒否は通信失敗と区別できなければならない（[Minimal upstream contract](#minimal-upstream-contract) の性質 6）。両方の目標がこれに依存する。信頼できる送信元コンテキストから評価されるスコープがあれば、ランタイムは認可された親→worktree チームの辺を許可し、同じルールで生の迂回を拒否できる。
+2. **`herdr worktree remove --path <path>`。** 現在、閉じた worktree ワークスペースは削除前に開き直す必要がある。削除が live なワークスペース ID をキーにしているためである。
 
-Verified upstream state as of herdr 0.9.0 (measured 2026-09-14 against the
-installed `herdr` 0.9.0 binary, API protocol 22):
+herdr 0.9.0 時点の上流状態（2026-09-14 にインストール済み `herdr` 0.9.0 バイナリ、API プロトコル 22 で計測）:
 
-- No server-side scope or authorization surface exists. `herdr --help` lists
-  no scope or authorization command, and the 0.9.0 API schema
-  (`herdr api schema --json`, protocol 22) defines no caller-identity or
-  delegation-scope parameter for the write-capable routes normal delegation
-  uses: `AgentPromptParams` carries only `target`, `text`, and `wait`, and
-  `AgentStartParams` only `args`, `kind`, `name`, `pane_id`, and `timeout_ms`.
-  Upstream `src/app/api/agents.rs` at tag `v0.9.0` resolves the prompt target
-  from the request alone and consults no caller or source workspace identity
-  (https://github.com/herdrdev/herdr/blob/v0.9.0/src/app/api/agents.rs).
-- `herdr agent start` rejects a multi-line AGENT_ARG with
-  `{"error":{"code":"invalid_agent_argument","message":"agent arguments cannot be encoded safely for the target shell"},"id":"cli:agent:start"}`.
-- `herdr agent prompt` accepts `<TARGET> <TEXT>` only; it has no file or stdin
-  input. The upstream request to add one (herdrdev/herdr#3367) was closed as
-  not planned on 2026-08-29, with the response that the required `<text>`
-  argument stays the accepted input and the proposal belongs in Ideas
-  discussions, so prompt text must travel as a shell argument
-  (https://github.com/herdrdev/herdr/issues/3367).
-- `herdr worktree remove` accepts `--workspace <ID>` but not `--path`
-  (`unknown option: --path`, exit status 2). Closing the linked workspace
-  makes `herdr worktree list` omit `open_workspace_id`, and removal by the old
-  workspace ID fails with `workspace_not_found`; `herdr worktree open` then
-  assigns a new workspace ID.
+- サーバー側のスコープや認可のサーフェスは存在しない。`herdr --help` にスコープ/認可コマンドはなく、0.9.0 の API スキーマ（`herdr api schema --json`、プロトコル 22）は、通常の委譲が使う書き込み可能ルートに呼び出し元同一性や委譲スコープのパラメータを定義していない。`AgentPromptParams` は `target`、`text`、`wait` だけを、`AgentStartParams` は `args`、`kind`、`name`、`pane_id`、`timeout_ms` だけを持つ。タグ `v0.9.0` の上流 `src/app/api/agents.rs` は、リクエストだけからプロンプトの対象を解決し、呼び出し元や送信元ワークスペースの同一性を参照しない（https://github.com/herdrdev/herdr/blob/v0.9.0/src/app/api/agents.rs）。
+- `herdr agent start` は複数行の AGENT_ARG を `{"error":{"code":"invalid_agent_argument","message":"agent arguments cannot be encoded safely for the target shell"},"id":"cli:agent:start"}` で拒否する。
+- `herdr agent prompt` は `<TARGET> <TEXT>` だけを受け付け、ファイルや stdin 入力を持たない。入力を追加する上流リクエスト（herdrdev/herdr#3367）は 2026-08-29 に not planned としてクローズされ、必要な `<text>` 引数が引き続き受け付ける入力であり、提案は Ideas ディスカッションに属するという回答だった。そのためプロンプト本文はシェル引数として渡さなければならない（https://github.com/herdrdev/herdr/issues/3367）。
+- `herdr worktree remove` は `--workspace <ID>` を受け付けるが `--path` は受け付けない（`unknown option: --path`、終了状態 2）。リンク済みワークスペースを閉じると `herdr worktree list` は `open_workspace_id` を省略し、古いワークスペース ID での削除は `workspace_not_found` で失敗する。その後 `herdr worktree open` は新しいワークスペース ID を割り当てる。
 
-Until those capabilities exist, this repository remains an operational
-safeguard, not a permission boundary: its wrapper checks stop a conforming
-agent only, and a raw cross-workspace write still succeeds. The worktree-team
-edge is therefore an operational allowance: the procedure in
-[worktree-workspace-teams.md](worktree-workspace-teams.md) starts and drives
-teams inside a linked worktree through the wrapper path and keeps a
-user-driven fallback for the cases the rules do not cover.
+これらの capability が存在するまで、このリポジトリは権限境界ではなく運用上の安全策のままである。ラッパーのチェックは準拠したエージェントだけを止め、生のクロスワークスペース書き込みは依然として成功する。したがって worktree-team の辺は運用上の許可である。[worktree-workspace-teams.md](worktree-workspace-teams.md) の手順は、ラッパー経路でリンク済み worktree 内のチームを起動・駆動し、ルールがカバーしないケースのためにユーザー駆動のフォールバックを維持する。
 
 ## Compatibility and migration
 
-The repository-side wrappers do not need retries, queues, or relationship
-persistence for this boundary. The only added state is the human-recorded
-grant file, which is optional and consulted only for edges the shape rule does
-not derive.
+この境界のために、リポジトリ側のラッパーは再試行、キュー、関係の永続化を必要としない。追加される状態は、人間が記録する grant ファイルだけであり、任意で、形状ルールが導出しない辺にだけ参照される。
 
-A compatible rollout should preserve their current calling contract while the
-runtime begins requiring trusted source context for write-capable operations.
-Clients that cannot provide trusted source context must fail rather than gain
-an unauthenticated compatibility path.
+互換性のあるロールアウトでは、ランタイムが書き込み可能操作に信頼できる送信元コンテキストを要求し始めても、現在の呼び出し契約を維持するべきである。信頼できる送信元コンテキストを提供できないクライアントは、未認証の互換経路を得るのではなく失敗しなければならない。
 
-Read-only discovery may remain broader than write authorization. Seeing a pane
-in another workspace, or a matching pane or workspace ID on another server,
-never authorizes writing to it.
+読み取り専用の探索は、書き込みの認可より広いままでよい。別ワークスペースのペイン、または別サーバーの一致するペインやワークスペース ID が見えても、それへの書き込みは認可されない。
 
 ## Acceptance examples
 
 | Scenario | Required result |
 | --- | --- |
-| Source and target are distinct panes in the same workspace on the same server | allow |
-| Target is in a linked worktree workspace of the source's repository, with exactly one side linked | allow; the reverse return is allowed too |
-| Two sibling linked worktrees of one repository | reject with zero target write unless a human grant covers the edge |
-| Two checkouts of one repository (neither linked) | reject with zero target write unless a human grant covers the edge |
-| Target is in an unrelated workspace on the same server | reject with zero target write unless a human grant covers the edge |
-| A grant covering the edge is unexpired | allow |
-| A grant covering the edge is expired | reject with zero target write |
-| Same workspace ID, different server | reject with zero target write |
-| Target is the source pane | reject with zero target write |
-| Target is missing, stale, or moved across workspaces | reject or re-resolve; never write through an edge that no longer holds |
-| `herdr workspace list` fails or returns unusable state | reject with zero target write |
-| Caller spoofs environment, request IDs, or the grant file | bound source identity and server-side authorization win, or the request is rejected |
-| Wrapper is skipped, unavailable, or its rejection is followed by an equivalent raw write | same authorization decision applies |
-| Destination is selected indirectly rather than supplied explicitly | resolve effective target and apply the same invariant |
-| Child returns to a pane in another workspace | apply the same edge rule in the reverse direction |
+| 送信元と送信先が、同じサーバーの同じワークスペース内の別ペイン | allow |
+| 対象が送信元リポジトリのリンク済み worktree ワークスペースにあり、片方だけがリンク済み | allow。逆方向の返却も許可 |
+| 同じリポジトリの 2 つの兄弟リンク済み worktree | 人間の grant が辺をカバーしない限り、対象への書き込みなしで reject |
+| 同じリポジトリの 2 つのチェックアウト（どちらも未リンク） | 人間の grant が辺をカバーしない限り、対象への書き込みなしで reject |
+| 対象が同じサーバーの無関係なワークスペースにある | 人間の grant が辺をカバーしない限り、対象への書き込みなしで reject |
+| 辺をカバーする grant が有効期限内 | allow |
+| 辺をカバーする grant が期限切れ | 対象への書き込みなしで reject |
+| 同じワークスペース ID だが別サーバー | 対象への書き込みなしで reject |
+| 対象が送信元ペイン自身 | 対象への書き込みなしで reject |
+| 対象が存在しない、古い、またはワークスペース間を移動した | reject するか再解決する。成立しなくなった辺を通して書き込まない |
+| `herdr workspace list` が失敗、または利用不能な状態を返す | 対象への書き込みなしで reject |
+| 呼び出し元が環境、リクエスト ID、grant ファイルを偽装する | 結び付いた送信元同一性とサーバー側認可が優先されるか、リクエストが拒否される |
+| ラッパーがスキップされた、利用できない、または拒否後に同等の生書き込みが続く | 同じ認可判断を適用する |
+| 宛先が明示指定ではなく間接的に選択される | 実効的な対象を解決し、同じ不変条件を適用する |
+| 子が別ワークスペースのペインへ返却する | 同じ辺ルールを逆方向に適用する |
 
-These cases are sufficient to prove the edge rule. Route-specific coverage
-belongs with the runtime implementation so that its tests evolve with its
-actual writable surface.
+これらのケースは辺ルールを証明するのに十分である。経路固有のカバレッジは、実際の書き込み可能サーフェスとともにテストが進化するよう、ランタイム実装側に属する。
 
 ## Non-goals
 
-- adding a broad dispatcher to this repository;
-- adding persistent delegation graphs, queues, retries, or state machines;
-- authenticating a direct parent/child relationship;
-- treating the grant file as an authenticated capability rather than a record
-  of human intent;
-- widening the allowed edges beyond the worktree-team shape without a human
-  grant;
-- defining a cross-server delegation capability or a runtime-enforced
-  cross-workspace capability in this repository;
-- maintaining a version-specific inventory of runtime methods or internal
-  implementation symbols; and
-- treating skill compliance or wrapper usage as a hard permission boundary.
+- このリポジトリに広範なディスパッチャーを追加すること。
+- 永続的な委譲グラフ、キュー、再試行、状態マシンを追加すること。
+- 直接の親子関係を認証すること。
+- grant ファイルを、人間の意思の記録ではなく認証済み capability として扱うこと。
+- 人間の grant なしに、許可される辺を worktree-team の形より広げること。
+- サーバー間委譲 capability、またはランタイムが強制するクロスワークスペース capability をこのリポジトリで定義すること。
+- ランタイムのメソッドや内部実装シンボルのバージョン固有の一覧を維持すること。
+- スキル準拠やラッパー使用をハードな権限境界として扱うこと。

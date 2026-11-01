@@ -1,38 +1,24 @@
 # Worktree workspace teams
 
-Procedure for running a team inside a Herdr worktree workspace. The parent
-workspace starts the team, either directly or through one orchestrator
-([Orchestrator-first](#orchestrator-first)): the `worktree-team` edge (parent
-checkout to its linked worktree, and back) is derived from `herdr workspace
-list` state and is allowed by the delegation scope rules. Starting the team by
-hand remains the fallback for the cases the rules do not cover and for users
-who want to drive the team directly.
+Herdr の worktree ワークスペース内でチームを実行する手順。親ワークスペースがチームを直接起動するか、1 人の orchestrator を通して起動する（[Orchestrator-first](#orchestrator-first)）。`worktree-team` の辺（親チェックアウトからリンク済み worktree へ、およびその逆）は `herdr workspace list` の状態から導出され、委譲スコープのルールで許可される。チームを手作業で起動する方法は、ルールがカバーしないケースと、ユーザーがチームを直接操作したい場合のフォールバックとして残る。
 
-The scope rules are operational safeguards, not a permission boundary
-([`async-delegation.md`](async-delegation.md#workspace-and-worktree-ownership),
-[Technical delegation boundary](technical-delegation-boundary.md)).
+スコープのルールは運用上の安全策であり、権限境界ではない（[`async-delegation.md`](async-delegation.md#workspace-and-worktree-ownership)、[Technical delegation boundary](technical-delegation-boundary.md)）。
 
 ## When to use it
 
-The user asks for a task-per-worktree topology with one Herdr worktree
-workspace per task, its own branch, and its own roles.
+ユーザーが、タスクごとに 1 つの Herdr worktree ワークスペース、専用ブランチ、専用ロールを持つタスク・パー・worktree のトポロジを求めた場合に使う。
 
-Do not propose this topology for ordinary work on an independent branch.
-Shared work stays in the current workspace and worktree
-([`herdr/SKILL.md`](../SKILL.md)).
+通常の独立ブランチ作業では、このトポロジを提案しない。共有作業は現在のワークスペースと worktree に留める（[`herdr/SKILL.md`](../SKILL.md)）。
 
 ## Topology creation
 
-Create the worktree workspace from the repository's parent workspace when the
-user explicitly requests it:
+ユーザーが明示的に依頼した場合、リポジトリの親ワークスペースから worktree ワークスペースを作成する。
 
 ```bash
 herdr worktree create --cwd "$PWD" --branch <branch> [--no-focus]
 ```
 
-`--cwd` pins the source checkout; without it the call follows the client's
-focused workspace (see [Workspace and worktree ownership](async-delegation.md#workspace-and-worktree-ownership)).
-Read the linked workspace ID and its root pane from the creation response:
+`--cwd` は送信元チェックアウトを固定する。指定しない場合、呼び出しはクライアントでフォーカス中のワークスペースに従う（[Workspace and worktree ownership](async-delegation.md#workspace-and-worktree-ownership) 参照）。リンク済みワークスペース ID とそのルートペインは作成応答から読む。
 
 ```text
 result.workspace.workspace_id        linked workspace ID
@@ -40,61 +26,41 @@ result.worktree.open_workspace_id    the same linked workspace ID
 result.root_pane.pane_id             root pane, at an interactive shell
 ```
 
-Do not guess these IDs from display order, labels, or a later `worktree list`.
+これらの ID を表示順、ラベル、後からの `worktree list` から推測しない。
 
-Create the destination as a worktree, so the parent and the team workspace share a relation the shape rules derive. A plain workspace made with `herdr workspace create --cwd <path>` has no worktree information, so no edge is derivable for it; see [Workspaces without worktree information](async-delegation.md#workspaces-without-worktree-information).
+宛先は worktree として作成する。そうすれば親とチームのワークスペースが、形状ルールから導出できる関係を共有する。`herdr workspace create --cwd <path>` で作った通常のワークスペースには worktree 情報がないため、辺を導出できない。[Workspaces without worktree information](async-delegation.md#workspaces-without-worktree-information) を参照する。
 
 ## Starting and coordinating the team
 
-The parent may start and prompt the team when the edge from the parent
-workspace to the worktree workspace is allowed:
+親ワークスペースから worktree ワークスペースへの辺が許可されている場合、親はチームを起動してプロンプトを送れる。
 
-- `worktree-team` — the parent workspace and the worktree workspace report the
-  same `worktree.repo_root` and exactly one of them is a linked worktree. This
-  is the normal case, because `herdr worktree create` links the new workspace
-  to the checkout it was pinned to. It covers both the delegation into the
-  worktree and the return to the parent.
-- `granted` — for a pair the shape rules do not derive, a human records the
-  edge first. `--target-repo` covers every workspace of that repository, so it
-  does not have to be repeated per worktree:
+- `worktree-team` — 親ワークスペースと worktree ワークスペースが同じ `worktree.repo_root` を報告し、片方だけがリンク済み worktree である。`herdr worktree create` は新しいワークスペースを固定先のチェックアウトにリンクするため、これが通常のケースである。worktree への委譲と親への返却の両方をカバーする。
+- `granted` — 形状ルールが導出しないペアについて、人間が先に辺を記録する。`--target-repo` はそのリポジトリの全ワークスペースをカバーするため、worktree ごとに繰り返す必要はない。
 
 ```bash
 herdr/scripts/scope-grant.sh grant --source <parent-workspace> --target-repo <repo-root> --by <name> --task <issue-or-pr> [--ttl <seconds>]
 ```
 
-Sibling worktrees of one repository, a second checkout of the repository, and
-cross-server targets stay rejected. A rejected edge exits 3 with
-`scope-reject: <reason>` and writes nothing; report it instead of retrying
-around it.
+同じリポジトリの兄弟 worktree、リポジトリの 2 つ目のチェックアウト、別サーバーの対象は拒否される。拒否された辺は終了コード 3 で `scope-reject: <reason>` を出し、何も書き込まない。再試行で回避せず、そのまま報告する。
 
 ### Orchestrator-first
 
-In this composition the parent creates the worktree and starts exactly one
-orchestrator in its root pane; the orchestrator then creates and drives the
-team, and the parent creates no team panes.
+この構成では、親が worktree を作成し、そのルートペインに orchestrator をちょうど 1 人起動する。その後 orchestrator がチームを作成・駆動し、親はチームのペインを作成しない。
 
-1. Create the worktree as described in [Topology creation](#topology-creation)
-   and keep the linked workspace ID and root pane ID from that JSON response.
-2. Write the orchestrator's task file with the worktree environment block and
-   start the orchestrator from the parent workspace:
+1. [Topology creation](#topology-creation) のとおりに worktree を作成し、その JSON 応答からリンク済みワークスペース ID とルートペイン ID を保持する。
+2. worktree 環境ブロックを含む orchestrator のタスクファイルを書き、親ワークスペースから orchestrator を起動する。
 
    ```bash
    herdr/scripts/worktree-team-start.sh <root-pane-id> <orchestrator-name> \
      --provider <provider> --model <model> --thinking <level> <task-file>
    ```
 
-   This is the parent's only `worktree-team-start.sh` call into the worktree
-   workspace; the script's scope, startup, and return rules apply unchanged.
-3. The orchestrator owns the team inside the worktree workspace: creating
-   panes (`herdr/scripts/pane-layout.sh apply`), starting agents (`herdr agent
-   start`), and delegating tasks (`herdr/scripts/parent-delegate-async.sh`).
-   The parent must not pre-create role panes — `impl`, `review`, `ui-tester`, or
-   any other team member — or start those agents; one writer per team.
+   これが親による worktree ワークスペースへの唯一の `worktree-team-start.sh` 呼び出しである。スクリプトのスコープ、起動、返却のルールはそのまま適用される。
+3. orchestrator は worktree ワークスペース内のチームを所有する。ペインの作成（`herdr/scripts/pane-layout.sh apply`）、エージェントの起動（`herdr agent start`）、タスクの委譲（`herdr/scripts/parent-delegate-async.sh`）を行う。親は `impl`、`review`、`ui-tester` などのロールペインを事前に作ったり、それらのエージェントを起動したりしてはならない。チームごとに書き込み主体は 1 つである。
 
 #### Worktree environment block
 
-The parent always passes this block to the orchestrator, in the task file body
-passed to `worktree-team-start.sh`:
+親は常にこのブロックを orchestrator に渡す。`worktree-team-start.sh` に渡すタスクファイルの本文に含める。
 
 ```text
 workspace: <linked workspace ID>
@@ -105,36 +71,21 @@ base ref: <base ref the branch was created from>
 base commit: <commit ID of that base ref>
 ```
 
-- `workspace` and `pane` come only from Herdr JSON responses: the `herdr
-  worktree create` response (`result.workspace.workspace_id`,
-  `result.root_pane.pane_id`) or, after a reopen, the `herdr worktree open`
-  response. Do not guess them from display order, labels, focus, or a later
-  list ([`herdr/SKILL.md`](../SKILL.md#caller-pinning)).
-- `checkout` and `branch` come from the `herdr worktree list --cwd "$PWD"`
-  entry whose `open_workspace_id` is the linked workspace; do not construct
-  the path.
-- `base ref` and `base commit` are read with Git in the source checkout, not
-  from Herdr state; `base commit` is the commit `base ref` resolves to.
+- `workspace` と `pane` は Herdr の JSON 応答だけから取得する。`herdr worktree create` の応答（`result.workspace.workspace_id`、`result.root_pane.pane_id`）、または再オープン後の `herdr worktree open` の応答を使う。表示順、ラベル、フォーカス、後からの一覧から推測しない（[`herdr/SKILL.md`](../SKILL.md#caller-pinning)）。
+- `checkout` と `branch` は、`herdr worktree list --cwd "$PWD"` のうち `open_workspace_id` がリンク済みワークスペースであるエントリから取得する。パスを自分で組み立てない。
+- `base ref` と `base commit` は送信元チェックアウトで Git から読む。Herdr の状態からは読まない。`base commit` は `base ref` が解決するコミットである。
 
-The orchestrator uses the block as its operating context: its workspace and
-pane, the checkout the team works in, and the branch and base the task starts
-from. It passes the applicable values on in each team task.
+orchestrator はこのブロックを動作コンテキストとして使う。自身のワークスペースとペイン、チームが作業するチェックアウト、タスクの起点となるブランチと base である。該当する値は各チームタスクにも渡す。
 
-The rest of this section describes the direct composition, where the parent
-prepares and starts each role member itself; in the orchestrator-first
-composition that work belongs to the orchestrator, as above.
+この節の残りは、親が各ロールメンバーを自身で準備・起動する直接構成を説明する。orchestrator-first 構成では、その作業は上記のとおり orchestrator に属する。
 
-Prepare one pane per role and one task file per role before starting anything.
-The worktree root pane comes from the creation response, so split it for every
-additional role and read the new pane ID from the split response:
+何かを起動する前に、ロールごとに 1 つのペインと 1 つのタスクファイルを用意する。worktree のルートペインは作成応答から取得するため、追加ロールごとに分割し、分割応答から新しいペイン ID を読む。
 
 ```bash
 herdr pane split --pane <root-pane-id> --direction right --cwd <worktree-path> --no-focus
 ```
 
-Write the task body to a file first and confirm it is non-empty. `herdr agent
-prompt` rejects empty text with `empty_agent_prompt`, and
-`$(cat <task-file>)` on a missing file expands to exactly that empty string:
+タスク本文は先にファイルへ書き、空でないことを確認する。`herdr agent prompt` は空文字列を `empty_agent_prompt` で拒否し、存在しないファイルに対する `$(cat <task-file>)` はまさにその空文字列に展開される。
 
 ```bash
 cat > <task-file> <<'TASK'
@@ -145,48 +96,25 @@ TASK
 test -s <task-file>
 ```
 
-Start the team member and delegate the task body in one command, from the
-parent workspace:
+親ワークスペースから、チームメンバーの起動とタスク本文の委譲を 1 つのコマンドで行う。
 
 ```bash
 herdr/scripts/worktree-team-start.sh <pane-id> <role> --provider <provider> --model <model> --thinking <level> <task-file>
 ```
 
-The script classifies the edge before anything else, then runs the sequence
-that a manual start used to spell out: `herdr agent start <role> --kind pi
---pane <pane-id> --timeout 60000 -- --provider <provider> --model <model>
---thinking <level>`, a bounded wait of up to 60 seconds for the agent to
-become interactive, `herdr pane rename <pane-id> <role>`, and finally the task
-body through `parent-delegate-async.sh`, which appends the direct-parent
-return instruction. A failed start, readiness wait, or rename stops the
-command before the prompt, and the scope reject exits 3. A failed prompt is a
-transport failure: the agent stays started and renamed in its pane, so
-inspect that pane (`herdr agent get`, `herdr agent read`) instead of starting
-a second agent next to it. The agent flags are
-single-line tokens passed as discrete arguments: `herdr agent start` rejects a
-multi-line AGENT_ARG before anything starts:
+スクリプトは何よりも先に辺を分類し、手作業の起動が展開していた手順を実行する。`herdr agent start <role> --kind pi --pane <pane-id> --timeout 60000 -- --provider <provider> --model <model> --thinking <level>`、エージェントが対話可能になるまでの最大 60 秒の有界待機、`herdr pane rename <pane-id> <role>`、最後に `parent-delegate-async.sh` 経由のタスク本文（直接の親への返却指示を追加する）。起動、準備完了待機、rename のいずれかが失敗すると、プロンプトの前にコマンドが停止する。scope 拒否は終了コード 3 で終わる。プロンプトの失敗は通信失敗である。エージェントはペイン内で起動・rename されたままなので、隣に 2 人目を起動せず、そのペインを調べる（`herdr agent get`、`herdr agent read`）。エージェントのフラグは、個別の引数として渡す 1 行のトークンである。`herdr agent start` は複数行の AGENT_ARG を、何かが起動する前に拒否する。
 
 ```text
 {"error":{"code":"invalid_agent_argument","message":"agent arguments cannot be encoded safely for the target shell"},"id":"cli:agent:start"}
 ```
 
-Upstream declined file or stdin input for `herdr agent prompt`
-(herdrdev/herdr#3367, closed as not planned on 2026-08-29), so the body must
-arrive as one shell argument; the script expands it from the task file at the
-prompt call and keeps the agent flags in the separate start call.
+上流は `herdr agent prompt` のファイル/stdin 入力を受け付けなかった（herdrdev/herdr#3367、2026-08-29 に not planned としてクローズ）。そのため本文は 1 つのシェル引数として届けなければならず、スクリプトはプロンプト呼び出し時にタスクファイルから展開し、エージェントのフラグは別の起動呼び出しに保つ。
 
 ### Fallback: user-started teams
 
-When the edge is not allowed, when the user prefers to drive the team, or when
-the parent must not write into the worktree workspace, hand the user the
-commands above and let the user run them. The user then also owns progress:
-the parent collects results from the pull request or issue through the `gh`
-skill instead of receiving wrapper returns.
+辺が許可されない場合、ユーザーがチームを直接操作したい場合、または親が worktree ワークスペースへ書き込んではならない場合、上記のコマンドをユーザーに渡して実行してもらう。進行の所有もユーザーに移る。親はラッパーの返却を受け取らず、`gh` スキルを通して pull request や issue から結果を集める。
 
-For a self-contained team whose members do not return to the parent, report
-progress, a waiting decision, and completion with one fixed template, posted
-as a comment on the task's pull request, or on the issue while no pull request
-exists:
+メンバーが親へ返却しない自己完結型チームでは、進捗、判断待ち、完了を 1 つの固定テンプレートで報告する。タスクの pull request へのコメントとして投稿し、pull request がまだない場合は issue へ投稿する。
 
 ```text
 status: progress | decision-wait | completed
@@ -194,76 +122,39 @@ role: <role or agent name>
 body: <what changed, or the question, in one to three lines>
 ```
 
-A `decision-wait` report is a question for the parent or the user; the answer
-arrives as a reply on the same comment thread, and the team continues when it
-reads that reply. The parent does not send follow-up prompts to a fallback
-team. Do not mix the two modes in one team: either the parent starts and
-coordinates the team through the wrappers, or the user starts it and it
-reports through GitHub comments.
+`decision-wait` の報告は親またはユーザーへの質問である。回答は同じコメントスレッドへの返信として届き、チームはその返信を読むと続行する。親はフォールバックチームへ追加プロンプトを送らない。1 つのチームで 2 つのモードを混在させない。親がラッパー経由でチームを起動・調整するか、ユーザーが起動してチームが GitHub コメントで報告するかのどちらかである。
 
-Within the worktree workspace, the team's internal delegation is ordinary
-same-workspace delegation and the wrappers work between its panes.
+worktree ワークスペース内では、チーム内部の委譲は通常の同一ワークスペース委譲であり、ラッパーはそのペイン間で機能する。
 
 ## Cleanup
 
-Remove the worktree workspace by its live workspace ID:
+worktree ワークスペースは live なワークスペース ID で削除する。
 
 ```bash
 herdr worktree remove --workspace <linked-workspace-id>
 ```
 
-If the workspace was closed, `herdr worktree list --cwd "$PWD"` omits
-`open_workspace_id` for it, and removal by the old workspace ID fails with
-`workspace_not_found`. Reopen the worktree first, then remove it with the
-workspace ID from the open response, which is a new ID:
+ワークスペースが閉じられている場合、`herdr worktree list --cwd "$PWD"` はその `open_workspace_id` を省略し、古いワークスペース ID での削除は `workspace_not_found` で失敗する。先に worktree を再オープンし、open 応答のワークスペース ID（新しい ID）で削除する。
 
 ```bash
 herdr worktree open --cwd "$PWD" --path <worktree-path>
 herdr worktree remove --workspace <reopened-workspace-id>
 ```
 
-The linked workspace is not the only workspace involved. When the repository
-has no open workspace yet, `herdr worktree create` (and `worktree open`) also
-opens one for the source checkout: a single shell pane at the checkout path.
-The creation response names only the linked workspace, and `worktree remove`
-does not close the source workspace. If the source workspace was opened for
-this task and the user no longer needs it, close it after the linked workspace
-has been removed:
+関係するワークスペースはリンク済みワークスペースだけではない。リポジトリにまだ開いているワークスペースがない場合、`herdr worktree create`（および `worktree open`）は送信元チェックアウト用のワークスペースも開く。チェックアウトパスにシェルペインが 1 つある状態である。作成応答はリンク済みワークスペースだけを返し、`worktree remove` は送信元ワークスペースを閉じない。送信元ワークスペースがこのタスクのために開かれ、ユーザーがもう必要としない場合は、リンク済みワークスペースの削除後に閉じる。
 
 ```bash
 herdr workspace list
 herdr workspace close <source-workspace-id>
 ```
 
-Identify it in `herdr workspace list` as the entry whose
-`worktree.is_linked_worktree` is `false` and whose `worktree.checkout_path` is
-the source checkout. If the repository already had an open workspace, `create`
-reuses it, so there is nothing to close and an existing workspace in the same
-repository is not this task's to close. Closing the source workspace while a
-linked worktree workspace is still open fails with
-`workspace_group_close_required`; `herdr workspace close
-<source-workspace-id> --group` closes the source and its linked worktree
-workspaces together but leaves their Git worktree checkouts on disk, so use
-the two-step order above.
+`herdr workspace list` で、`worktree.is_linked_worktree` が `false` で、`worktree.checkout_path` が送信元チェックアウトであるエントリを特定する。リポジトリにすでに開いているワークスペースがあった場合、`create` はそれを再利用するため、閉じるものはなく、同じリポジトリの既存ワークスペースはこのタスクが閉じるものではない。リンク済み worktree ワークスペースが開いている間に送信元ワークスペースを閉じると `workspace_group_close_required` で失敗する。`herdr workspace close <source-workspace-id> --group` は送信元とそのリンク済み worktree ワークスペースをまとめて閉じるが、Git の worktree チェックアウトはディスクに残す。そのため上記の 2 段階の順序を使う。
 
-Removing by path is an upstream dependency: herdr 0.9.0 accepts only
-`--workspace` on `herdr worktree remove`, and `--path` fails with
-`unknown option: --path`. See the upstream dependency section of
-[Technical delegation boundary](technical-delegation-boundary.md).
+パスによる削除は上流の依存である。herdr 0.9.0 の `herdr worktree remove` は `--workspace` だけを受け付け、`--path` は `unknown option: --path` で失敗する。[Technical delegation boundary](technical-delegation-boundary.md) の上流依存の節を参照する。
 
 ## Prohibitions
 
-- Do not bypass a rejected edge with a raw cross-workspace
-  `herdr agent prompt` or `herdr agent start`. That is exactly the
-  model-compliance dependence the boundary document rejects: a non-conforming
-  model would succeed where a conforming one stops. An intended crossing is
-  recorded as a grant through `herdr/scripts/scope-grant.sh` or run by the
-  user ([Fallback: user-started teams](#fallback-user-started-teams)), never by
-  a raw prompt.
-- Do not hand a user-started fallback team's work back to the wrapper path by
-  targeting its workspace directly, and do not prompt a fallback team from the
-  parent.
-- Do not close or remove the workspace while its team is working.
-- Read-only discovery stays allowed: `herdr workspace list`,
-  `herdr worktree list --cwd "$PWD"`, and
-  `herdr pane list --workspace <linked-workspace-id>`.
+- 拒否された辺を、生のクロスワークスペース `herdr agent prompt` や `herdr agent start` で迂回しない。それはまさに境界文書が拒否したモデル準拠依存である。非準拠のモデルは、準拠モデルが停止する場面で成功してしまう。意図した越境は `herdr/scripts/scope-grant.sh` で grant として記録するか、ユーザーが実行する（[Fallback: user-started teams](#fallback-user-started-teams)）。生のプロンプトでは行わない。
+- ユーザーが起動したフォールバックチームの作業を、そのワークスペースを直接対象にしてラッパー経路へ戻さない。親からフォールバックチームへプロンプトを送らない。
+- チームが作業している間にワークスペースを閉じたり削除したりしない。
+- 読み取り専用の探索は引き続き許可する。`herdr workspace list`、`herdr worktree list --cwd "$PWD"`、`herdr pane list --workspace <linked-workspace-id>`。

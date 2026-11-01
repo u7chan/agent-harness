@@ -66,51 +66,51 @@ check_contains "Start the team passes only the new panes to the planner" \
 # --- reuse conditions ------------------------------------------------------
 
 check_contains "reuse follows a completed run" "$REFERENCE_TEXT" \
-  'follows a completed run of the same Issue'
+  '同じ Issue の完了済み実行に続く実行'
 check_contains "a stopped predecessor builds every pane" "$REFERENCE_TEXT" \
-  'stopped before'
+  'より前に停止した'
 check_contains "the idle check reads the agent status" "$REFERENCE_TEXT" \
   '`agent_status: idle`'
 check_contains "the specification check reads the footer" "$REFERENCE_TEXT" \
   '--source visible'
 check_contains "startup argv is not evidence" "$REFERENCE_TEXT" \
-  'Startup argv'
+  '起動 argv'
 
 # --- compaction ------------------------------------------------------------
 
 check_contains "the command is a raw TUI prompt" "$REFERENCE_TEXT" \
   'herdr agent prompt <pane-id> "/compact"'
 check_contains "the command is not a delegation" "$REFERENCE_TEXT" \
-  'This is not a delegation'
+  'これは委譲ではない'
 check_contains "a successful compaction adds its result line" "$REFERENCE_TEXT" \
   'Compacted from <N>'
 check_contains "a failed compaction adds an error line" "$REFERENCE_TEXT" \
   'Compaction failed: <reason>'
 check_contains "the indicator line is not the completion test" "$REFERENCE_TEXT" \
-  'never judge the outcome by searching'
+  'ペインを検索して結果を判定してはならない'
 check_contains "completion compares against the pre-send read" "$REFERENCE_TEXT" \
-  'that read did not have'
+  'その読み取りになかった結果行'
 check_contains "agent_status is never a completion signal" "$REFERENCE_TEXT" \
-  'never a completion signal'
+  '完了の信号にならない'
 check_contains "reuse covers panes from an earlier run" "$REFERENCE_TEXT" \
-  'an earlier run of the same Issue'
+  '同じ Issue の以前の実行'
 check_contains "a full reuse creates no pane" "$REFERENCE_TEXT" \
-  'create no pane'
+  'ペインを作らず'
 check_contains "SKILL.md skips the planner for a full reuse" "$TEAM_TEXT" \
   'プランナーも呼ばない'
 
 # --- handoff and other panes ----------------------------------------------
 
 check_contains "the facts travel in the task text" "$REFERENCE_TEXT" \
-  'is not a handoff'
+  'ハンドオフではない'
 check_contains "sequential runs link the Team profiles section" "$REFERENCE_TEXT" \
   '../SKILL.md#team-profiles'
 check_not_contains "sequential runs do not keep the old record anchor" "$REFERENCE_TEXT" \
   "$OLD_TEAM_RECORD_ANCHOR"
 check_contains "a single new role is split, not planned" "$REFERENCE_TEXT" \
-  'single-pane rules'
+  '単一ペイン規則'
 check_contains "the profile never makes a pane reusable" "$REFERENCE_TEXT" \
-  'A profile says nothing about panes'
+  'プロファイルはペインについて何も言わず'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
