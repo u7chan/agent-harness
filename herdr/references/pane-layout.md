@@ -45,7 +45,7 @@ herdr/scripts/pane-layout.sh apply --count <n> [--label <label>] [--pane <pane-i
 
 アスペクト範囲は希望であり、hard minimum は絶対条件なので、計画が失敗するのは最小条件を満たせない場合だけである。計画は使用した段階を `aspect_window` として報告する。全タブの全ペインが tier A に収まれば `"ok"`、いずれかのタブが tier B に落ちれば `"relaxed"`。各タブも自身のグリッドについて同じフィールドを持つ。
 
-247 x 47 の領域では、セル数は次のグリッドに対応する。
+247 x 47 の領域では、`cells` とグリッドの対応は次のとおり。
 
 | Cells | Grid (rows x columns) | `plan --count` |
 | --- | --- | --- |

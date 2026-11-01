@@ -63,6 +63,8 @@ check_contains "screenshots are the default evidence" "$ROLE_TEXT" \
   '既定はスクリーンショット'
 check_contains "video is for time-direction claims only" "$ROLE_TEXT" \
   '時間に依存する主張'
+check_contains "video is for time-direction claims only" "$ROLE_TEXT" \
+  'にだけ使う'
 check_contains "the video format is WebM" "$ROLE_TEXT" 'WebM'
 check_contains "GIF is out of scope" "$ROLE_TEXT" 'GIF を生成せず'
 check_contains "text overlays are out of scope" "$ROLE_TEXT" 'drawtext'
