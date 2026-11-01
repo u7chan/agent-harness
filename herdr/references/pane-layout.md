@@ -1,82 +1,51 @@
 # Pane layout
 
-`herdr/scripts/pane-layout.sh` turns a region in cells and a team size into a
-deterministic pane grid, then builds it. It exists because the guidance the
-Herdr CLI ships ("split a wide pane to the right and a narrow or tall pane
-down", [upstream skill](../SKILL.md#pane-operations)) leaves the split order
-and ratios to the agent, so the result varies between runs.
+`herdr/scripts/pane-layout.sh` は、セル単位の領域とチーム人数から決定的なペイングリッドを計算し、そのとおりに構築する。Herdr CLI が提供する指針（「広いペインは右へ、狭いまたは縦長のペインは下へ分割する」、[upstream skill](../SKILL.md#pane-operations)）では分割順序と比率がエージェントに委ねられ、実行ごとに結果が変わるため、このスクリプトが必要になる。
 
-Use it when one delegation round needs several sibling agent panes. Single-pane
-delegation keeps the existing rules of [`herdr/SKILL.md`](../SKILL.md).
+1 回の委譲で複数の兄弟エージェントペインが必要な場合に使う。単一ペインの委譲は [`herdr/SKILL.md`](../SKILL.md) の既存ルールを維持する。
 
 ```bash
 herdr/scripts/pane-layout.sh plan  --count <n> --area <WxH> [--label <label>]
 herdr/scripts/pane-layout.sh apply --count <n> [--label <label>] [--pane <pane-id>] [--cwd <dir>]
 ```
 
-- `--count` is the number of panes `apply` creates (the team). It must be at
-  least 2.
-- `plan` is pure computation: it never calls `herdr`, so it can be used to
-  preview a layout or to test the planner. `--area WxH` is the region in cells
-  and stands for both the caller rectangle and the tab area.
-- `apply` reads `herdr pane layout --pane <pane>`, plans from the live caller
-  rectangle and tab area, then creates the tab(s) and splits. `--pane`
-  defaults to `$HERDR_PANE_ID` and `--cwd` to `$PWD`; `--cwd` must be an
-  absolute existing directory and is passed to every creation.
-- `--label` names new tabs. Drafts (`plan`) and results (`apply`) are one
-  JSON document each, reporting the tab policy, the grid of every tab, the
-  capacity, and the aspect tier (`aspect_window`, see below).
+- `--count` は `apply` が作成するペイン数（チーム）で、2 以上でなければならない。
+- `plan` は純粋な計算で、`herdr` を呼ばない。レイアウトのプレビューやプランナーのテストに使える。`--area WxH` はセル単位の領域で、呼び出し元の矩形とタブ領域の両方を表す。
+- `apply` は `herdr pane layout --pane <pane>` を読み、live な呼び出し元の矩形とタブ領域から計画し、タブの作成と分割を行う。`--pane` の既定値は `$HERDR_PANE_ID`、`--cwd` の既定値は `$PWD`。`--cwd` は存在する絶対ディレクトリでなければならず、すべての作成操作に渡される。
+- `--label` は新しいタブの名前を指定する。下書き（`plan`）と結果（`apply`）はそれぞれ 1 つの JSON 文書で、タブ方針、各タブのグリッド、容量、アスペクト区分（`aspect_window`、後述）を報告する。
 
 ## Constants
 
 | Constant | Value | Meaning |
 | --- | --- | --- |
-| hard minimum | 55 x 14 cells | Smallest pane this skill treats as usable. Always required. |
-| cell ratio | 0.48 | Cell width divided by cell height. |
-| aspect window | 0.7 – 2.6 | Preferred pixel aspect of one planned pane. A plan reports `"relaxed"` when no candidate grid keeps every one of its panes inside it. |
-| target aspect | 1.4 | Preferred pixel aspect within the window. |
+| hard minimum | 55 x 14 cells | このスキルが使用可能とみなす最小ペイン。常に必須。 |
+| cell ratio | 0.48 | セル幅をセル高さで割った値。 |
+| aspect window | 0.7 – 2.6 | 計画する 1 ペインの望ましいピクセルアスペクト。どの候補グリッドも全ペインをこの範囲に収められない場合、計画は `"relaxed"` を報告する。 |
+| target aspect | 1.4 | 範囲内で望ましいピクセルアスペクト。 |
 
-A cell's pixel aspect is `0.48 * (region_width / cols) / (region_height / rows)`,
-that is, the width and height the region gives one pane, converted to pixels.
+セルのピクセルアスペクトは `0.48 * (region_width / cols) / (region_height / rows)`、つまり領域が 1 ペインに与える幅と高さをピクセルに変換した値である。
 
 ## Grid selection
 
-For one region and a required cell count, the planner enumerates every column
-count from 1 to `floor(width / 55)` with `rows = ceil(cells / cols)` and picks
-the grid in two tiers:
+1 つの領域と必要なセル数に対して、プランナーは列数 1 から `floor(width / 55)` までを列挙し、`rows = ceil(cells / cols)` として、2 つの段階でグリッドを選ぶ。
 
-- **tier A** — the planned rectangles all meet the hard minimum (55 x 14
-  cells) **and** their pixel aspect is inside the window;
-- **tier B** — used only when tier A has no candidate for this size: every
-  pane meets the hard minimum, whatever its aspect.
+- **tier A** — 計画する全矩形が hard minimum（55 x 14 セル）を満たし、**かつ**ピクセルアスペクトが範囲内にある。
+- **tier B** — このサイズで tier A の候補がない場合にだけ使う。全ペインが hard minimum を満たせば、アスペクトは問わない。
 
-A tier is decided on the pane rectangles the plan would create, including the
-remainder pane of a partially filled last row, because that pane spans the
-rest of the row instead of one uniform cell. `plan --count 9 --area 247x50`
-keeps a 3 x 4 grid, but its last row is two 123 x 17 and 124 x 17 panes (aspect
-3.47 and 3.50), so it reports `"relaxed"` even though the uniform 61.75 x
-16.67 cell of that grid would be inside the window.
+段階は、計画が作成するペイン矩形で判定する。最後の行が部分的に埋まる場合の余りペインも含める。そのペインは均一なセル 1 つではなく行の残り幅を占めるためである。`plan --count 9 --area 247x50` は 3 x 4 グリッドを維持するが、最後の行は 123 x 17 と 124 x 17 の 2 ペイン（アスペクト 3.47 と 3.50）になるため、そのグリッドの均一セル 61.75 x 16.67 が範囲内でも `"relaxed"` を報告する。
 
-Within the best tier that has candidates, the grids are ranked in this order:
+候補のある最良の段階では、グリッドを次の順でランク付けする。
 
-1. fewest empty slots (`rows * cols - cells`);
-2. largest worst-case fill, `min(cell width / 55, cell height / 14)`;
-3. aspect closest to the target 1.4;
-4. fewest rows, then fewest columns (the widest grid).
+1. 空きスロットが最少（`rows * cols - cells`）。
+2. 最悪ケースの埋まり具合が最大（`min(cell width / 55, cell height / 14)`）。
+3. アスペクトが target 1.4 に最も近い。
+4. 行数が最少、次に列数が最少（最も横長のグリッド）。
 
-Ranking uses the uniform cell, `width/cols` x `height/rows`, as a shape proxy:
-the tier decides which sizes are acceptable, and the ranking only orders the
-candidates inside that tier. Both numbers are therefore documented apart —
-ranks never inspect the remainder pane, and the `aspect_window` field never
-uses the uniform cell.
+ランキングは形状の代理として均一セル `width/cols` x `height/rows` を使う。どのサイズを受け入れるかは段階が決め、ランキングはその段階内の候補を並べるだけである。そのため両者の数値は別々に記録する。ランクは余りペインを参照せず、`aspect_window` フィールドは均一セルを使わない。
 
-The window is a preference and the minimum is hard, so a plan only fails when
-the minimum cannot be met. The plan reports the tier it used as
-`aspect_window`: `"ok"` when every planned pane of every tab stayed in tier A,
-`"relaxed"` when any tab fell back to tier B. Each tab carries the same field
-for its own grid.
+アスペクト範囲は希望であり、hard minimum は絶対条件なので、計画が失敗するのは最小条件を満たせない場合だけである。計画は使用した段階を `aspect_window` として報告する。全タブの全ペインが tier A に収まれば `"ok"`、いずれかのタブが tier B に落ちれば `"relaxed"`。各タブも自身のグリッドについて同じフィールドを持つ。
 
-For a 247 x 47 region, `cells` maps to a grid as follows:
+247 x 47 の領域では、`cells` とグリッドの対応は次のとおり。
 
 | Cells | Grid (rows x columns) | `plan --count` |
 | --- | --- | --- |
@@ -87,89 +56,47 @@ For a 247 x 47 region, `cells` maps to a grid as follows:
 | 12 | 3 x 4 | 11 |
 | 16 | two tabs | 15 |
 
-The `--count` column is `cells - 1` because in the current tab the caller pane
-occupies cell 0 (see [Tab policy](#tab-policy)). The grid shapes are the
-acceptance list of Issue #217; its 12-cell case is the largest single-tab
-layout for this region, and 16 cells exceed the tab's capacity of 12.
+`--count` 列が `cells - 1` なのは、現在のタブでは呼び出し元ペインがセル 0 を占めるためである（[Tab policy](#tab-policy) 参照）。グリッド形状は Issue #217 の受け入れリストであり、12 セルのケースがこの領域で単一タブに収まる最大レイアウト、16 セルはタブ容量 12 を超える。
 
-Rows other than the last are filled completely. A partially filled last row
-keeps its own, smaller column count, and the last pane of that row absorbs the
-remaining width; no pane is created for an empty slot.
+最後の行以外は完全に埋める。最後の行が部分的に埋まる場合は、その行だけ小さい列数を保持し、行の最後のペインが残りの幅を吸収する。空きスロットのためにペインは作成しない。
 
 ## Split order and ratios
 
-`herdr pane split --ratio R --direction right|down` keeps the share `R` of the
-split region in the source pane and gives `1 - R` to the new pane, which
-becomes the second child: on the right for `right`, below for `down`. The
-`ratio` field of `herdr pane layout` is the same value. Measured on Herdr
-0.9.1: splitting a 247-wide pane with `--ratio 0.33` left 82 columns to the
-source pane and gave 165 columns to the new pane.
+`herdr pane split --ratio R --direction right|down` は、分割領域のうち `R` の割合を送信元ペインに残し、`1 - R` を新しいペインに与える。新しいペインは 2 番目の子になり、`right` なら右、`down` なら下に置かれる。`herdr pane layout` の `ratio` フィールドも同じ値である。Herdr 0.9.1 で計測したところ、幅 247 のペインを `--ratio 0.33` で分割すると、送信元ペインに 82 列、新しいペインに 165 列が割り当てられた。
 
-The planner emits the operations that produce its rectangles from the caller
-pane:
+プランナーは、呼び出し元ペインから自身の矩形を生成する操作を出力する。
 
-1. row cuts, top to bottom: the source keeps the next row, the remainder
-   becomes the following rows;
-2. then each row, left to right: the source keeps the next cell, the remainder
-   becomes the rest of the row.
+1. 行の切断を上から下へ行う。送信元は次の行を保持し、残りは以降の行になる。
+2. 次に各行を左から右へ処理する。送信元は次のセルを保持し、残りはその行の残りになる。
 
-Ratios are relative to the region the split source holds at that moment,
-rounded to six decimals. Planned rectangles are relative to the region origin
-and use `floor` boundaries, so `apply` can compare them with the live layout
-within one cell per dimension; the actual panes are not resized afterwards.
+比率は、その時点で分割元が保持している領域に対する相対値で、小数点以下 6 桁に丸める。計画する矩形は領域の原点に対する相対値で、`floor` の境界を使う。そのため `apply` は live なレイアウトと 1 次元あたり 1 セルの誤差で比較できる。実際のペインは後からリサイズしない。
 
 ## Tab policy
 
-`capacity` is the largest pane count a full grid of the tab area can hold at
-the hard minimum, so every size up to it is placeable. For a 247 x 47 tab that
-is 12 panes (3 rows x 4 columns). Each tab reports its own `aspect_window`:
-splitting 247 x 47 into 8 and 7 panes keeps both tabs `"ok"`, while 110 x 40
-split into 3 and 2 panes reports `"relaxed"` for both, because each of their
-last rows is a single 110 x 20 pane.
+`capacity` は、タブ領域の完全なグリッドが hard minimum で保持できる最大ペイン数である。そのため、それ以下のサイズはすべて配置できる。247 x 47 のタブでは 12 ペイン（3 行 x 4 列）。各タブは自身の `aspect_window` を報告する。247 x 47 を 8 ペインと 7 ペインに分割すると両タブとも `"ok"` だが、110 x 40 を 3 ペインと 2 ペインに分割すると、どちらも最後の行が 110 x 20 の 1 ペインになるため両方 `"relaxed"` になる。
 
-- **current** — a grid for `count + 1` cells exists in the caller rectangle
-  (tier A or tier B). The caller pane is cell 0 (top-left) and the plan covers
-  the caller's rectangle with `count + 1` cells, so `apply` creates exactly
-  `count` panes and does not change the caller's position.
-- **new** — no such grid exists. The caller pane is left untouched and the
-  whole team goes to `ceil(count / capacity)` new tabs, sized as evenly as
-  possible with the larger tabs first. Tab labels are `<label>`, `<label>-2`,
-  `<label>-3`; without `--label` the tabs keep the default label.
+- **current** — 呼び出し元の矩形に `count + 1` セルのグリッドが存在する（tier A または tier B）。呼び出し元ペインはセル 0（左上）で、計画は呼び出し元の矩形を `count + 1` セルで覆う。そのため `apply` はちょうど `count` 個のペインを作成し、呼び出し元の位置を変えない。
+- **new** — そのようなグリッドが存在しない。呼び出し元ペインはそのままにし、チーム全体を `ceil(count / capacity)` 個の新しいタブへ配置する。タブはできるだけ均等にし、大きいタブを先にする。タブラベルは `<label>`、`<label>-2`、`<label>-3` となる。`--label` がなければ既定のラベルを使う。
 
-`apply` pins `--workspace` on `tab create` from the workspace ID reported by
-`herdr pane layout`, so a new tab always lands in the caller's workspace.
+`apply` は `tab create` に `--workspace` を付け、`herdr pane layout` が報告したワークスペース ID で固定する。そのため新しいタブは常に呼び出し元のワークスペースに作られる。
 
 ## Exceptions to the skill's pane rules
 
-Both exceptions apply only to a planned multi-pane layout built by this script:
+どちらの例外も、このスクリプトが構築する計画済みのマルチペインレイアウトにだけ適用する。
 
-- an existing empty shell pane is not adopted as a delegation target. The
-  planner cannot move or resize an unrelated pane into a planned cell, so a
-  planned layout is built from the caller pane and new tabs. Single-pane
-  delegation keeps the existing reuse rule of [`herdr/SKILL.md`](../SKILL.md#when-the-requested-agent-is-absent).
-- creating a tab is allowed without asking when the planner determines that
-  the current tab cannot hold the team. The script never creates a workspace
-  or worktree; that stays behind an explicit user request.
+- 既存の空のシェルペインを委譲先として流用しない。プランナーは無関係なペインを計画したセルへ移動・リサイズできないため、計画済みレイアウトは呼び出し元ペインと新しいタブから構築する。単一ペインの委譲は [`herdr/SKILL.md`](../SKILL.md#when-the-requested-agent-is-absent) の既存の再利用ルールを維持する。
+- 現在のタブにチームが収まらないとプランナーが判断した場合、確認なしでタブを作成してよい。スクリプトはワークスペースや worktree を作成しない。それには引き続きユーザーの明示的な依頼が必要。
 
 ## Failure behavior
 
-`plan` exits non-zero with a reason on stderr only when the hard minimum
-cannot be met (an area smaller than 55 x 14 cells for even one pane); the
-aspect window alone never fails a plan. `apply` stops the same way, without
-repairs, when:
+`plan` が stderr に理由を出して非 0 で終了するのは、hard minimum を満たせない場合（1 ペインでも 55 x 14 セルより小さい領域）だけである。アスペクト範囲だけでは計画は失敗しない。`apply` も次の場合に修復せず同じように停止する。
 
-- `herdr pane layout` fails or does not describe the requested pane;
-- a `tab create` or `pane split` fails, or its response carries no ID;
-- a built pane's rectangle differs from the plan by more than one cell in any
-  dimension.
+- `herdr pane layout` が失敗した、または要求したペインを記述していない。
+- `tab create` または `pane split` が失敗した、または応答に ID がない。
+- 構築したペインの矩形が、計画とどの次元でも 1 セルを超えて異なる。
 
-The script never moves, resizes, closes, or focuses an existing pane, and it
-passes `--no-focus` to every tab and split it creates, so it never takes focus
-from the user.
+スクリプトは既存ペインの移動、リサイズ、クローズ、フォーカスを行わない。作成するすべてのタブと分割に `--no-focus` を渡すため、ユーザーからフォーカスを奪わない。
 
 ## Non-goals
 
-Following window resizes, continuous tiling management, configurable
-thresholds, and the unpublished `layout.apply` socket method are out of scope.
-The constants above live in `herdr/scripts/pane-layout.sh`, which is
-authoritative; this page documents them.
+ウィンドウのリサイズへの追従、継続的なタイル管理、設定可能なしきい値、未公開の `layout.apply` socket メソッドは対象外である。上記の定数は `herdr/scripts/pane-layout.sh` にあり、同スクリプトが正本である。このページはそれを文書化したものである。

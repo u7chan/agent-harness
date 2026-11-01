@@ -1,55 +1,45 @@
 # Multi-PR Issues
 
-Shapes for the target-PR and close-keyword rules in
-[Kickoff gate](../SKILL.md#kickoff-gate) and
-[Completion](../SKILL.md#completion). This file fixes what a run writes down;
-the rules stay in `SKILL.md`.
+[Kickoff gate](../SKILL.md#kickoff-gate) と [Completion](../SKILL.md#completion) にある対象 PR とクローズキーワードのルールの形。このファイルは、実行が何を書き残すかを定める。ルール自体は `SKILL.md` にある。
 
 ## Split example
 
-An Issue can plan more than one PR. A common split keeps the first PR
-self-contained and stacks the second on it:
+Issue は複数の PR を計画できる。一般的な分割では、最初の PR を自己完結させ、2 つ目をその上に積む。
 
 | PR | Scope | Base branch | Work branch | Closing keyword |
 |---|---|---|---|---|
-| ① infrastructure | model, API, migrations | the repository's base branch | `feat/issue-<n>-model` | none |
-| ② UI | screens and flows on top of ① | ①'s work branch | `feat/issue-<n>-ui` | only on the position the plan and the repository conventions allow |
+| ① infrastructure | model、API、マイグレーション | リポジトリの base ブランチ | `feat/issue-<n>-model` | なし |
+| ② UI | ①の上の画面とフロー | ①の work ブランチ | `feat/issue-<n>-ui` | 計画とリポジトリ規約が許可する位置にだけ付ける |
 
-② is stacked: its base branch is ①'s work branch, not the repository's base
-branch, and ② starts only after ①'s PR exists. In the example both PRs keep a
-non-closing reference, so ①'s merge cannot close the Issue before ② lands.
+② は stacked である。base ブランチはリポジトリの base ではなく ① の work ブランチで、② は ① の PR が存在してから開始する。例では両方の PR が非クローズ参照を使うため、① がマージされても ② が着地する前に Issue を閉じることはない。
 
-Each run writes its own kickoff and report; the Issue is completed by the
-sequence of runs, not by one run. A later run can keep the previous run's role
-panes and compact them for its own tasks; that procedure is in
-[Sequential runs](sequential-runs.md).
+各実行は自身のキックオフと報告を書き、Issue は 1 回の実行ではなく一連の実行で完了する。後続の実行は前回のロールペインを維持し、自身のタスクのために compact できる。その手順は [Sequential runs](sequential-runs.md) にある。
 
 ## Per-run completion report
 
-A run reports on its own PR, not on the Issue:
+実行は Issue ではなく自身の PR について報告する。
 
 | Field | Value for the run |
 |---|---|
-| PR | the run's Draft PR |
-| Head | the commit covered by the latest verified Review-skill review (initial review or scoped recheck) |
-| Verification | the checks that passed on that head |
-| Issue state | the Issue may stay open until the last PR |
-| Close keyword | the decision made for this run's position |
+| PR | その実行の Draft PR |
+| Head | 最新の検証済み Review スキルレビュー（初回レビューまたはスコープ付き再チェック）が対象としたコミット |
+| Verification | その head で成功したチェック |
+| Issue state | Issue は最後の PR まで開いたままでよい |
+| Close keyword | その実行の位置に対して下した判断 |
 
 ## Target PR notation
 
 | Plan | Proposal and report value |
 |---|---|
-| one PR, no multi-PR plan described | `対象 PR: single` |
-| first of two | `対象 PR: 1/2` |
-| second of two | `対象 PR: 2/2` |
+| 1 つの PR で、複数 PR の計画を記述しない | `対象 PR: single` |
+| 2 つのうち最初 | `対象 PR: 1/2` |
+| 2 つのうち 2 つ目 | `対象 PR: 2/2` |
 
-The kickoff proposal, the delegation body, and the completion report use the
-same value.
+キックオフの提案、委譲本文、完了報告は同じ値を使う。
 
 ## Reference spellings
 
-Non-closing spelling, as used by the example above:
+上の例で使う非クローズの表記。
 
 ```text
 Related to #<issue>
@@ -57,7 +47,7 @@ Refs #<issue>
 feat(<scope>): <subject> (#<issue>)
 ```
 
-Closing spellings:
+クローズの表記。
 
 ```text
 close #<issue>        closes #<issue>
@@ -65,4 +55,4 @@ fix #<issue>          fixes #<issue>
 resolve #<issue>      resolves #<issue>
 ```
 
-The repository's own conventions win over both lists.
+リポジトリ自身の規約がどちらの一覧よりも優先する。
