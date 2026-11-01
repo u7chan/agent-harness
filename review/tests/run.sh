@@ -290,7 +290,7 @@ expect_doc_keywords criteria-preserves-zero-findings "$REVIEW_CRITERIA" '`0 find
 expect_doc_keywords lens-not-checklist "$REVIEW_LENSES" 'チェックリスト' 'finding'
 expect_doc_keywords lens-no-finding-per-lens "$REVIEW_LENSES" '一件ずつ' 'lens'
 expect_doc_keywords skill-no-approve "$REVIEW_SKILL" 'マージ' 'クローズ' '`APPROVE`'
-expect_doc_keywords workflow-requires-recheck "$WORKFLOW_SKILL" 'recheck all prior unresolved findings' 'latest-head review'
+expect_doc_keywords workflow-requires-recheck "$WORKFLOW_SKILL" '以前の未解決指摘をすべて再チェック' '最新 head をレビュー'
 expect_doc_keywords posting-order "$POSTING_REFERENCE" '再チェック返信' '最新 head のレビュー' 'LGTM' '順序'
 expect_doc_keywords posting-verifies-lgtm-head "$POSTING_REFERENCE" '明示指示'
 
@@ -302,9 +302,9 @@ expect_doc_keywords reply-example-validator-difference "$POSTING_REFERENCE" '通
 expect_doc_keywords reply-example-status "$POSTING_REFERENCE" '成功判定は `status`' '`unknown_outcome`' '成功として扱わない'
 expect_doc_keywords skill-post-write-verification "$REVIEW_SKILL" 'id・URL・本文' '`review-comments.reply`' 'PR 所属' '`in_reply_to_id`'
 expect_doc_keywords skill-unknown-outcome "$REVIEW_SKILL" '`unknown_outcome`' '成功として扱わず' '同じ run で自動再投稿しない'
-expect_doc_keywords workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'explicit instruction only'
+expect_doc_keywords workflow-resolve-explicit-manual "$WORKFLOW_SKILL" 'ワークフロー外では Resolve に明示指示が必要'
 expect_doc_keywords workflow-resolve-scoped-auto "$WORKFLOW_SKILL" 'auto-resolve' 'Resolved'
-expect_doc_keywords workflow-resolve-reply-first "$WORKFLOW_SKILL" 'confirmation' 'resolve'
+expect_doc_keywords workflow-resolve-reply-first "$WORKFLOW_SKILL" '各 Resolve は、再チェック正本が要求する返信確認' 'review-threads.resolve'
 
 # --- 正本参照構造 ---
 # Resolve 規則の全文は recheck.md にのみあり、他の文書は参照する。

@@ -97,7 +97,7 @@ check_contains "reuse covers panes from an earlier run" "$REFERENCE_TEXT" \
 check_contains "a full reuse creates no pane" "$REFERENCE_TEXT" \
   'create no pane'
 check_contains "SKILL.md skips the planner for a full reuse" "$TEAM_TEXT" \
-  'the planner is not called'
+  'プランナーも呼ばない'
 
 # --- handoff and other panes ----------------------------------------------
 
