@@ -113,6 +113,8 @@ check_contains "comments.update cannot add attachments" "$ROLE_TEXT" \
 # grant, a pre-post existence and size check, and no guessing on failures.
 check_contains "the orchestrator posts the returned evidence" "$SKILL_TEXT" \
   '返却された証跡は'
+check_contains "the orchestrator posts the returned evidence as a PR comment" "$SKILL_TEXT" \
+  'PR コメントとして投稿する'
 check_contains "posting uses comments.create" "$SKILL_TEXT" 'comments.create'
 check_contains "posting carries an explicit grant" "$SKILL_TEXT" '明示的な `grant`'
 check_contains "a same-head comment is reused only when covered" "$SKILL_TEXT" \
