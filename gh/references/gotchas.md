@@ -14,3 +14,4 @@ before it is answered here.
 
 - `comments.create` accepts only the fields its schema declares — `number`, `body`, `attachments`, and `grant`; adding `reference` or `reason` fails with `UNKNOWN_FIELDS` before any API call.
 - `issue.create` declares no `reference` input, so it targets the repository resolved from the current working directory; adding a `reference` key fails with `UNKNOWN_FIELDS` instead of redirecting the write.
+- `pr.read` returns `mergeable` as `true`, `false`, or `null`; `null` comes back while GitHub is still computing it and after the PR is merged, so read it as a tri-state rather than a boolean the caller can rely on.
