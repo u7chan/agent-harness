@@ -1219,7 +1219,7 @@
             },
             "draft": "boolean",
             "merged": "boolean",
-            "mergeable": "string",
+            "mergeable": "boolean|null",
             "comments": "integer",
             "commits": "integer",
             "additions": "integer",
