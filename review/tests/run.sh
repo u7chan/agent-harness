@@ -182,6 +182,9 @@ expect_invalid candidate-blocker-conflict reviews.create \
 expect_invalid unresolved-scope-variable reviews.create \
   '.body += "\n\n{確認範囲の要約}"' \
   "$FIXTURES/no-findings.json"
+expect_invalid unresolved-cap-variable reviews.create \
+  '.body += "\n\n- Round: `1/{cap}`"' \
+  "$FIXTURES/no-findings.json"
 expect_invalid unresolved-legacy-scope-variable reviews.create \
   '.body += "\n\n{意味で要約した確認範囲}"' \
   "$FIXTURES/no-findings.json"
@@ -223,6 +226,7 @@ expect_doc_keywords gate-fails-closed "$RECHECK_REFERENCE" '返信が未確認' 
 expect_doc_keywords recheck-template-required "$OUTPUT_TEMPLATES" '前回の必須指摘が解消' '任意指摘' '未解消'
 expect_doc_keywords recheck-no-findings-template "$OUTPUT_TEMPLATES" 'インライン指摘は 0 件' 'スレッド 0 件'
 expect_doc_keywords recheck-no-findings-placeholders "$OUTPUT_TEMPLATES" '{前回レビューの review_id}' '{前回レビューの commit}'
+expect_doc_keywords recheck-round-cap "$OUTPUT_TEMPLATES" '{n}/{cap}'
 expect_doc_keywords recheck-empty-snapshot-contract "$RECHECK_REFERENCE" 'スレッド 0 件' '`prior_review_id`'
 expect_doc_contains candidate-section "$OUTPUT_TEMPLATES" '## 別 Issue 候補'
 expect_doc_keywords recheck-baseline "$RECHECK_REFERENCE" 'reviews.read' 'commit_id' '投稿日時'
