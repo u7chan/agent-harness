@@ -14,6 +14,10 @@ assert skill.parent.name in json.loads((root / 'package.json').read_text())['pi'
 for value in (
     'PR作ったらレビューおねがい', 'PR作ってレビューして',
     'PR がまだない場合', 'PR 作成を含まない依頼で PR を勝手に作らない',
+    'Draft でない既存 PR は Draft 化しない', 'base はリポジトリの指示とブランチの親から決める',
+    'push 結果が不明なら停止する', '既に Ready の PR では `pr.ready` を実行しない',
+    '右に分割できない場合は、別方向を推測せずユーザーに確認する',
+    'Round 4/5', 'round_kind=polish',
     'Issue は必須ではない', '現在のエージェント',
     'provider、model、thinking は変更しない',
     '別の coordinator、`impl`、`pr-fix`、`ui-tester` を起動しない',
@@ -26,7 +30,7 @@ for value in (
     'draft: true', 'grant: "write"', 'references/evidence.md',
     '初回を含め、レビューは最大 3 ラウンドとする',
     'Round 3 後も Blocker があれば', 'Draft のまま停止',
-    'polish', '最大 2 回', '通常の残りラウンド',
+    'polish', '最大 2 回', '通常ラウンドへ戻さず',
     '分類返信だけでは LGTM としない', 'workflow コンテキストの auto-resolve',
     '(thread_id, root_comment_id, reviewer_login, classification_reply_id)',
     'resolved=true', '現在の PR head で必須検証がすべて成功',
@@ -44,11 +48,20 @@ for value in (
     assert value in evidence, value
 review = (root / 'review' / 'SKILL.md').read_text()
 assert 'PR 作成、別ペインのレビュアー、修正ループ、Ready まで含む依頼には使わない' in review
+recheck = (root / 'review' / 'references' / 'recheck.md').read_text()
+assert 'round_kind=polish' in recheck
+assert 'polish_round=<1|2>' in recheck
+templates = (root / 'review' / 'references' / 'output-templates.md').read_text()
+assert '{n}/{cap}' in templates
+preflight = text.split('## Preflight\n', 1)[1].split('## Reviewer Setup', 1)[0]
+assert preflight.index('対象 PR を 1 件特定する') < preflight.index('push 済み HEAD が PR の head に一致する')
 completion = text.split('## Completion and Ready\n', 1)[1]
 assert completion.index('Ready の直前') < completion.index('5. GH ディスパッチャー')
 assert completion.index('5. GH ディスパッチャー') < completion.index('Ready の直後')
 assert '単発レビューの依頼では Ready を許可しない' in completion
 assert 'head が検証結果と LGTM の対象に一致する' in completion
 assert 'マージは行わない' in completion
+assert 'Draft でなければ `pr.ready` を実行せず、手順 6 へ進む' in completion
+assert '既に Ready だった場合は手順 4 の後' in completion
 print('PR review workflow trigger, PR creation, evidence, 3+2-round, Resolve, Ready and human-merge contracts passed')
 PY

@@ -109,7 +109,7 @@
 <summary>レビュー詳細</summary>
 
 - Commit: `{full SHA}`
-- Round: `{n}/3`
+- Round: `{n}/{cap}`（通常は `1/3`〜`3/3`、workflow の polish は `4/5` または `5/5`）
 - Scope: {確認範囲の要約}
 
 </details>

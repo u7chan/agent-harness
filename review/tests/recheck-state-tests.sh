@@ -296,6 +296,9 @@ gate_case "invalid full review stops" stop '.full_review = []' full_review_is_in
 gate_case "clean Round 3 permits LGTM planning" lgtm_eligible '.round = 3'
 gate_case "Round 3 with a remaining Blocker blocks LGTM" blocked \
   '.round = 3 | .blocker_remaining = true' round_limit
+gate_case "clean polish Round 4 permits LGTM planning" lgtm_eligible '.round = 4'
+gate_case "polish Round 4 with a remaining Blocker blocks LGTM" blocked \
+  '.round = 4 | .blocker_remaining = true' round_limit
 
 # gate: a snapshot with no thread is normal when the initial review posted no
 # inline finding (`0 findings`).  Reviewer identity then comes from the
