@@ -19,10 +19,11 @@ Each top-level skill directory contains a `SKILL.md` file that describes when an
 
 - [Issue-to-PR workflow](herdr-pi-issue-pr-workflow/SKILL.md): delegate a defined
   Issue to an implementation team; finish with a reviewed Draft PR.
-- [PR review workflow](herdr-pi-pr-review-workflow/SKILL.md): keep the current
-  agent as developer, add only a Pi Reviewer, and review/fix an existing Draft
-  PR for at most three rounds before verified LGTM, eligible Resolve, and Ready.
-  An Issue is not required.
+- [PR review workflow](herdr-pi-pr-review-workflow/SKILL.md): create a Draft PR
+  when the request includes it, keep the current agent as developer, add only a
+  Pi Reviewer, and review/fix for at most three rounds plus up to two polish
+  rounds before verified LGTM, eligible Resolve, and Ready. Merge remains a
+  human decision. Triggered by "PR作ったらレビューおねがい".
 
 Both use the user-owned [development profiles](_docs/pi-development.md) under
 `pi-development/`; the shared helpers do not belong to either skill. Existing

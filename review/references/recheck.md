@@ -24,7 +24,8 @@ classification_reply_id, verification_head_sha
 
 ## 対象と初期スナップショット
 
-- 明示的に再チェックを依頼された場合だけ実行する。初回レビューを Round 1、再チェックを Round 2、Round 3 と数え、最大 3 ラウンドまで行う。Round 3 を終えても Blocker が残る場合は追加で投稿せず、Draft のまま報告する。
+- 明示的に再チェックを依頼された場合だけ実行する。初回レビューを Round 1、再チェックを Round 2、Round 3 と数え、通常は最大 3 ラウンドまで行う。Round 3 を終えても Blocker が残る場合は追加で投稿せず、Draft のまま報告する。
+- workflow コンテキストで polish が明示指定された場合だけ、通常の 3 ラウンドとは別に最大 2 回の polish 再チェックを行える。polish のラウンド番号は `4/5`、`5/5` とし、通常ラウンドの番号を消費しない。委譲文には `round_kind=polish` と `polish_round=<1|2>` を含め、レビュー本文の監査情報にも同じ値を記録する。polish の対象選定と、Blocker が出た場合に停止するかは委譲元の workflow が決め、この文書はラウンド計数だけを定める。
 - `pr.read` で対象の repository、PR 番号、開始時の head SHA を固定し、`review-threads.read` は全ページ取得する。途中で head が変わった場合は、そのスナップショットを最新 head として扱わず、再取得した head を対象に確認をやり直す。
 - 再分類の候補は、初期取得時に `resolved == false` で、同じ PR の同じレビュースレッドにある次のすべてを満たす root comment だけとする。ここで `reviewer_login` は API の `user.login` を正規化した値である。
   1. `in_reply_to_id == null` の root である。

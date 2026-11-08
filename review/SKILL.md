@@ -3,6 +3,7 @@ name: review
 description: >
   GitHub Pull Request またはローカルのコード変更をレビューし、具体的な根拠に基づく指摘を報告する。
   PR の URL・番号が指定されたレビュー、ローカル変更のレビュー、以前の指摘の再チェックに使う。
+  PR 作成、別ペインのレビュアー、修正ループ、Ready まで含む依頼には使わない（herdr-pi-pr-review-workflow）。
 ---
 
 # Review
@@ -13,6 +14,7 @@ Pull Request またはローカル変更について、差分によって生じ�
 
 ## モード
 
+- PR 作成、別ペインのレビュアー、修正ループ、Ready まで含む依頼は [herdr-pi-pr-review-workflow](../herdr-pi-pr-review-workflow/SKILL.md) に委ねる。
 - PR の URL または番号が指定された場合は PR レビューモードとし、GitHub への投稿まで進める。
 - PR 指定がない場合はローカルレビューモードとし、GitHub へ投稿せずチャットで報告する。
 - 明示的に再チェックを依頼された場合は、同じ PR の同じレビュースレッドで自分が投稿した未解決の root comment を再分類し、最新 head を [recheck.md](references/recheck.md) の範囲で確認する。

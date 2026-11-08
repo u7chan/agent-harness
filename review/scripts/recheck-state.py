@@ -487,7 +487,8 @@ def operation_gate(input_data: dict[str, Any]) -> int:
     important_unknowns = full_review.get("important_unknowns", full_review.get("unknowns", 0))
     if clean is not True or blockers != 0 or important_unknowns != 0:
         return emit("gate", decision="blocked", eligible=False, reason="full_review_not_clean")
-    if input_data.get("round") == 3 and input_data.get("blocker_remaining", False):
+    round_number = input_data.get("round")
+    if isinstance(round_number, int) and round_number >= 3 and input_data.get("blocker_remaining", False):
         return emit("gate", decision="blocked", eligible=False, reason="round_limit")
     eligible_fields: dict[str, Any] = {
         "eligible": True,
