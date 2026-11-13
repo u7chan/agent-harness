@@ -304,9 +304,13 @@
        */
       function fillThinking(select, levels, current) {
         select.replaceChildren();
-        const usable = levels.length > 0 ? levels : current ? [current] : ALL_LEVELS;
+        // A stored level the master does not list still has to survive a save
+        // that only touched another role, so it stays as a selectable option
+        // instead of letting the browser fall back to the first level.
+        const keepStored = levels.length > 0 && current !== "" && !levels.includes(current);
+        const usable = levels.length > 0 ? (keepStored ? [current, ...levels] : levels) : current ? [current] : ALL_LEVELS;
         for (const level of usable) {
-          const option = el("option", { value: level, text: level });
+          const option = el("option", { value: level, text: keepStored && level === current ? `${level}（候補外）` : level });
           if (level === current) option.selected = true;
           select.append(option);
         }
@@ -419,7 +423,7 @@
 
         const thinkingSelect = el("select");
         thinkingSelect.setAttribute("aria-label", `${role} thinking`);
-        selectModel(`${spec.provider}\u0000${spec.model}`, spec.thinking);
+        selectModel(spec.model ? `${spec.provider}\u0000${spec.model}` : "", spec.thinking);
 
         const readModel = () => {
           const [provider, model] = modelSelect.value.split("\u0000");
