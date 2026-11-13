@@ -76,6 +76,9 @@ intended component, the label is readable, and nothing sensitive is visible.
 - Dialogs and popovers: a mark appended to the page body is painted under the
   top layer. The script places marks inside the open `dialog` or
   `[popover]:popover-open` that contains the target.
+- The capture spans every mark in one image. Marks can sit in different hosts
+  (page, dialog, popover); the saved PNG is the union of all of them, and
+  top-layer content painted in that area is included.
 - `transform`, `filter`, `perspective`, or `contain` on the dialog changes the
   reference origin for fixed elements. The script measures the origin and keeps
   the mark inside the dialog border. Scaled or rotated dialogs are not

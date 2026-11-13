@@ -208,7 +208,11 @@ SHOT_JS="$(cat <<'JS'
   let r = Math.min(vw, Math.max(...rs.map((x) => x.right)) + m);
   let b = Math.min(vh, Math.max(...rs.map((x) => x.bottom)) + m);
 
-  const host = marks[0].parentElement || marks[0].parentNode || document.body;
+  // The helper always lives in <body> and spans the union of every mark, so
+  // marks placed in different hosts (page, dialog, popover) end up in one
+  // capture. An element screenshot records the rendered pixels of its box,
+  // including top-layer content painted above it.
+  const host = document.body || document.documentElement;
   const d = document.createElement('div');
   d.setAttribute('data-evidence-shot', __TOKEN__);
   Object.assign(d.style, {
@@ -217,9 +221,9 @@ SHOT_JS="$(cat <<'JS'
   });
   host.append(d);
 
-  // Same containing-block rule as the marks: inside a transformed dialog (or
-  // popover) a fixed element is positioned from that element's padding box, not
-  // from the viewport. Measure the origin and place the helper relative to it.
+  // A body-level helper is positioned from the viewport, unless an ancestor
+  // creates a containing block for fixed elements. Measure the origin and place
+  // the helper relative to it; clamp to that box only when it is not the page.
   const o = d.getBoundingClientRect();
   const ox = Math.abs(o.left) < 0.5 ? 0 : o.left;
   const oy = Math.abs(o.top) < 0.5 ? 0 : o.top;
