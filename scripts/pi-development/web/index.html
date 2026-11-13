@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <title>モデル設定</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --fg: #1b1b1f;
+        --muted: #62626b;
+        --line: #d9d9e0;
+        --bg: #f7f7fa;
+        --card: #ffffff;
+        --accent: #0a5cc2;
+        --warn-bg: #fff4e0;
+        --warn-fg: #7a4a00;
+        --err: #b3261e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #ececf1;
+          --muted: #a0a0ab;
+          --line: #37373f;
+          --bg: #141418;
+          --card: #1d1d23;
+          --accent: #7aa7ff;
+          --warn-bg: #3a2f16;
+          --warn-fg: #f0c674;
+          --err: #ff8a80;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+      header.bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem clamp(1rem, 4vw, 2rem);
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      .badge {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 0.15rem 0.6rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .badge.stale {
+        border-color: var(--warn-fg);
+        color: var(--warn-fg);
+      }
+      button {
+        font: inherit;
+        padding: 0.4rem 0.85rem;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--card);
+        color: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        border-color: var(--accent);
+        color: var(--accent);
+        font-weight: 600;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .status {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        margin: 0;
+        padding: 0.6rem clamp(1rem, 4vw, 2rem);
+        min-height: 1.6rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .status.error {
+        color: var(--err);
+      }
+      .profiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+        gap: 1rem;
+        padding: 0 clamp(1rem, 4vw, 2rem) 1.5rem;
+      }
+      .card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+        padding: 1rem;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+      .card > .head {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .card h2 {
+        margin: 0;
+        font-size: 1rem;
+      }
+      .role {
+        display: grid;
+        gap: 0.3rem;
+      }
+      .role[hidden] {
+        display: none;
+      }
+      @media (min-width: 34rem) {
+        .role {
+          grid-template-columns: 5.5rem 1fr;
+          align-items: start;
+        }
+      }
+      .role > label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        padding-top: 0.45rem;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        min-width: 0;
+      }
+      .controls > * {
+        flex: 1 1 10rem;
+        min-width: 0;
+      }
+      select,
+      input[type="text"] {
+        width: 100%;
+        padding: 0.4rem 0.5rem;
+        font: inherit;
+        color: inherit;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      select:disabled,
+      input:disabled {
+        opacity: 0.6;
+      }
+      .switch {
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .warn {
+        margin: 0;
+        padding: 0.5rem 0.6rem;
+        background: var(--warn-bg);
+        color: var(--warn-fg);
+        border-radius: 8px;
+        font-size: 0.82rem;
+      }
+      .note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.8rem;
+        overflow-wrap: anywhere;
+      }
+      footer {
+        padding: 0 clamp(1rem, 4vw, 2rem) 2rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="bar">
+      <h1>モデル設定</h1>
+      <div class="toolbar">
+        <span id="catalog" class="badge">読み込み中</span>
+        <button id="refresh" type="button">カタログ更新</button>
+      </div>
+    </header>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <main id="profiles" class="profiles"></main>
+    <footer>
+      保存は <code>team-record.sh write</code> を経由します。変更はこのマシンのプロファイルにだけ反映され、実行中のセッションには影響しません。
+    </footer>
+    <script>
+      "use strict";
+
+      const ALL_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+      const ROLE_ORDER = ["impl", "review", "pr-fix", "ui-tester"];
+      const ROLE_LABELS = {
+        impl: "実装",
+        review: "レビュー",
+        "pr-fix": "修正",
+        "ui-tester": "UI テスト",
+      };
+      const OPTIONAL_ROLES = new Set(["ui-tester"]);
+
+      const elements = {
+        status: document.getElementById("status"),
+        profiles: document.getElementById("profiles"),
+        catalog: document.getElementById("catalog"),
+        refresh: document.getElementById("refresh"),
+      };
+
+      let state = null;
+      let busy = false;
+      const drafts = new Map();
+
+      function setStatus(message, isError) {
+        elements.status.replaceChildren();
+        elements.status.className = isError ? "status error" : "status";
+        if (message) elements.status.append(document.createTextNode(message));
+      }
+
+      function withReloadButton(message) {
+        setStatus(message, true);
+        const button = el("button", { type: "button", text: "再読込" });
+        button.addEventListener("click", () => load());
+        elements.status.append(button);
+      }
+
+      function el(tag, options = {}) {
+        const node = document.createElement(tag);
+        if (options.className) node.className = options.className;
+        if (options.text !== undefined) node.textContent = options.text;
+        if (options.type) node.type = options.type;
+        if (options.value !== undefined) node.value = options.value;
+        if (options.id) node.id = options.id;
+        if (options.disabled) node.disabled = true;
+        if (options.checked) node.checked = true;
+        return node;
+      }
+
+      /** Model candidates indexed by `provider\0model`; empty when the master is unusable. */
+      function candidateIndex(models) {
+        const index = new Map();
+        if (!models || models.status !== "ok") return index;
+        for (const provider of models.providers) {
+          for (const model of provider.models) {
+            index.set(`${provider.id}\u0000${model.id}`, { provider: provider.id, id: model.id, model });
+          }
+        }
+        return index;
+      }
+
+      function levelsFor(candidate) {
+        return candidate?.model?.supported_thinking || [];
+      }
+
+      function draftFor(profile) {
+        const roles = {};
+        for (const [role, spec] of Object.entries(profile.roles || {})) {
+          roles[role] = { provider: spec.provider || "", model: spec.model || "", thinking: spec.thinking || "" };
+        }
+        return {
+          name: profile.name,
+          hash: profile.hash,
+          record: profile.record,
+          error: profile.error,
+          unknown: profile.unknown,
+          prFixShared: profile.pr_fix_shared_with_impl === true,
+          uiTester: Boolean(roles["ui-tester"]),
+          roles,
+        };
+      }
+
+      function fillThinking(select, levels, current) {
+        select.replaceChildren();
+        const usable = levels.length > 0 ? levels : ALL_LEVELS;
+        for (const level of usable) {
+          const option = el("option", { value: level, text: level });
+          if (level === current) option.selected = true;
+          select.append(option);
+        }
+        if (!usable.includes(current)) select.value = usable[0];
+        select.disabled = levels.length === 0;
+      }
+
+      /** Build one role row and return the handles needed to sync it later. */
+      function createRoleRow(draft, role, index, models, onChange) {
+        const row = el("div", { className: "role" });
+        const label = el("label", { text: ROLE_LABELS[role] || role });
+        const controls = el("div", { className: "controls" });
+        row.append(label, controls);
+
+        if (index.size === 0) {
+          const spec = draft.roles[role] || { provider: "", model: "", thinking: "" };
+          const providerInput = el("input", { type: "text", value: spec.provider });
+          providerInput.placeholder = "provider";
+          providerInput.setAttribute("aria-label", `${role} provider`);
+          const modelInput = el("input", { type: "text", value: spec.model });
+          modelInput.placeholder = "model id";
+          modelInput.id = `role-${draft.name}-${role}`;
+          label.htmlFor = modelInput.id;
+          const thinkingSelect = el("select");
+          fillThinking(thinkingSelect, ALL_LEVELS, spec.thinking);
+          providerInput.addEventListener("input", () => {
+            draft.roles[role] = { ...draft.roles[role], provider: providerInput.value.trim() };
+            onChange(role);
+          });
+          modelInput.addEventListener("input", () => {
+            draft.roles[role] = { ...draft.roles[role], model: modelInput.value.trim() };
+            onChange(role);
+          });
+          thinkingSelect.addEventListener("change", () => {
+            draft.roles[role] = { ...draft.roles[role], thinking: thinkingSelect.value };
+            onChange(role);
+          });
+          controls.append(providerInput, modelInput, thinkingSelect);
+          return {
+            row,
+            setSpec(next) {
+              providerInput.value = next.provider || "";
+              modelInput.value = next.model || "";
+              thinkingSelect.value = next.thinking || thinkingSelect.value;
+            },
+            setDisabled(disabled) {
+              for (const node of [providerInput, modelInput, thinkingSelect]) node.disabled = disabled;
+            },
+            getSpec() {
+              return {
+                provider: providerInput.value.trim(),
+                model: modelInput.value.trim(),
+                thinking: thinkingSelect.value,
+              };
+            },
+          };
+        }
+
+        const spec = draft.roles[role] || { provider: "", model: "", thinking: "" };
+        const modelSelect = el("select");
+        modelSelect.id = `role-${draft.name}-${role}`;
+        label.htmlFor = modelSelect.id;
+        const byProvider = new Map();
+        for (const candidate of index.values()) {
+          if (!byProvider.has(candidate.provider)) byProvider.set(candidate.provider, []);
+          byProvider.get(candidate.provider).push(candidate);
+        }
+        for (const [providerId, candidates] of [...byProvider.entries()].sort()) {
+          const group = el("optgroup");
+          group.label = providerId;
+          for (const candidate of candidates.sort((a, b) => a.id.localeCompare(b.id))) {
+            const option = el("option", { value: `${providerId}\u0000${candidate.id}`, text: candidate.id });
+            if (providerId === spec.provider && candidate.id === spec.model) option.selected = true;
+            group.append(option);
+          }
+          modelSelect.append(group);
+        }
+        const thinkingSelect = el("select");
+        thinkingSelect.setAttribute("aria-label", `${role} thinking`);
+        fillThinking(thinkingSelect, levelsFor(index.get(`${spec.provider}\u0000${spec.model}`)), spec.thinking);
+
+        const readModel = () => {
+          const [provider, model] = modelSelect.value.split("\u0000");
+          return { provider, model };
+        };
+        modelSelect.addEventListener("change", () => {
+          const next = readModel();
+          draft.roles[role] = { ...next, thinking: "" };
+          fillThinking(thinkingSelect, levelsFor(index.get(modelSelect.value)), "");
+          draft.roles[role].thinking = thinkingSelect.value;
+          onChange(role);
+        });
+        thinkingSelect.addEventListener("change", () => {
+          draft.roles[role] = { ...draft.roles[role], thinking: thinkingSelect.value };
+          onChange(role);
+        });
+        controls.append(modelSelect, thinkingSelect);
+
+        if (!spec.model && index.size > 0) {
+          const first = [...index.keys()][0];
+          modelSelect.value = first;
+          const next = readModel();
+          draft.roles[role] = { ...next, thinking: "" };
+          fillThinking(thinkingSelect, levelsFor(index.get(first)), "");
+          draft.roles[role].thinking = thinkingSelect.value;
+        }
+
+        return {
+          row,
+          setSpec(next) {
+            const key = `${next.provider}\u0000${next.model}`;
+            if (!index.has(key)) return;
+            modelSelect.value = key;
+            fillThinking(thinkingSelect, levelsFor(index.get(key)), next.thinking);
+          },
+          setDisabled(disabled) {
+            modelSelect.disabled = disabled || thinkingSelect.disabled;
+            thinkingSelect.disabled = disabled;
+          },
+          getSpec() {
+            const next = readModel();
+            return { ...next, thinking: thinkingSelect.value };
+          },
+        };
+      }
+
+      function unknownLabel(unknown) {
+        if (!unknown) return "";
+        const parts = [];
+        if (unknown.top && unknown.top.length) parts.push(`トップ: ${unknown.top.join(", ")}`);
+        for (const [role, keys] of Object.entries(unknown.roles || {})) {
+          parts.push(`${role}: ${keys.length ? keys.join(", ") : "(未知ロール)"}`);
+        }
+        return parts.join(" / ");
+      }
+
+      function createCard(draft, index, models) {
+        const card = el("section", { className: "card" });
+        const head = el("div", { className: "head" });
+        head.append(el("h2", { text: draft.name }));
+        const save = el("button", { type: "button", text: "保存", className: "primary" });
+        head.append(save);
+        card.append(head);
+
+        const note = el("p", { className: "note" });
+        card.append(note);
+
+        const unknownText = unknownLabel(draft.unknown);
+        if (unknownText) {
+          card.append(
+            el("p", {
+              className: "warn",
+              text: `未知のキーがあります（保存すると削除されます）: ${unknownText}`,
+            }),
+          );
+        }
+        if (draft.error === "invalid-json") {
+          card.append(el("p", { className: "warn", text: "このファイルは JSON として読めません。" }));
+        }
+
+        const controls = {};
+        const refreshNote = () => {
+          const missing = ["impl", "review", "pr-fix"].filter((role) => !draft.roles[role]?.model);
+          note.textContent = missing.length ? `未設定: ${missing.join(", ")}` : draft.record || "";
+        };
+
+        const syncShared = () => {
+          if (!controls["pr-fix"]) return;
+          if (draft.prFixShared) {
+            draft.roles["pr-fix"] = { ...draft.roles.impl };
+            controls["pr-fix"].setSpec(draft.roles.impl);
+            controls["pr-fix"].setDisabled(true);
+          } else {
+            controls["pr-fix"].setDisabled(false);
+          }
+        };
+
+        const onChange = (role) => {
+          if (draft.prFixShared && role === "impl") syncShared();
+          refreshNote();
+        };
+
+        for (const role of ROLE_ORDER) {
+          if (role === "pr-fix") {
+            const shared = el("label", { className: "switch" });
+            const box = el("input", { type: "checkbox", checked: draft.prFixShared });
+            box.addEventListener("change", () => {
+              draft.prFixShared = box.checked;
+              syncShared();
+              refreshNote();
+            });
+            shared.append(box, document.createTextNode(" 修正ロールは実装と同じ設定を使う"));
+            card.append(shared);
+          }
+          if (OPTIONAL_ROLES.has(role)) {
+            const toggle = el("label", { className: "switch" });
+            const box = el("input", { type: "checkbox", checked: draft.uiTester });
+            box.addEventListener("change", () => {
+              draft.uiTester = box.checked;
+              if (box.checked && !draft.roles[role]?.model) {
+                draft.roles[role] = { ...(draft.roles.impl || { provider: "", model: "", thinking: "" }) };
+                controls[role]?.setSpec(draft.roles[role]);
+              }
+              controls[role].row.hidden = !box.checked;
+              refreshNote();
+            });
+            toggle.append(box, document.createTextNode(` ${ROLE_LABELS[role]} を使う`));
+            card.append(toggle);
+          }
+          controls[role] = createRoleRow(draft, role, index, models, onChange);
+          if (OPTIONAL_ROLES.has(role)) controls[role].row.hidden = !draft.uiTester;
+          card.append(controls[role].row);
+        }
+        syncShared();
+        refreshNote();
+
+        save.addEventListener("click", async () => {
+          if (busy) return;
+          busy = true;
+          save.disabled = true;
+          try {
+            const roles = {};
+            for (const role of ROLE_ORDER) {
+              if (OPTIONAL_ROLES.has(role) && !draft.uiTester) continue;
+              const spec = controls[role]?.getSpec() || draft.roles[role];
+              if (!spec || !spec.provider || !spec.model || !spec.thinking) continue;
+              roles[role] = spec;
+            }
+            const response = await fetch("/api/profile", {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                profile: draft.name,
+                expected_hash: draft.hash,
+                pr_fix_shared_with_impl: draft.prFixShared,
+                roles,
+              }),
+            });
+            const payload = await response.json();
+            if (response.ok) {
+              setStatus(`保存しました: ${payload.record}`, false);
+              await load();
+            } else if (response.status === 409) {
+              withReloadButton("他の変更と競合しました。再読込してから保存し直してください。");
+            } else {
+              setStatus(`保存できませんでした: ${payload.record || payload.reason || response.status}`, true);
+            }
+          } catch (error) {
+            setStatus(`通信に失敗しました: ${error.message}`, true);
+          } finally {
+            busy = false;
+            save.disabled = false;
+          }
+        });
+
+        return card;
+      }
+
+      function render() {
+        elements.profiles.replaceChildren();
+        if (!state) return;
+        const index = candidateIndex(state.models);
+        for (const profile of state.profiles) {
+          const draft = drafts.get(profile.name) || draftFor(profile);
+          elements.profiles.append(createCard(draft, index, state.models));
+        }
+      }
+
+      function renderCatalog() {
+        const models = state?.models;
+        if (!models || models.status === "missing") {
+          elements.catalog.textContent = "カタログ未作成 — 自由入力";
+          elements.catalog.className = "badge stale";
+          return;
+        }
+        if (models.status !== "ok") {
+          elements.catalog.textContent = "カタログ破損 — 自由入力";
+          elements.catalog.className = "badge stale";
+          return;
+        }
+        const count = models.providers.reduce((total, provider) => total + provider.models.length, 0);
+        const reason = models.stale
+          ? models.stale_reason === "pi-version"
+            ? ` · 古い (pi ${models.pi_version} ≠ ${models.current_pi_version})`
+            : " · 古い (30 日超)"
+          : "";
+        elements.catalog.textContent = `${models.providers.length} providers / ${count} models · pi ${models.pi_version}${reason}`;
+        elements.catalog.className = models.stale ? "badge stale" : "badge";
+      }
+
+      async function load() {
+        try {
+          const response = await fetch("/api/state", { cache: "no-store" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          state = await response.json();
+          drafts.clear();
+          for (const profile of state.profiles) drafts.set(profile.name, draftFor(profile));
+          renderCatalog();
+          render();
+          setStatus("", false);
+        } catch (error) {
+          setStatus(`読み込みに失敗しました: ${error.message}`, true);
+        }
+      }
+
+      elements.refresh.addEventListener("click", async () => {
+        if (busy) return;
+        busy = true;
+        elements.refresh.disabled = true;
+        setStatus("カタログを更新しています…", false);
+        try {
+          const response = await fetch("/api/models/refresh", { method: "POST" });
+          const payload = await response.json();
+          if (response.ok) {
+            setStatus(`カタログを更新しました: ${payload.record}`, false);
+            await load();
+          } else {
+            setStatus(`更新に失敗しました: ${payload.record || payload.reason || response.status}`, true);
+          }
+        } catch (error) {
+          setStatus(`通信に失敗しました: ${error.message}`, true);
+        } finally {
+          busy = false;
+          elements.refresh.disabled = false;
+        }
+      });
+
+      load();
+    </script>
+  </body>
+</html>

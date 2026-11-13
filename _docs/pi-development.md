@@ -11,6 +11,7 @@ parent directory, not from the repository being worked on.
 ```text
 ${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-development/
   profiles/<name>.json
+  models.json                  # optional; model master for the local editor
   active                       # optional; one profile name
 ```
 
@@ -76,8 +77,8 @@ combined with `--require-role` or used with `use`/`write`. A full-team read,
 save, or persistent switch still validates the whole team. A role-only read
 never rewrites the profile or switches `active`.
 
-Use `pi --list-models` for the live catalog; thinking-level validation comes
-from the installed runtime's public API, never a static model table. If `pi`
+Use `pi --list-models` to inspect the live catalog; thinking-level validation
+comes from the installed runtime's public API, never a static model table. If `pi`
 on PATH is a launcher shim rather than the installed executable, expose the
 real executable on PATH or pass the resolver's `--pi-root` option. Do not
 interpret its catalog's thinking yes/no column as a supported-level list.
@@ -87,6 +88,110 @@ A request such as `fallback で` selects `--profile fallback` for this run only.
 `fallback に切り替えて` is `use fallback` and persists for both consumers.
 Ordinary runs and run-local overrides never save settings. Bootstrap and
 approval decisions belong to each consuming workflow, not to the helper.
+
+## Local editor and model master
+
+A local web editor edits these profiles from a browser on the same machine. It
+is a thin wrapper over the helpers above: reads call `resolve`, saves call
+`write`, and the server never writes a profile itself. The server holds no
+state; the JSON files are the only state. It has no UI automated test, and its
+interface uses no external resource and no build step.
+
+```bash
+# Serve the editor. It binds 127.0.0.1 only.
+scripts/pi-development/web/server.mjs [--port <port>]
+# Refresh the model master from the installed pi catalog.
+scripts/pi-development/refresh-models.sh [--pi-root <pi-package>] [--out <file>]
+```
+
+`GET /` serves the document. `GET /api/state` returns every profile with its
+hash, stored roles, unknown keys, and resolve record, plus the master with
+`status` (`ok`, `missing`, `invalid`), `stale`, `stale_reason`, and its
+candidates. `PUT /api/profile` takes `profile`, `expected_hash`,
+`pr_fix_shared_with_impl`, and `roles`; it answers 200 with the write record,
+400 for an invalid request, 404 for an unknown profile, 409 when the hash moved
+(the file is untouched), 422 when `write` rejects the team, and 502 when the
+helper cannot run. Omitting `ui-tester` removes it. `POST /api/models/refresh`
+runs the refresh helper, answers 200 with its record, 500 when it fails, and
+409 while a refresh is already running.
+
+The hash guard detects a change up to the moment it is compared. A `write` from
+another process between the comparison and the rename wins; the CLI contract
+gains no expected-hash argument, so the editor does not promise more than that.
+
+`Host` must be `localhost:<port>` or `127.0.0.1:<port>`. A browser `Origin` is
+parsed rather than compared with `Host`: it must be `http`, name
+`localhost`/`127.0.0.1`, and carry the listening port. An absent `Origin` is a
+non-browser client and is allowed. Any other value is 403.
+
+The master is a cache, not an authority: a save is always validated against the
+live catalog, so a stale master can only hide a candidate. It is written
+atomically with mode `0600`, and a failed or empty refresh leaves the previous
+file in place. Required keys are `generated_at`, `pi_version`,
+`providers[].id`, `providers[].models[].id`, and
+`providers[].models[].supported_thinking`; `context_window`, `max_tokens`,
+`images`, and `thinking_level_map` are optional.
+
+```json
+{
+  "generated_at": "<ISO 8601 UTC>",
+  "pi_version": "<pi --version>",
+  "providers": [
+    {"id": "<provider>", "models": [
+      {"id": "<model>", "supported_thinking": ["high", "max"],
+       "context_window": 256384, "max_tokens": 128000, "images": true,
+       "thinking_level_map": {"off": null, "minimal": "low"}}
+    ]}
+  ]
+}
+```
+
+A master is stale when `pi_version` differs from the running `pi --version` or
+`generated_at` is more than 30 days old. The editor shows a badge and offers a
+refresh button; it never refreshes on its own. Refreshing is a manual step, for
+example after `pi update` or a login change, because the candidate list depends
+on the authenticated providers.
+
+### Run as a service
+
+Run the editor from the pinned `<clone>` that already serves the skills, so the
+service and the skills share one revision. Never `checkout` or `pull` that
+clone: its revision changes only through the rollout procedure in
+[skill-distribution.md](skill-distribution.md).
+
+```ini
+[Unit]
+Description=Development profile model editor
+After=network.target
+
+[Service]
+Type=simple
+Environment=PATH=<node-bin-dir>:<pi-bin-dir>:/usr/local/bin:/usr/bin:/bin
+Environment=PI_CODING_AGENT_DIR=%h/.pi/agent
+ExecStart=<node> <clone>/scripts/pi-development/web/server.mjs
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+```
+
+`PATH` must contain `node` and `pi`: the editor runs `team-record.sh`, which
+resolves both from `PATH`. Install and update the service, then restart it
+after every rollout and rollback; the service keeps running the installed
+revision until it restarts.
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now <unit>
+# After a rollout or rollback of <clone>:
+systemctl --user restart <unit>
+```
+
+On WSL, the unit starts with the distribution, not with Windows. Start the
+distribution at logon (for example a logon task running
+`wsl.exe -d <distro> -- true`) and keep `Restart=always` as the recovery path;
+check `systemctl --user status <unit>` after a failure.
 
 ## Output and failure contract
 
