@@ -160,5 +160,13 @@ else
   ng "team-record helper tests" "see the failing cases above"
 fi
 
+# The local profile editor (BFF and model master) has its own hermetic suite.
+printf '\n== profile editor ==\n'
+if "$SCRIPT_DIR/web.sh"; then
+  ok "profile editor tests"
+else
+  ng "profile editor tests" "see the failing cases above"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
