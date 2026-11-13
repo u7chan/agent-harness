@@ -222,19 +222,13 @@ SHOT_JS="$(cat <<'JS'
   host.append(d);
 
   // A body-level helper is positioned from the viewport, unless an ancestor
-  // creates a containing block for fixed elements. Measure the origin and place
-  // the helper relative to it; clamp to that box only when it is not the page.
+  // creates a containing block for fixed elements (for example a transformed
+  // body). Measure the origin and place the helper relative to it. The body's
+  // layout size does not limit the capture: a top-layer dialog can be larger
+  // than a body whose children are all fixed, so clamp to the viewport only.
   const o = d.getBoundingClientRect();
   const ox = Math.abs(o.left) < 0.5 ? 0 : o.left;
   const oy = Math.abs(o.top) < 0.5 ? 0 : o.top;
-  if ((ox || oy) && host.getBoundingClientRect) {
-    const h = host.getBoundingClientRect();
-    const hl = h.left + (host.clientLeft || 0);
-    const ht = h.top + (host.clientTop || 0);
-    l = Math.max(l, hl); t = Math.max(t, ht);
-    r = Math.min(r, hl + (host.clientWidth || 0));
-    b = Math.min(b, ht + (host.clientHeight || 0));
-  }
   if (r - l < 1 || b - t < 1) { d.remove(); return fail('outside'); }
   Object.assign(d.style, {
     left: (l - ox) + 'px', top: (t - oy) + 'px',
