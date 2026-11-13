@@ -89,6 +89,7 @@ case "$cmd" in
     case "${FAKE_SHOT:-ok}" in
       fail) printf '### Error\nscreenshot failed\n'; exit 1 ;;
       noop) exit 0 ;;
+      partial) [ -n "$file" ] && printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d | head -c 24 > "$file"; exit 0 ;;
       empty) [ -n "$file" ] && : > "$file"; exit 0 ;;
       *) [ -n "$file" ] && printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > "$file"; exit 0 ;;
     esac ;;
@@ -102,7 +103,7 @@ RC=0
 run() { # run <mark.sh args...>; fake behavior comes from exported FAKE_* vars
   : > "$FAKE_LOG"
   OUT="$( cd "$WORK/cwd" && env -u PW_ARTIFACT_DIR -u PLAYWRIGHT_MCP_OUTPUT_DIR \
-    PW_SESSION=marktest bash "$MARK" "$@" 2>&1 )"
+    PW_BIN="$WORK/bin/playwright-cli" PW_SESSION=marktest bash "$MARK" "$@" 2>&1 )"
   RC=$?
 }
 
@@ -133,6 +134,11 @@ check_contains "after uses the after color" "$(cat "$FAKE_LOG")" '#1a8a3a'
 run before e1 'say "hi"'
 check_eq "label with quotes returns 0" "$RC" 0
 check_contains "label is JSON-escaped before it reaches the page" "$(cat "$FAKE_LOG")" 'say \"hi\"'
+
+run before e1 'A&B'
+check_eq "label with an ampersand returns 0" "$RC" 0
+check_contains "ampersand is kept literally" "$(cat "$FAKE_LOG")" 'A&B'
+check_not_contains "ampersand does not expose the placeholder" "$(cat "$FAKE_LOG")" 'A__LABEL__B'
 
 run before e1 123456789
 check_eq "9-character label is a usage error" "$RC" 2
@@ -184,6 +190,10 @@ check_contains "empty file explains the PNG check" "$OUT" 'readable PNG'
 
 FAKE_SHOT=noop run shot "$WORK/out/noop.png"
 check_eq "missing file returns 1" "$RC" 1
+
+FAKE_SHOT=partial run shot "$WORK/out/partial.png"
+check_eq "truncated PNG returns 1" "$RC" 1
+check_contains "truncated PNG explains the PNG check" "$OUT" 'readable PNG'
 
 # --- argument validation ---------------------------------------------------
 

@@ -65,7 +65,7 @@ eval_json() {
 # not a readable PNG. A zero exit from the CLI is not proof that an image was
 # written.
 png_dims() {
-  local file="$1" sig w h
+  local file="$1" sig w h tail_hex
   [ -f "$file" ] || return 1
   [ -s "$file" ] || return 1
   sig="$(od -An -tx1 -N8 "$file" 2>/dev/null | tr -d ' \n')" || return 1
@@ -73,6 +73,11 @@ png_dims() {
   w="$(od -An -tu1 -j16 -N4 "$file" 2>/dev/null | awk '{printf "%d", $1*16777216+$2*65536+$3*256+$4}')" || return 1
   h="$(od -An -tu1 -j20 -N4 "$file" 2>/dev/null | awk '{printf "%d", $1*16777216+$2*65536+$3*256+$4}')" || return 1
   case "$w$h" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$w" -gt 0 ] && [ "$h" -gt 0 ] || return 1
+  # A PNG that stops mid-file still starts with a valid signature and IHDR, so
+  # also require the IEND chunk at the end.
+  tail_hex="$(tail -c 12 "$file" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')" || return 1
+  [ "$tail_hex" = "0000000049454e44ae426082" ] || return 1
   printf '%s %s\n' "$w" "$h"
 }
 
@@ -85,13 +90,23 @@ MARK_JS="$(cat <<'JS'
   const r = el.getBoundingClientRect();
   if (!r.width && !r.height) return fail('hidden');
 
-  // Draw inside the top-layer element when the target lives in one: a mark in
-  // <body> would be painted under the dialog backdrop.
+  // Draw inside the nearest top-layer element: a mark in <body> would be
+  // painted under the dialog backdrop, and a mark placed in the dialog would be
+  // painted under a popover opened inside that dialog.
   const host = (() => {
     let node = el;
     for (;;) {
-      try { const d = node.closest('dialog[open]'); if (d) return d; } catch (e) {}
-      try { const p = node.closest('[popover]:popover-open'); if (p) return p; } catch (e) {}
+      const found = [];
+      try { const d = node.closest('dialog[open]'); if (d) found.push(d); } catch (e) {}
+      try { const p = node.closest('[popover]:popover-open'); if (p) found.push(p); } catch (e) {}
+      if (found.length === 1) return found[0];
+      if (found.length > 1) {
+        // Nested top-layer elements: the inner one paints on top.
+        const a = found[0], b = found[1];
+        if (a.contains(b)) return b;
+        if (b.contains(a)) return a;
+        return b;
+      }
       const root = node.getRootNode && node.getRootNode();
       node = root && root.host ? root.host : null;
       if (!node) break;
@@ -188,21 +203,39 @@ SHOT_JS="$(cat <<'JS'
   const m = __MARGIN__;
   const vw = document.documentElement.clientWidth;
   const vh = document.documentElement.clientHeight;
-  const l = Math.max(0, Math.min(...rs.map((x) => x.left)) - m);
-  const t = Math.max(0, Math.min(...rs.map((x) => x.top)) - m);
-  const r = Math.min(vw, Math.max(...rs.map((x) => x.right)) + m);
-  const b = Math.min(vh, Math.max(...rs.map((x) => x.bottom)) + m);
-  if (r - l < 1 || b - t < 1) return fail('outside');
+  let l = Math.max(0, Math.min(...rs.map((x) => x.left)) - m);
+  let t = Math.max(0, Math.min(...rs.map((x) => x.top)) - m);
+  let r = Math.min(vw, Math.max(...rs.map((x) => x.right)) + m);
+  let b = Math.min(vh, Math.max(...rs.map((x) => x.bottom)) + m);
 
   const host = marks[0].parentElement || marks[0].parentNode || document.body;
   const d = document.createElement('div');
   d.setAttribute('data-evidence-shot', __TOKEN__);
   Object.assign(d.style, {
-    all: 'initial', position: 'fixed', left: l + 'px', top: t + 'px',
-    width: (r - l) + 'px', height: (b - t) + 'px', background: 'transparent',
-    pointerEvents: 'none', zIndex: '1', margin: '0', padding: '0', border: '0',
+    all: 'initial', position: 'fixed', left: '0px', top: '0px', width: '0px', height: '0px',
+    background: 'transparent', pointerEvents: 'none', zIndex: '1', margin: '0', padding: '0', border: '0',
   });
   host.append(d);
+
+  // Same containing-block rule as the marks: inside a transformed dialog (or
+  // popover) a fixed element is positioned from that element's padding box, not
+  // from the viewport. Measure the origin and place the helper relative to it.
+  const o = d.getBoundingClientRect();
+  const ox = Math.abs(o.left) < 0.5 ? 0 : o.left;
+  const oy = Math.abs(o.top) < 0.5 ? 0 : o.top;
+  if ((ox || oy) && host.getBoundingClientRect) {
+    const h = host.getBoundingClientRect();
+    const hl = h.left + (host.clientLeft || 0);
+    const ht = h.top + (host.clientTop || 0);
+    l = Math.max(l, hl); t = Math.max(t, ht);
+    r = Math.min(r, hl + (host.clientWidth || 0));
+    b = Math.min(b, ht + (host.clientHeight || 0));
+  }
+  if (r - l < 1 || b - t < 1) { d.remove(); return fail('outside'); }
+  Object.assign(d.style, {
+    left: (l - ox) + 'px', top: (t - oy) + 'px',
+    width: (r - l) + 'px', height: (b - t) + 'px',
+  });
   return JSON.stringify({ ok: true, l: l, t: t, w: r - l, h: b - t, token: __TOKEN__ });
 }
 JS
@@ -241,12 +274,30 @@ CLEAR_JS="$(cat <<'JS'
 JS
 )"
 
-render() { # render <template> [PAIR...]
+# replace_literal <text> <needle> <replacement>
+# Literal replacement: bash pattern substitution treats & in the replacement
+# specially, so labels like "A&B" would be mangled.
+replace_literal() {
+  local hay="$1" needle="$2" repl="$3" out='' head
+  while :; do
+    case "$hay" in
+      *"$needle"*)
+        head="${hay%%"$needle"*}"
+        out="$out$head$repl"
+        hay="${hay#*"$needle"}"
+        ;;
+      *) break ;;
+    esac
+  done
+  printf '%s%s' "$out" "$hay"
+}
+
+render() { # render <template> [KEY=VALUE...]
   local out="$1"; shift
   local pair key val
   for pair in "$@"; do
     key="${pair%%=*}"; val="${pair#*=}"
-    out="${out//__${key}__/$val}"
+    out="$(replace_literal "$out" "__${key}__" "$val")"
   done
   printf '%s' "$out"
 }

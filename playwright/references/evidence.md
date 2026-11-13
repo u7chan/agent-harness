@@ -55,7 +55,7 @@ PW_SESSION=<session> mark.sh clear
 
 ```bash
 export PW_ARTIFACT_DIR="${TMPDIR:-/tmp}/evidence/<topic>"
-PW_SESSION=playwright pw.sh clear
+PW_SESSION=playwright mark.sh clear
 PW_SESSION=playwright mark.sh before e6 "余白なし"
 PW_SESSION=playwright mark.sh shot "$PW_ARTIFACT_DIR/01-before.png"
 # open the changed screen, snapshot again, then mark the same component
