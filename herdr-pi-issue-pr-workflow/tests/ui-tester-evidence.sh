@@ -87,6 +87,12 @@ check_contains "the delegation body carries the evidence contract" "$ROLE_TEXT" 
   '[evidence](#evidence) 契約'
 check_contains "repository-required evidence includes the ui-tester" "$ROLE_TEXT" \
   '変更内容にかかわらず証跡を要求'
+check_contains "repo-required evidence survives the Draft PR re-judgment" "$ROLE_TEXT" \
+  'リポジトリ規約が証跡を要求する場合は委譲する'
+check_contains "repo-required evidence becomes the task" "$ROLE_TEXT" \
+  'その証跡項目がタスクになる'
+check_contains "missing Playwright blocks a required-evidence run" "$ROLE_TEXT" \
+  '証跡が必須なのに Playwright が利用できない場合は'
 
 # --- role boundary ---------------------------------------------------------
 
@@ -156,6 +162,12 @@ check_contains "unknown_outcome is not guessed" "$SKILL_TEXT" \
   '`unknown_outcome` は不明として扱い'
 check_contains "completion requires the attached evidence" "$SKILL_TEXT" \
   '現在の head を指す PR 本文の証跡節に証拠が添付'
+check_contains "the workflow delegates repo-required evidence without a UI change" "$SKILL_TEXT" \
+  'リポジトリ規約が証跡を要求する場合に委譲する'
+check_contains "completion gates repo-required evidence" "$SKILL_TEXT" \
+  'Kickoff gate でこの PR にリポジトリ規約由来の証跡が必要だと判定した場合'
+check_contains "a required-evidence run without Playwright is blocked" "$SKILL_TEXT" \
+  '証跡なしで完了せず `blocked` として理由を報告'
 check_contains "completion never ignores a passed item" "$SKILL_TEXT" \
   '添付証拠がないまま完了を報告しない'
 

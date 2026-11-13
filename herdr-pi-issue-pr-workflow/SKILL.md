@@ -183,7 +183,7 @@ Issue、チーム割当とペイン ID、base/work ブランチ、現在のフ�
 
 ### ui-tester verification
 
-仕様に `ui-tester` がある場合、Draft PR の実際の差分をもとに [Draft PR re-judgment](references/ui-tester-role.md#draft-pr-re-judgment) で参加を再判定し、ユーザーに見える画面・操作が変更された場合だけ委譲する。`ui-tester` の作業は Round 1 レビューと並行してよい。Kickoff gate で設定したタスク（今回指定されたタスク、なければ既定の E2E タスク）を渡す。指定済みタスクを既定タスクで上書きしない。
+仕様に `ui-tester` がある場合、Draft PR の実際の差分をもとに [Draft PR re-judgment](references/ui-tester-role.md#draft-pr-re-judgment) で参加を再判定し、ユーザーに見える画面・操作が変更された場合、またはリポジトリ規約が証跡を要求する場合に委譲する。`ui-tester` の作業は Round 1 レビューと並行してよい。Kickoff gate で設定したタスク（リポジトリ規約由来の証跡項目、今回指定されたタスク、なければ既定の E2E タスク）を渡す。指定済みタスクを既定タスクで上書きしない。
 
 `ui-tester` は [証跡仕様](references/ui-tester-role.md#evidence) に従って証拠を生成する。通常はスクリーンショットとし、時間経過に依存する主張だけ WebM 動画を使う。GIF の生成と動画へのテキスト焼き込みは禁止（静止画の印は可）。全成果物を `PW_ARTIFACT_DIR` 内に置き、添付の 10 MB 上限を守る。動画が上限を満たせない場合はスクリーンショットを記録された代替とする。検証項目ごとに証明する成果物の絶対パスを返す。`ui-tester` 自身はコメントを含め GitHub へ投稿しない。orchestrator が本文へ反映する前にサイズを確認し、証跡を反映する。以下の再検証も同じ証跡契約に従う。
 
@@ -244,6 +244,7 @@ Herdr や GitHub の操作の周囲に別の再試行、キュー、状態マシ
 - PR 本文とコミットメッセージが、Kickoff gate で対象 PR 向けに決定したクローズキーワード方針に従っている。
 - 必須のレビュー修正が残っていない。
 - **`ui-tester` を指定した場合だけ**、担当したすべての項目について、現在の PR head で pass が確認されたか、未検証の理由とともに unverified として報告されている。さらに、現在の head で pass となった項目には、現在の head を指す PR 本文の証跡節に証拠が添付されており、本文を読み直して確認している（[ui-tester verification](#ui-tester-verification)）。この条件はレビューの LGTM 条件に追加するもので、置き換えではない。
+- Kickoff gate でこの PR にリポジトリ規約由来の証跡が必要だと判定した場合、現在の head を指す PR 本文の証跡節に、必須項目を証明する証拠が添付されており、本文を読み直して確認している（[_docs/pr-evidence.md](../_docs/pr-evidence.md) の完了ゲート）。`ui-tester` を除外した場合は、証跡なしで完了せず `blocked` として理由を報告している。
 - 最新の再チェックで `Resolved` に分類された全スレッドが、返信確認と軽量チェック後に Resolve 済みである（このワークフローの auto-resolve）。`Partial`、`Unresolved`、`Unknown`、ほかの投稿者のスレッド、ユーザー判断待ちの議論は開いたままにする。
 - 実行に含めた `ui-tester` のうち、起動したが一度も委譲しなかったペインは `herdr pane close <pane-id>` で閉じ、[Completion cleanup](references/ui-tester-role.md#completion-cleanup) の 1 行を報告している。委譲を受けたすべてのペインは開いたままにする。
 
