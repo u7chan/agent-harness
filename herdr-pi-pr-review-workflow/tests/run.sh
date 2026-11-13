@@ -29,6 +29,7 @@ for value in (
     'プロファイルや `active` を自動作成・保存・変更しない', '起動引数だけでは証拠にならない',
     'parent-delegate-async.sh', 'child-return-result.sh', '委譲後はターンを終了',
     'draft: true', 'grant: "write"', 'references/evidence.md',
+    'PR 本文の証跡節', '../_docs/pr-evidence.md', '本文の証跡節が現在 head を指し',
     '初回を含め、レビューは最大 3 ラウンドとする',
     'Round 3 後も Blocker があれば', 'Draft のまま停止',
     'polish', '最大 2 回', '通常ラウンドへ戻さず',
@@ -43,13 +44,23 @@ for value in (
 assert 'herdr-pi-issue-pr-workflow/' not in text, 'no dependency on the Issue workflow'
 evidence = (skill.parent / 'references' / 'evidence.md').read_text()
 for value in (
-    'pi-pr-review-workflow:ui-evidence', 'PR 本文には入れない',
-    '10 MB', 'attachments', 'grant: "write"', '同じ head',
-    '変更箇所の印', 'playwright/references/evidence.md', 'After だけを撮る場合も',
-    '2 列まで', '3 列以上にしない', '<img width="<px>">', 'unknown_outcome',
-    'comments.update', 'head マーカー', '130px',
+    '_docs/pr-evidence.md', 'PR 本文の証跡節', 'pr.create', 'pr.update',
+    '10 MB', '変更箇所の印', 'playwright/references/evidence.md',
+    'After だけを撮る場合も', '現在 head', '再利用',
 ):
     assert value in evidence, value
+for value in ('PR 本文には入れない', 'pi-pr-review-workflow:ui-evidence', 'comments.create'):
+    assert value not in evidence, value
+pr_evidence = (root / '_docs' / 'pr-evidence.md').read_text()
+for value in (
+    'pi:ui-evidence:start', 'pi:ui-evidence:end', '## 証跡',
+    'pr.create', 'pr.update', 'attachments', 'grant: "write"', '再利用',
+    '2 列まで', '3 列以上にしない', '<img width="<px>">', 'unknown_outcome',
+    '130px', '現在 head', 'ローカルパス', 'Draft のまま停止',
+):
+    assert value in pr_evidence, value
+for value in ('PR 本文には入れない', 'comments.create', 'comments.update'):
+    assert value not in pr_evidence, value
 review = (root / 'review' / 'SKILL.md').read_text()
 assert 'PR 作成、別ペインのレビュアー、修正ループ、Ready まで含む依頼には使わない' in review
 recheck = (root / 'review' / 'references' / 'recheck.md').read_text()

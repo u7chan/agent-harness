@@ -30,6 +30,9 @@ Both use the user-owned [development profiles](_docs/pi-development.md) under
 users migrate with [the backed-up procedure](_docs/pi-development-migration.md)
 as part of rollout, not by installing unmerged skill changes.
 
+UI evidence for both workflows follows [PR body evidence](_docs/pr-evidence.md):
+the evidence belongs in the PR body, not in PR comments.
+
 ## Prerequisites
 
 Linux remains the full CI baseline: the measurements in [_docs/skill-distribution.md](_docs/skill-distribution.md) were taken on Linux, and the existing [contract-tests](.github/workflows/contract-tests.yml) job runs on `ubuntu-latest`. Linux and WSL keep their existing Bash/GNU-tool invocation and PATH; there is no automatic macOS setup applied to other platforms. WSL has not been separately real-machine tested for this change, and native Windows shells (PowerShell/cmd) are outside the support scope.

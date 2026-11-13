@@ -2,7 +2,7 @@
 # Hermetic documentation contract for the ui-tester evidence rules: the return
 # format carries the artifacts and their verification items, screenshots are
 # the default, a video is WebM-only for time-direction claims, ffmpeg stays
-# optional, and posting the evidence belongs to the orchestrator.
+# optional, and reflecting the evidence in the PR body belongs to the orchestrator.
 #
 # These tests read the skill's Markdown only: no pi, no network, no browser.
 # herdr-pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
@@ -85,14 +85,16 @@ check_contains "artifact names describe the content" "$ROLE_TEXT" \
   '内容に基づいて名前を付ける'
 check_contains "the delegation body carries the evidence contract" "$ROLE_TEXT" \
   '[evidence](#evidence) 契約'
+check_contains "repository-required evidence includes the ui-tester" "$ROLE_TEXT" \
+  '変更内容にかかわらず証跡を要求'
 
 # --- role boundary ---------------------------------------------------------
 
 check_contains "ui-tester does not post PR comments" "$SKILL_TEXT" 'PR コメント投稿を行わない'
-check_contains "the reference states who posts the evidence" "$ROLE_TEXT" \
-  '投稿は orchestrator に属する'
-check_contains "the orchestrator checks sizes before posting" "$ROLE_TEXT" \
-  '投稿前にすべての成果物のサイズを確認する'
+check_contains "the reference states who reflects the evidence" "$ROLE_TEXT" \
+  '反映は orchestrator に属する'
+check_contains "the orchestrator checks sizes before reflecting" "$ROLE_TEXT" \
+  '本文へ反映する前にすべての成果物のサイズを確認する'
 check_contains "SKILL.md defers to the evidence contract" "$SKILL_TEXT" \
   'references/ui-tester-role.md#evidence'
 
@@ -102,36 +104,44 @@ check_contains "SKILL.md defers to the evidence contract" "$SKILL_TEXT" \
 # the head, images carry alt text, videos stay standalone, and every
 # attachment is referenced so the post-write check stays decidable.
 check_contains "the marker carries the full head SHA" "$ROLE_TEXT" \
-  '<!-- pi-issue-pr-workflow:ui-evidence head=<head SHA> -->'
-check_contains "the orchestrator posts the returned artifacts" "$ROLE_TEXT" \
-  'orchestrator は返却された成果物を PR コメントへ投稿'
-check_contains "the evidence never goes into the PR body" "$ROLE_TEXT" \
-  'PR 本文には入れない'
-check_contains "one comment carries one head" "$ROLE_TEXT" \
-  '1 つのコメントは 1 つの head を扱う'
+  '<!-- pi:ui-evidence:start head=<head SHA> -->'
+check_contains "the evidence section has an end marker" "$ROLE_TEXT" \
+  '<!-- pi:ui-evidence:end -->'
+check_contains "the orchestrator reflects the returned artifacts" "$ROLE_TEXT" \
+  'orchestrator は返却された成果物を PR 本文の証跡節へ反映'
+check_contains "the evidence is never posted as a comment" "$ROLE_TEXT" \
+  '証跡コメントは投稿しない'
+check_contains "a previous evidence section is reused only when covered" "$ROLE_TEXT" \
+  '前回の証跡節の画像を再利用'
 check_contains "images are inline references with alt text" "$ROLE_TEXT" \
   'alt テキスト付きのインライン参照'
 check_contains "videos render as standalone players" "$ROLE_TEXT" \
   '動画は単独の段落'
 check_contains "every attachment is referenced" "$ROLE_TEXT" \
   'すべての添付を参照する'
-check_contains "comments.update cannot add attachments" "$ROLE_TEXT" \
-  '`comments.update` では添付を追加できない'
+check_contains "the body update defers to the shared contract" "$ROLE_TEXT" \
+  '_docs/pr-evidence.md'
 
 # The orchestrator's posting procedure: one comment per head, an explicit
 # grant, a pre-post existence and size check, and no guessing on failures.
-check_contains "the orchestrator posts the returned evidence" "$SKILL_TEXT" \
+check_contains "the orchestrator reflects the returned evidence" "$SKILL_TEXT" \
   '返却された証跡は'
-check_contains "the orchestrator posts the returned evidence as a PR comment" "$SKILL_TEXT" \
-  'PR コメントとして投稿する'
-check_contains "posting uses comments.create" "$SKILL_TEXT" 'comments.create'
-check_contains "posting carries an explicit grant" "$SKILL_TEXT" '明示的な `grant`'
-check_contains "a same-head comment is reused only when covered" "$SKILL_TEXT" \
-  '今回返却された全項目がすでに記載されている'
-check_contains "a fix push posts a new comment" "$SKILL_TEXT" \
+check_contains "the orchestrator reflects the returned evidence in the PR body" "$SKILL_TEXT" \
+  'PR 本文の証跡節へ反映する'
+check_contains "reflecting uses pr.create or pr.update" "$SKILL_TEXT" 'pr.create'
+check_contains "reflecting uses pr.update" "$SKILL_TEXT" 'pr.update'
+check_contains "the evidence is never posted as a comment" "$SKILL_TEXT" \
+  '証跡コメントは投稿しない'
+check_contains "reflecting carries an explicit grant" "$SKILL_TEXT" '明示的な `grant`'
+check_contains "a previous evidence section is reused only when covered" "$SKILL_TEXT" \
+  '今回返却された全項目をすでに列挙している'
+check_contains "a fix push updates the evidence head" "$SKILL_TEXT" \
   '修正 push で head が変わった'
-check_contains "artifacts are checked before posting" "$SKILL_TEXT" \
-  '投稿前に成果物の存在'
+check_contains "the body is re-read before updating" "$SKILL_TEXT" \
+  '更新直前に `pr.read` で本文を読み'
+check_contains "the marker carries the current head" "$SKILL_TEXT" '現在 head の完全な SHA'
+check_contains "artifacts are checked before reflecting" "$SKILL_TEXT" \
+  '本文へ反映する前に成果物の存在'
 check_contains "attachment pre-write errors keep the deterministic codes" "$SKILL_TEXT" \
   'MISSING_DEPENDENCY'
 check_contains "attachment pre-write errors keep the deterministic codes" "$SKILL_TEXT" \
@@ -145,7 +155,7 @@ check_contains "attachment pre-write errors stop without retrying" "$SKILL_TEXT"
 check_contains "unknown_outcome is not guessed" "$SKILL_TEXT" \
   '`unknown_outcome` は不明として扱い'
 check_contains "completion requires the attached evidence" "$SKILL_TEXT" \
-  '同じ head の証跡コメントへ証拠が添付'
+  '現在の head を指す PR 本文の証跡節に証拠が添付'
 check_contains "completion never ignores a passed item" "$SKILL_TEXT" \
   '添付証拠がないまま完了を報告しない'
 
