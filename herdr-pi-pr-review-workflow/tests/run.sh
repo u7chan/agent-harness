@@ -46,6 +46,8 @@ for value in (
     'pi-pr-review-workflow:ui-evidence', 'PR 本文には入れない',
     '10 MB', 'attachments', 'grant: "write"', '同じ head',
     '変更箇所の印', 'playwright/references/evidence.md', 'After だけを撮る場合も',
+    '2 列まで', '3 列以上にしない', '<img width="<px>">', 'unknown_outcome',
+    'comments.update', 'head マーカー', '130px',
 ):
     assert value in evidence, value
 review = (root / 'review' / 'SKILL.md').read_text()
