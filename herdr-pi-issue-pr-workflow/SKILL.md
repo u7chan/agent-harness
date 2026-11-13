@@ -185,7 +185,7 @@ Issue、チーム割当とペイン ID、base/work ブランチ、現在のフ�
 
 仕様に `ui-tester` がある場合、Draft PR の実際の差分をもとに [Draft PR re-judgment](references/ui-tester-role.md#draft-pr-re-judgment) で参加を再判定し、ユーザーに見える画面・操作が変更された場合だけ委譲する。`ui-tester` の作業は Round 1 レビューと並行してよい。Kickoff gate で設定したタスク（今回指定されたタスク、なければ既定の E2E タスク）を渡す。指定済みタスクを既定タスクで上書きしない。
 
-`ui-tester` は [証跡仕様](references/ui-tester-role.md#evidence) に従って証拠を生成する。通常はスクリーンショットとし、時間経過に依存する主張だけ WebM 動画を使う。GIF やテキストの重ね合わせは禁止。全成果物を `PW_ARTIFACT_DIR` 内に置き、添付の 10 MB 上限を守る。動画が上限を満たせない場合はスクリーンショットを記録された代替とする。検証項目ごとに証明する成果物の絶対パスを返す。`ui-tester` 自身はコメントを含め GitHub へ投稿しない。orchestrator が投稿前にサイズを確認し、証跡を投稿する。以下の再検証も同じ証跡契約に従う。
+`ui-tester` は [証跡仕様](references/ui-tester-role.md#evidence) に従って証拠を生成する。通常はスクリーンショットとし、時間経過に依存する主張だけ WebM 動画を使う。GIF の生成と動画へのテキスト焼き込みは禁止（静止画の印は可）。全成果物を `PW_ARTIFACT_DIR` 内に置き、添付の 10 MB 上限を守る。動画が上限を満たせない場合はスクリーンショットを記録された代替とする。検証項目ごとに証明する成果物の絶対パスを返す。`ui-tester` 自身はコメントを含め GitHub へ投稿しない。orchestrator が投稿前にサイズを確認し、証跡を投稿する。以下の再検証も同じ証跡契約に従う。
 
 返却された証跡は、GH スキルの `comments.create` と明示的な `grant` で、[証跡コメントの形式](references/ui-tester-role.md#evidence-posting) に従って PR コメントとして投稿する。本文の先頭には head を示すマーカーを付け、全添付に言及する。投稿前に PR コメントからそのマーカーを検索する。同じ head のコメントを再利用できるのは、その本文に今回返却された全項目がすでに記載されている場合だけ。項目が追加された場合は新しいコメントを作る（`comments.update` では添付を追加できないため）。修正 push で head が変わった場合は head ごとにコメントを分け、各レビューラウンドにつき最大 1 件とする。
 

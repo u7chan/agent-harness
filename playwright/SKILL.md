@@ -75,6 +75,21 @@ pw.sh find "Sign in"          # search by text and return only the surroundings
 pw.sh open https://example.com/ --mobile  # the mobile view is lighter
 ```
 
+## PR evidence screenshots
+
+To show a UI change, capture before/after stills with the changed area marked:
+`scripts/mark.sh` draws a dashed box with a short label, and `shot` saves only
+the marked area plus a margin, then removes the marks. Run it from the same cwd
+as `open`, with the same `PW_SESSION`; every call goes through `pw.sh`.
+
+```bash
+PW_SESSION=playwright scripts/mark.sh before e6 "余白なし"
+PW_SESSION=playwright scripts/mark.sh shot "$PW_ARTIFACT_DIR/01-before.png"
+```
+
+Rules, geometry limits, and the pre-publish check:
+[Evidence screenshots](references/evidence.md).
+
 ## When it breaks
 
 `is not open` alone means nothing is broken (not opened yet / already closed / cwd from another workspace). Re-running `pw.sh open <url>` is enough. **recover is not needed.**
@@ -97,3 +112,4 @@ Only when `Session closed` / `EADDRINUSE` occurs, or `open` itself fails, run `p
 * Test code generation [references/test-generation.md](references/test-generation.md)
 * Tracing [references/tracing.md](references/tracing.md)
 * Video recording [references/video-recording.md](references/video-recording.md)
+* Marked before/after evidence stills [references/evidence.md](references/evidence.md)

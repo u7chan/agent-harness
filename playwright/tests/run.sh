@@ -375,5 +375,13 @@ EOF
 check_contains "17d batch open adds bundled Chromium by default" \
   "$(cat "$SHIM_ARGV")" 'ARG[--browser=chromium]'
 
+# --- 18. mark.sh suite ----------------------------------------------------
+printf '\n--- scripts/mark.sh ---\n'
+if bash "$SCRIPT_DIR/mark.sh"; then
+  ok "18 mark.sh suite"
+else
+  ng "18 mark.sh suite" "see the failures above"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

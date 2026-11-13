@@ -67,7 +67,12 @@ check_contains "video is for time-direction claims only" "$ROLE_TEXT" \
   'にだけ使う'
 check_contains "the video format is WebM" "$ROLE_TEXT" 'WebM'
 check_contains "GIF is out of scope" "$ROLE_TEXT" 'GIF を生成せず'
-check_contains "text overlays are out of scope" "$ROLE_TEXT" 'drawtext'
+check_contains "video text overlays are out of scope" "$ROLE_TEXT" '動画にテキストを焼き込まない'
+check_contains "still marks are allowed" "$ROLE_TEXT" '静止画の印'
+check_contains "before/after stills carry marks" "$ROLE_TEXT" '変更箇所の印を付ける'
+check_contains "the capture procedure is a pointer" "$ROLE_TEXT" 'playwright/references/evidence.md'
+check_contains "the workflow scopes the overlay ban to video" "$SKILL_TEXT" '静止画の印は可'
+check_contains "the delegation body asks for marks" "$ROLE_TEXT" '静止画の印。'
 check_contains "artifacts live under PW_ARTIFACT_DIR" "$ROLE_TEXT" \
   'すべての成果物を `PW_ARTIFACT_DIR` の下に置き'
 check_contains "the attachment limit is 10 MB" "$ROLE_TEXT" '10 MB'
