@@ -445,7 +445,7 @@
         return {
           row,
           setSpec(next) {
-            selectModel(`${next.provider}\u0000${next.model}`, next.thinking);
+            selectModel(next.model ? `${next.provider}\u0000${next.model}` : "", next.thinking);
           },
           setDisabled(disabled) {
             modelSelect.disabled = disabled;
