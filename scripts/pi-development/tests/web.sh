@@ -162,7 +162,9 @@ code="$(api GET /api/state)"
 state="$(cat "$WORK/last")"
 check_eq "state returns 200" "$code" "200"
 check_contains "state lists the profile" "$state" '"name":"default"'
-check_contains "state resolves the record" "$state" 'result=ok'
+check_contains "state keeps the stored roles" "$state" '"roles":{"impl":{"provider":"p"'
+check_contains "state returns the hash for the save guard" "$state" '"hash":"'
+check_not_contains "state does not spend a resolve per profile" "$state" '"record"'
 check_contains "state reports an unknown top-level key" "$state" '"top":["legacy_comment"]'
 check_contains "state reports an unknown role" "$state" '"tmp":["note"]'
 check_contains "state carries the model candidates" "$state" '"providers":[{"id":"p","models":[{"id":"m"'

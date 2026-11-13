@@ -246,13 +246,15 @@ function run(command, args, timeout) {
 }
 
 /**
- * One profile as the UI needs it.
+ * One profile as the UI needs it: the stored roles, the keys a later `write`
+ * would drop, and the hash the next save must present.
  *
- * `roles`, `unknown`, and `hash` come from the file; the `record` line comes
- * from `team-record.sh resolve`, so the reader and the writer agree on the
- * contract instead of a second parser growing here.
+ * This deliberately does not call `resolve`. A resolve costs about 3.5s
+ * because it boots the pi runtime, and the reader has nothing to add to the
+ * file view. The authoritative record comes back from `write` on save, so the
+ * validation stays in one place and the page stays fast.
  */
-function readProfile(name, { teamRecord, resolver }) {
+function readProfile(name) {
   const file = profilePath(name);
   let text;
   try {
@@ -267,31 +269,18 @@ function readProfile(name, { teamRecord, resolver }) {
   } catch {
     return { name, hash, error: "invalid-json" };
   }
-  const args = ["resolve", "--profile", name];
-  if (resolver) {
-    args.push("--resolver", resolver);
-  }
-  const result = run(teamRecord, args, 20_000);
-  const record = firstLine(result.stdout);
-  const profile = {
+  return {
     name,
     hash,
     pr_fix_shared_with_impl: raw?.pr_fix_shared_with_impl === true,
     roles: storedRoles(raw),
     unknown: unknownKeys(raw),
-    record,
   };
-  if (result.error) {
-    profile.error = "resolve-not-runnable";
-  } else if (!record.includes("result=ok")) {
-    profile.error = "resolve-not-ok";
-  }
-  return profile;
 }
 
-function readState({ teamRecord, resolver }, currentPiVersion) {
+function readState(currentPiVersion) {
   return {
-    profiles: listProfileNames().map((name) => readProfile(name, { teamRecord, resolver })),
+    profiles: listProfileNames().map((name) => readProfile(name)),
     models: readMaster(currentPiVersion),
   };
 }
@@ -515,7 +504,7 @@ async function route(request, response, context) {
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/state") {
-    sendJson(response, 200, readState(context, context.currentPiVersion));
+    sendJson(response, 200, readState(context.currentPiVersion));
     return;
   }
   if (request.method === "PUT" && url.pathname === "/api/profile") {

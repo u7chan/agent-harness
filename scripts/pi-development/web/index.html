@@ -288,7 +288,6 @@
         return {
           name: profile.name,
           hash: profile.hash,
-          record: profile.record,
           error: profile.error,
           unknown: profile.unknown,
           prFixShared: profile.pr_fix_shared_with_impl === true,
@@ -465,7 +464,7 @@
         const controls = {};
         const refreshNote = () => {
           const missing = ["impl", "review", "pr-fix"].filter((role) => !draft.roles[role]?.model);
-          note.textContent = missing.length ? `未設定: ${missing.join(", ")}` : draft.record || "";
+          note.textContent = missing.length ? `未設定: ${missing.join(", ")}` : "";
         };
 
         const syncShared = () => {

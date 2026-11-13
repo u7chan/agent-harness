@@ -105,7 +105,7 @@ scripts/pi-development/refresh-models.sh [--pi-root <pi-package>] [--out <file>]
 ```
 
 `GET /` serves the document. `GET /api/state` returns every profile with its
-hash, stored roles, unknown keys, and resolve record, plus the master with
+hash, stored roles, and unknown keys, plus the master with
 `status` (`ok`, `missing`, `invalid`), `stale`, `stale_reason`, and its
 candidates. `PUT /api/profile` takes `profile`, `expected_hash`,
 `pr_fix_shared_with_impl`, and `roles`; it answers 200 with the write record,
@@ -114,6 +114,10 @@ candidates. `PUT /api/profile` takes `profile`, `expected_hash`,
 helper cannot run. Omitting `ui-tester` removes it. `POST /api/models/refresh`
 runs the refresh helper, answers 200 with its record, 500 when it fails, and
 409 while a refresh is already running.
+
+`GET /api/state` does not run `resolve`: a resolve boots the pi runtime and
+costs seconds per profile, while the file view needs nothing it can add. The
+authoritative record for a profile is the one `PUT` returns from `write`.
 
 The hash guard detects a change up to the moment it is compared. A `write` from
 another process between the comparison and the rename wins; the CLI contract
