@@ -23,7 +23,7 @@
 
 import http from "node:http";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -54,6 +54,7 @@ Serves the local profile editor on 127.0.0.1.
   --refresh      refresh-models.sh replacement (default: the sibling script)
   --team-record  team-record.sh replacement (default: the sibling script)
   --index        HTML document to serve (default: the sibling index.html)
+  --pi-version   override the current pi version used for the stale badge
 
 Prints one line after binding:
   listening host=127.0.0.1 port=<port>`;
@@ -107,13 +108,14 @@ function ageInDays(isoTimestamp) {
 }
 
 function parseArgs(argv) {
-  const options = { port: "", resolver: "", refresh: "", teamRecord: "", index: "" };
+  const options = { port: "", resolver: "", refresh: "", teamRecord: "", index: "", piVersion: "" };
   const keys = {
     "--port": "port",
     "--resolver": "resolver",
     "--refresh": "refresh",
     "--team-record": "teamRecord",
     "--index": "index",
+    "--pi-version": "piVersion",
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -160,11 +162,24 @@ function readMaster(currentPiVersion) {
   ) {
     return { status: "invalid", reason: "invalid-shape" };
   }
-  const providers = document.providers
-    .filter((provider) => isPlainObject(provider) && typeof provider.id === "string" && Array.isArray(provider.models))
-    .map((provider) => ({ id: provider.id, models: provider.models }));
-  if (providers.length !== document.providers.length) {
-    return { status: "invalid", reason: "invalid-shape" };
+  const providers = [];
+  for (const provider of document.providers) {
+    if (!isPlainObject(provider) || typeof provider.id !== "string" || !Array.isArray(provider.models)) {
+      return { status: "invalid", reason: "invalid-shape" };
+    }
+    // A malformed entry must not reach the UI: one null row would break the
+    // candidate index and take the whole page down instead of falling back.
+    for (const model of provider.models) {
+      if (
+        !isPlainObject(model) ||
+        typeof model.id !== "string" ||
+        !Array.isArray(model.supported_thinking) ||
+        !model.supported_thinking.every((level) => typeof level === "string")
+      ) {
+        return { status: "invalid", reason: "invalid-shape" };
+      }
+    }
+    providers.push({ id: provider.id, models: provider.models });
   }
   const versionChanged = currentPiVersion !== "" && document.pi_version !== currentPiVersion;
   const tooOld = ageInDays(document.generated_at) > STALE_AFTER_DAYS;
@@ -241,8 +256,35 @@ function listProfileNames() {
     .sort();
 }
 
-function run(command, args, timeout) {
-  return spawnSync(command, args, { encoding: "utf8", timeout });
+/**
+ * Run a helper to completion without blocking the event loop.
+ *
+ * `spawnSync` would stall every other request for the seconds a `write` or a
+ * refresh takes, and it would make the refresh guard unreachable: the second
+ * request could only be read after the first had already cleared the flag.
+ */
+function runAsync(command, args, timeout) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let stdout = "";
+    let stderr = "";
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeout);
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => finish({ error, stdout, stderr }));
+    child.on("close", (code, signal) => finish({ code, signal, stdout, stderr }));
+  });
 }
 
 /**
@@ -444,7 +486,7 @@ async function handleProfilePut(request, response, context) {
     return;
   }
 
-  const result = run(context.teamRecord, writeArgs(body, context), 30_000);
+  const result = await runAsync(context.teamRecord, writeArgs(body, context), 30_000);
   const record = firstLine(result.stdout);
   if (result.error) {
     sendJson(response, 502, { result: "failed", reason: "write-not-runnable" });
@@ -465,7 +507,7 @@ async function handleRefresh(response, context) {
   context.refreshing = true;
   let result;
   try {
-    result = run(context.refresh, [], 120_000);
+    result = await runAsync(context.refresh, [], 120_000);
   } finally {
     context.refreshing = false;
   }
@@ -558,7 +600,7 @@ function main() {
     refresh: options.refresh || path.join(PACKAGE_DIR, "refresh-models.sh"),
     resolver: options.resolver,
     indexHtml,
-    currentPiVersion: currentPiVersion(),
+    currentPiVersion: options.piVersion !== "" ? options.piVersion : currentPiVersion(),
     refreshing: false,
   };
 

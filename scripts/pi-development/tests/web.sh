@@ -82,6 +82,9 @@ if [ -f "$WORK/refresh-fails" ]; then
   printf 'result=failed reason=no-models\n'
   exit 1
 fi
+if [ -f "$WORK/refresh-slow" ]; then
+  sleep 1
+fi
 printf '{\n  "generated_at": "2026-02-03T00:00:00.000Z",\n  "pi_version": "9.9.9",\n  "providers": [{"id": "stub", "models": [{"id": "stub", "supported_thinking": ["high"]}]}]\n}\n' > "\$PI_CODING_AGENT_DIR/pi-development/models.json"
 printf 'result=ok path=%s providers=1 models=1 pi_version=9.9.9\n' "\$PI_CODING_AGENT_DIR/pi-development/models.json"
 STUB
@@ -114,7 +117,7 @@ hash_of() {
 
 start_server() {
   local tag="$1" resolver="$2" refresh="$3"
-  local args=(--port 0)
+  local args=(--port 0 --pi-version 1.5.2)
   [ -n "$resolver" ] && args+=(--resolver "$resolver")
   [ -n "$refresh" ] && args+=(--refresh "$refresh")
   PI_CODING_AGENT_DIR="$ASSET" node "$SERVER" "${args[@]}" >"$WORK/$tag.out" 2>"$WORK/$tag.err" &
@@ -184,6 +187,20 @@ code="$(api GET /api/state)"
 check_eq "broken master still returns 200" "$code" "200"
 check_contains "broken master is reported" "$(cat "$WORK/last")" '"status":"invalid"'
 mv "$WORK/models.backup" "$ASSET/pi-development/models.json"
+
+# A master with a malformed model row is invalid, not a crash for the UI.
+printf '{"generated_at":"2999-01-01T00:00:00.000Z","pi_version":"1.5.2","providers":[{"id":"p","models":[null]}]}\n' > "$ASSET/pi-development/models.json"
+code="$(api GET /api/state)"
+check_eq "a malformed master still returns 200" "$code" "200"
+check_contains "a malformed model row is reported" "$(cat "$WORK/last")" '"reason":"invalid-shape"'
+node -e '
+const fs = require("node:fs");
+fs.writeFileSync(process.argv[1], JSON.stringify({
+  generated_at: "2999-01-01T00:00:00.000Z",
+  pi_version: "1.5.2",
+  providers: [{ id: "p", models: [{ id: "m", supported_thinking: ["high", "max"] }] }],
+}, null, 2));
+' "$ASSET/pi-development/models.json"
 
 # An old master is stale, and says why. The age check is deterministic here;
 # the pi-version check needs an installed pi, which this suite does not require.
@@ -264,6 +281,18 @@ check_eq "failed refresh returns 500" "$code" "500"
 check_contains "failed refresh reports the reason" "$(cat "$WORK/last")" 'reason=no-models'
 check_eq "failed refresh keeps the master" "$(hash_of "$ASSET/pi-development/models.json")" "$master"
 rm -f "$WORK/refresh-fails"
+
+# --- refresh concurrency ----------------------------------------------------
+
+: > "$WORK/refresh-slow"
+curl -s -o "$WORK/c1.body" -w '%{http_code}\n' -X POST "http://127.0.0.1:$PORT/api/models/refresh" > "$WORK/c1.code" &
+c1=$!
+curl -s -o "$WORK/c2.body" -w '%{http_code}\n' -X POST "http://127.0.0.1:$PORT/api/models/refresh" > "$WORK/c2.code" &
+c2=$!
+wait "$c1" "$c2"
+codes="$(cat "$WORK/c1.code" "$WORK/c2.code" | sort | tr '\n' ' ')"
+check_eq "a second refresh is refused while one runs" "$codes" "200 409 "
+rm -f "$WORK/refresh-slow"
 
 # --- unresolved roles -------------------------------------------------------
 

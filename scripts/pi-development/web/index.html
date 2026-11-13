@@ -296,15 +296,22 @@
         };
       }
 
+      /**
+       * Fill a thinking select. An unknown model keeps its stored level as the
+       * only choice instead of offering levels the catalog cannot confirm, and
+       * the base disabled state is recorded so a later enable does not mistake
+       * the shared-flag lock for missing support.
+       */
       function fillThinking(select, levels, current) {
         select.replaceChildren();
-        const usable = levels.length > 0 ? levels : ALL_LEVELS;
+        const usable = levels.length > 0 ? levels : current ? [current] : ALL_LEVELS;
         for (const level of usable) {
           const option = el("option", { value: level, text: level });
           if (level === current) option.selected = true;
           select.append(option);
         }
-        if (!usable.includes(current)) select.value = usable[0];
+        if (!usable.includes(current) && current === "") select.value = usable[0];
+        select.dataset.baseDisabled = levels.length === 0 ? "1" : "0";
         select.disabled = levels.length === 0;
       }
 
@@ -378,9 +385,41 @@
           }
           modelSelect.append(group);
         }
+
+        /**
+         * A stored spec outside the master must stay selectable. Otherwise the
+         * browser picks the first option, and saving any other role would
+         * silently rewrite this one. An unset role gets an explicit placeholder
+         * instead of the same accidental first-option choice.
+         */
+        const selectModel = (key, thinking) => {
+          if (key === "") {
+            let placeholder = modelSelect.querySelector('option[value=""]');
+            if (!placeholder) {
+              placeholder = el("option", { value: "", text: "（未選択）" });
+              modelSelect.prepend(placeholder);
+            }
+            modelSelect.value = "";
+            fillThinking(thinkingSelect, [], thinking);
+            return;
+          }
+          if (!index.has(key)) {
+            let preserved = modelSelect.querySelector('option[data-preserved="1"]');
+            if (!preserved) {
+              preserved = el("option");
+              preserved.dataset.preserved = "1";
+              modelSelect.prepend(preserved);
+            }
+            preserved.value = key;
+            preserved.textContent = `${key.split("\u0000").join("/")}（マスタ外）`;
+          }
+          modelSelect.value = key;
+          fillThinking(thinkingSelect, levelsFor(index.get(key)), thinking);
+        };
+
         const thinkingSelect = el("select");
         thinkingSelect.setAttribute("aria-label", `${role} thinking`);
-        fillThinking(thinkingSelect, levelsFor(index.get(`${spec.provider}\u0000${spec.model}`)), spec.thinking);
+        selectModel(`${spec.provider}\u0000${spec.model}`, spec.thinking);
 
         const readModel = () => {
           const [provider, model] = modelSelect.value.split("\u0000");
@@ -399,26 +438,14 @@
         });
         controls.append(modelSelect, thinkingSelect);
 
-        if (!spec.model && index.size > 0) {
-          const first = [...index.keys()][0];
-          modelSelect.value = first;
-          const next = readModel();
-          draft.roles[role] = { ...next, thinking: "" };
-          fillThinking(thinkingSelect, levelsFor(index.get(first)), "");
-          draft.roles[role].thinking = thinkingSelect.value;
-        }
-
         return {
           row,
           setSpec(next) {
-            const key = `${next.provider}\u0000${next.model}`;
-            if (!index.has(key)) return;
-            modelSelect.value = key;
-            fillThinking(thinkingSelect, levelsFor(index.get(key)), next.thinking);
+            selectModel(`${next.provider}\u0000${next.model}`, next.thinking);
           },
           setDisabled(disabled) {
-            modelSelect.disabled = disabled || thinkingSelect.disabled;
-            thinkingSelect.disabled = disabled;
+            modelSelect.disabled = disabled;
+            thinkingSelect.disabled = disabled || thinkingSelect.dataset.baseDisabled === "1";
           },
           getSpec() {
             const next = readModel();
