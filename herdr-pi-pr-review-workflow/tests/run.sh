@@ -32,7 +32,8 @@ for value in (
     'PR 本文の証跡節', '../_docs/pr-evidence.md', '本文の証跡節が現在 head を指し',
     '初回を含め、レビューは最大 3 ラウンドとする',
     'Round 3 後も Blocker があれば', 'Draft のまま停止',
-    'polish', '最大 2 回', '通常ラウンドへ戻さず',
+    'polish', '最大 2 回', '通常ラウンドへ戻さず', 'polish は既定で実施せず',
+    '受け入れ条件ごとの検証結果',
     '分類返信だけでは LGTM としない', 'workflow コンテキストの auto-resolve',
     '(thread_id, root_comment_id, reviewer_login, classification_reply_id)',
     'resolved=true', '現在の PR head で必須検証がすべて成功',
@@ -57,6 +58,7 @@ for value in (
     'pr.create', 'pr.update', 'attachments', 'grant: "write"', '再利用',
     '2 列まで', '3 列以上にしない', '<img width="<px>">', 'unknown_outcome',
     '130px', '現在 head', 'ローカルパス', 'Draft のまま停止',
+    '視覚的な確認記録', '機能要件の検証結果の代替にはならない',
 ):
     assert value in pr_evidence, value
 for value in ('PR 本文には入れない', 'comments.create', 'comments.update'):
