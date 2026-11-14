@@ -53,7 +53,7 @@ for value in ('PR 本文には入れない', 'pi-pr-review-workflow:ui-evidence'
     assert value not in evidence, value
 pr_evidence = (root / '_docs' / 'pr-evidence.md').read_text()
 for value in (
-    'pi:ui-evidence:start', 'pi:ui-evidence:end', '## 証跡',
+    'pi:ui-evidence:start', 'pi:ui-evidence:end', '## UI Evidence',
     'pr.create', 'pr.update', 'attachments', 'grant: "write"', '再利用',
     '2 列まで', '3 列以上にしない', '<img width="<px>">', 'unknown_outcome',
     '130px', '現在 head', 'ローカルパス', 'Draft のまま停止',
