@@ -57,7 +57,7 @@ orchestrator は返却された成果物を PR 本文の証跡節へ反映する
 ```markdown
 <!-- pi:ui-evidence:start head=<head SHA> -->
 
-## 証跡
+## UI Evidence
 
 | 変更前 | 変更後 |
 | --- | --- |
