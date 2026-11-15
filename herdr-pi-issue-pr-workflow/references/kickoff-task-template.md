@@ -49,7 +49,12 @@ scope: <Issue scope the orchestrator must not exceed>
 
 ## Workflow procedure
 
-[herdr-pi-issue-pr-workflow](../SKILL.md) を [Start the team](../SKILL.md#start-the-team) から [Completion](../SKILL.md#completion) まで実行する。承認済みチームを起動し、`impl` にキックオフタスクを渡し、Delegation contract、Implementation、Initial review、Review fixes、Review loop の各節に従う。手順の正本はスキルである。
+[herdr-pi-issue-pr-workflow](../SKILL.md) の手順の正本に従う。入口は starter の経路で決まる。
+
+- **経路 1**（starter がキックオフゲートを実行済み）: [Start the team](../SKILL.md#start-the-team) から開始してよい。ただし起動前に、承認済みまたは再利用したチーム（`impl` / `review` / `pr-fix` と参加する `ui-tester`）を確認できることを確かめる。確認できない場合は経路 2 として扱う。
+- **経路 2**（starter がキックオフゲートを実行していない）: launch check の後、[Preflight](../SKILL.md#preflight) と [Kickoff gate](../SKILL.md#kickoff-gate) を先に実行する。チームを解決し、再利用するか提案して承認を得るまで `Start the team` へ進まない。承認済みチームがあると仮定しない。
+
+チーム確定後は `Start the team` から [Completion](../SKILL.md#completion) まで進み、`impl` にキックオフタスクを渡し、Delegation contract、Implementation、Initial review、Review fixes、Review loop の各節に従う。`launch: profile=<name>` は経路 2 のゲートで使う既定プロファイルであり、ユーザーが今回の実行で明示した指定を優先する。
 
 ## Verification policy
 

@@ -45,6 +45,7 @@ usage() {
   printf '  --profile <name>       profile to read; the default is active, then default\n' >&2
   printf '  --resolver <path>      model-spec resolver passed through unchanged; pass an absolute path\n' >&2
   printf '                         (advanced use and tests only)\n' >&2
+  printf 'An empty option value is a usage error, never "not specified".\n' >&2
   printf '\n<profile-role> is a profile role, not the `role: orchestrator` label of the task text.\n' >&2
   printf 'Both modes print and append this line; write it nowhere yourself:\n' >&2
   printf '  launch: profile=<name|-> role=<profile-role|-> spec=<provider>/<model>/<thinking> spec_source=<profile|explicit> origin=<explicit|active|default>\n' >&2
@@ -110,12 +111,16 @@ resolver=''
 task_file=''
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --provider) [ "$#" -ge 2 ] || usage; provider="$2"; shift 2 ;;
-    --model) [ "$#" -ge 2 ] || usage; model="$2"; shift 2 ;;
-    --thinking) [ "$#" -ge 2 ] || usage; thinking="$2"; shift 2 ;;
-    --role) [ "$#" -ge 2 ] || usage; role="$2"; shift 2 ;;
-    --profile) [ "$#" -ge 2 ] || usage; profile="$2"; shift 2 ;;
-    --resolver) [ "$#" -ge 2 ] || usage; resolver="$2"; shift 2 ;;
+    # An explicitly empty value is an argument error, not an omitted option:
+    # `--profile ""` must never fall back to `active`, and `--role ""` must
+    # never turn a profile call into the explicit mode. Rejecting it here is
+    # before mode selection, the resolver, and any herdr write.
+    --provider) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; provider="$2"; shift 2 ;;
+    --model) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; model="$2"; shift 2 ;;
+    --thinking) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; thinking="$2"; shift 2 ;;
+    --role) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; role="$2"; shift 2 ;;
+    --profile) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; profile="$2"; shift 2 ;;
+    --resolver) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; resolver="$2"; shift 2 ;;
     --) shift; [ "$#" -ge 1 ] || usage; [ -z "$task_file" ] || usage; task_file="$1"; shift ;;
     -*) usage ;;
     *) [ -z "$task_file" ] || usage; task_file="$1"; shift ;;

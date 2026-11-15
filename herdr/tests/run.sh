@@ -907,7 +907,7 @@ worktree_team_start_profile_mode() {
 }
 
 worktree_team_start_profile_failures() {
-  local task_file="$TEST_TMP/profile-error-task.md" home fake_root
+  local task_file="$TEST_TMP/profile-error-task.md" home empty_home fake_root
   printf '%s\n' 'Goal: fail closed' > "$task_file"
   write_profile_resolvers
 
@@ -920,6 +920,37 @@ worktree_team_start_profile_failures() {
     "pr-fix": {"provider": "p", "model": "m", "thinking": "high"}
   }
 }'
+
+  # An explicitly empty option value is a usage error, not an omitted option.
+  # The active profile here has an orchestrator, so `--profile ""` would
+  # otherwise resolve that profile and start an agent (the Round 1 finding).
+  empty_home="$(profile_home empty-options)"
+  write_profile_fixture "$empty_home" default '{
+  "pr_fix_shared_with_impl": true,
+  "roles": {
+    "impl": {"provider": "p", "model": "m", "thinking": "high"},
+    "review": {"provider": "p", "model": "m", "thinking": "high"},
+    "pr-fix": {"provider": "p", "model": "m", "thinking": "high"},
+    "orchestrator": {"provider": "p", "model": "orch", "thinking": "max"}
+  }
+}'
+  printf 'default\n' > "$empty_home/pi-development/active"
+  reset_logs
+  rm -f "$TEST_TMP/resolver-calls"
+  expect_rc 2 env PI_CODING_AGENT_DIR="$empty_home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --profile "" --resolver "$TEST_TMP/resolver-marker.sh" "$task_file"
+  expect_rc 2 env PI_CODING_AGENT_DIR="$empty_home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --provider "" --resolver "$TEST_TMP/resolver-marker.sh" "$task_file"
+  expect_rc 2 env PI_CODING_AGENT_DIR="$empty_home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --resolver "" "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --role "" \
+    --provider p --model m --thinking high "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --provider "" --model m --thinking high "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --provider p --model "" --thinking high "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --provider p --model m --thinking "" "$task_file"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  [ ! -e "$HERDR_TEST_TARGET" ]
+  [ ! -e "$TEST_TMP/resolver-calls" ]
 
   # Mode combinations fail closed with a usage status and start nothing.
   reset_logs

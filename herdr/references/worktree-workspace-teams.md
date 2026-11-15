@@ -50,7 +50,7 @@ herdr/scripts/scope-grant.sh grant --source <parent-workspace> --target-repo <re
 starter には 2 つの経路がある。
 
 - **経路 1**: `herdr-pi-issue-pr-workflow` の親がキックオフゲートを通し、承認済みチームを起動する。orchestrator 自身の仕様はチームの承認対象ではなく、この経路でもプロファイルから解決する。
-- **経路 2**: 別の Pi ペインがこのスキルだけを読んで起動する。このペインはキックオフゲートを通っていないため、承認済みチームも orchestrator の仕様も持たない。それでも provider/model/thinking を `pi --list-models` からその場で選ばず、プロファイルから解決する。
+- **経路 2**: 別の Pi ペインがこのスキルだけを読んで起動する。このペインはキックオフゲートを通っていないため、承認済みチームも orchestrator の仕様も持たない。それでも provider/model/thinking を `pi --list-models` からその場で選ばず、プロファイルから解決する。この経路の orchestrator は、`launch:` 行の確認後に [Preflight](../../herdr-pi-issue-pr-workflow/SKILL.md#preflight) と [Kickoff gate](../../herdr-pi-issue-pr-workflow/SKILL.md#kickoff-gate) を通してチームを確定してから `Start the team` へ進む（[キックオフ用テンプレート](../../herdr-pi-issue-pr-workflow/references/kickoff-task-template.md)）。
 
 プロファイル解決の正本は [Pi Development Profiles](../../_docs/pi-development.md)、起動・`launch:` 行・報告の正本はこの節とする。同じ手順をキックオフテンプレートへ複製しない。
 

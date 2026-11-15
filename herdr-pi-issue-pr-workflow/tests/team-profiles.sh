@@ -48,6 +48,26 @@ assert '--role orchestrator' in template
 assert 'launch:' in template
 assert 'PI_PROVIDER' in template and 'PI_MODEL' in template and 'PI_REASONING_LEVEL' in template
 assert '`PI_*`' in template
+# Route 2 has no approved team from the starter, so the handoff enters the
+# canonical gate instead of assuming one. Route 1 may start at Start the team
+# only after confirming the approved composition.
+def section(text, heading):
+    return text.split(f'{heading}\n', 1)[1].split('\n## ', 1)[0]
+
+procedure = section(template, '## Workflow procedure')
+for value in ('Preflight', 'Kickoff gate', 'Start the team', '経路 1', '経路 2'):
+    assert value in procedure, value
+assert '承認済みまたは再利用したチーム' in procedure
+assert '確認できない場合は経路 2' in procedure
+assert '承認済みチームがあると仮定しない' in procedure
+assert 'Kickoff gate' in procedure and 'を先に実行する' in procedure
+worktree = (root.parent / 'herdr' / 'references' / 'worktree-workspace-teams.md').read_text()
+orchestrator_first = section(worktree, '### Orchestrator-first')
+route2 = [line for line in orchestrator_first.splitlines() if '**経路 2**' in line]
+assert len(route2) == 1, route2
+assert 'Preflight' in route2[0] and 'Kickoff gate' in route2[0]
+# The gate remains team-only: the orchestrator handoff never weakens it.
+assert '--only-role' not in gate
 assert 'PR が存在し、Draft のままである' in text
 assert 'PR を自動で Ready にしたり' in text
 assert 'herdr-pi-issue-pr-workflow/scripts/' not in text
