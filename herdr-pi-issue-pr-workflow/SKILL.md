@@ -203,7 +203,7 @@ Issue、チーム割当とペイン ID、base/work ブランチ、現在のフ�
 
 ユーザーが依頼した運用・互換性要件を、委譲文でレビュアーへ引き継ぐ。Review スキルは適用した前提をすべてのレビュー結果に記録する。別 Issue の候補は指摘件数に含めず、LGTM を妨げずに報告する。
 
-レビュアーは修正実装、PR の APPROVE、マージを行わない。Review スキルが LGTM を報告した場合、Nit、Consider、FYI はワークフローを妨げない。
+レビュアーは修正実装、PR の APPROVE、マージを行わない。Review スキルが LGTM を報告した場合、Nit、Consider、FYI はワークフローを妨げない。マージの実行者・経路・前後検証は [_docs/skill-distribution.md](../_docs/skill-distribution.md#merge--rollout) を正本とする。
 
 ### Review fixes
 
@@ -254,4 +254,4 @@ Herdr や GitHub の操作の周囲に別の再試行、キュー、状態マシ
 
 未使用の `ui-tester` ペインは、完了が確認できてから `herdr pane close <pane-id>` で閉じる。このワークフローが作成し、一度も委譲していないペインだけを閉じ、その結果を 1 行で報告する。ユーザーが作成したペイン、委譲を受けたペイン、実行が失敗または完了前に停止した場合のすべてのペインは残す。これがワークフローによる唯一の自動ペインクローズであり、委譲済みペインまで閉じる可能性のある `herdr tab close` や `herdr workspace close` は使わない。
 
-Issue、採用チーム仕様の由来（[実効チームプロファイル](#team-profiles) または今回の承認）、対象 PR の位置（`対象 PR: 1/2` または `対象 PR: single`。スタックした PR の場合は base ブランチとの差も記載）、base/work ブランチ、Draft PR、最新コミット、検証、レビューラウンド数、別 Issue 候補、残存する任意の指摘・会話、作成した全ペインのロールと観測状態を報告する。`ui-tester` 参加判定の 1 行、Draft PR 時点の再判定、閉じた場合の終了行、証跡節を更新または再利用した場合はその head と再利用元も含める。PR の変更ファイルにスキルが 1 つでも含まれる場合は、マージ後に [_docs/skill-distribution.md](../_docs/skill-distribution.md) のロールアウト手順を実行するよう報告内で案内する。明示的なクリーンアップ依頼がない限り、未使用 `ui-tester` の例外を除いて、ペインは確認可能な状態で残す。
+Issue、採用チーム仕様の由来（[実効チームプロファイル](#team-profiles) または今回の承認）、対象 PR の位置（`対象 PR: 1/2` または `対象 PR: single`。スタックした PR の場合は base ブランチとの差も記載）、base/work ブランチ、Draft PR、最新コミット、検証、レビューラウンド数、別 Issue 候補、残存する任意の指摘・会話、作成した全ペインのロールと観測状態を報告する。`ui-tester` 参加判定の 1 行、Draft PR 時点の再判定、閉じた場合の終了行、証跡節を更新または再利用した場合はその head と再利用元も含める。PR の変更ファイルにスキルが 1 つでも含まれる場合は、マージ後に [_docs/skill-distribution.md](../_docs/skill-distribution.md#merge--rollout) のマージとロールアウトの手順を実行するよう報告内で案内する。明示的なクリーンアップ依頼がない限り、未使用 `ui-tester` の例外を除いて、ペインは確認可能な状態で残す。

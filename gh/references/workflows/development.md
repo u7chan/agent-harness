@@ -91,5 +91,6 @@ The following are outside the scope of the `gh` skill and are not automated by t
 - Testing, linting, formatting
 - Committing
 - Pushing
+- Merging a PR. The merge procedure, including the checks before and after it, is in [_docs/skill-distribution.md](../../../_docs/skill-distribution.md#merge--rollout).
 
 `pr.create` requires a pushed branch as a prerequisite.

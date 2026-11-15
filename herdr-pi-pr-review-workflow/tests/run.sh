@@ -24,6 +24,7 @@ for value in (
     '別の coordinator、`impl`、`pr-fix`、`ui-tester` を起動しない',
     '../herdr/SKILL.md', '../gh/SKILL.md', '../review/SKILL.md',
     '../review/references/recheck.md', '../_docs/pi-development.md',
+    '../_docs/skill-distribution.md#merge--rollout',
     'scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role review',
     'ランタイムのデフォルトや別モデルへ黙って切り替えない', 'migration-required',
     'プロファイルや `active` を自動作成・保存・変更しない', '起動引数だけでは証拠にならない',

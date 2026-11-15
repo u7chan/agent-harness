@@ -19,7 +19,7 @@ Issue は必須ではない。PR がまだない場合は Draft PR の作成か�
 - レビュー基準、再チェック、LGTM 検証、Resolve の方針は [Review](../review/SKILL.md)、特に [再チェック手順](../review/references/recheck.md) を正本とする。ここではルールを重複定義しない。
 - 現在のエージェントの provider、model、thinking は変更しない。別の coordinator、`impl`、`pr-fix`、`ui-tester` を起動しない。
 - レビュアーは実装・コミット・push を行わない。レビューイベントは `COMMENT` だけを使い、`APPROVE`、マージ、Issue のクローズは行わない。
-- Ready は AI レビュー通過後の最終状態であり、最終ゲートは人間である。マージは行わない。ユーザーが確認後に明示的に指示した場合だけ、別操作として扱う。
+- Ready は AI レビュー通過後の最終状態であり、最終ゲートは人間である。マージは行わない。ユーザーが確認後に明示的に指示した場合だけ、別操作として扱い、手順は [_docs/skill-distribution.md](../_docs/skill-distribution.md#merge--rollout) に従う。
 - ラウンド数、head、未解決の指摘、ペイン ID は現在の会話内だけで管理する。実行状態を永続化したり、ワークフローランタイムを追加したりしない。
 
 ## Preflight
@@ -111,7 +111,7 @@ polish は最大 2 回とする。修正 push 後の再チェックで最新 hea
 4. **Ready の直前**に `pr.read` で open、未マージ、head が検証結果と LGTM の対象に一致することを確認する。UI 変更またはリポジトリが証跡を要求する場合は、[_docs/pr-evidence.md](../_docs/pr-evidence.md) の完了ゲートに従って、本文の証跡節が現在 head を指し、pass 項目の画像参照があることも確認する。不一致・失敗・不明なら停止する。Draft でなければ `pr.ready` を実行せず、手順 6 へ進む。
 5. GH ディスパッチャーの `pr.ready` は Draft のときだけ、対象と明示的な `grant: "sensitive-write"` を指定して実行する。既に Ready なら実行しない。
 6. **Ready の直後**（既に Ready だった場合は手順 4 の後）に `pr.read` を実行する。open、未マージ、`draft=false`、同じ head が確認できて初めて完了とする。`failed`、`unknown_outcome`、head 変更は成功として扱わず、自動リトライしない。
-7. Ready 後は停止する。マージは行わない。最終ゲートは人間であり、人間が確認してマージする。AI にマージさせる場合も、このスキルの完了条件には含めず、別の明示的な指示として扱う。
+7. Ready 後は停止する。マージは行わない。最終ゲートは人間であり、人間が確認してマージする。AI にマージさせる場合も、このスキルの完了条件には含めず、別の明示的な指示として扱い、[_docs/skill-distribution.md](../_docs/skill-distribution.md#merge--rollout) の手順に従う。
 
 PR、プロファイル由来か明示指定か、レビュアー仕様とペイン、最新 head、検証、通常ラウンド数と polish 回数、LGTM、Resolve 結果、残った任意の指摘・会話、別 Issue 候補、Ready 状態を報告する。証跡節を更新または再利用した場合は、その head と再利用元も報告する。レビュアーペインは開いたままにする。マージは人間の最終ゲートであることも伝える。
-スキルを変更する PR の場合は、マージ後の [ロールアウト](../_docs/skill-distribution.md) も案内する。
+スキルを変更する PR の場合は、マージと [ロールアウト](../_docs/skill-distribution.md#merge--rollout) の手順も案内する。

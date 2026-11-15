@@ -13,6 +13,7 @@ Code blocks in this document contain no machine-specific paths: per the rule in 
 - `<checkout>` — a local checkout or linked worktree of this repository used for development. Steps that need only the repository's files or history (the rollout gate, the `pi --skill` example under Development) run from it.
 - `<clone>` — the pi-managed clone that serves the installed skill set: created and pinned by `pi install git:github.com/u7chan/agent-harness@<commit-sha>`, one per user account, shared by all workspaces of that account; `pi list` prints its location. Commands that verify or act on the installed revision use it.
 - `<commit-sha>` (also written `<merged-sha>`, `<previous-verified-sha>`, and `<installed-or-rolled-back-sha>` where a step installs or verifies one specific revision) — a full commit SHA, chosen by the procedure step or taken from the rollout record.
+- `<rollout-record>` — `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skill-distribution/rollout.jsonl`, the account-scoped record defined under [Rollout record](#rollout-record).
 
 Per-user skill directories of the harnesses (`~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`, project `.pi/skills`, `.agents/skills`) are conventions with the same meaning on every machine using those harnesses and are written literally. Absolute paths of an individual machine's checkouts, clones, and worktrees never appear.
 
@@ -71,8 +72,59 @@ Verifying unmerged skills is session-scoped; the canonical procedure lives in [s
 
 ### Merge → rollout
 
-1. Merge the PR to `main`.
-2. Choose the merged SHA and apply the rollout gate from any local clone of this repository that carries an `origin` remote (`<checkout>` or `<clone>` both do):
+This section is the single authoritative procedure for merging a PR of this repository and for rolling the merged revision out. It covers `main`: the merge method, the branch-deletion setting, and the required check names below belong to this repository, so a repository with different settings needs its own reading of the same steps.
+
+#### Merge
+
+An agent merges only under an explicit instruction that names the PR and asks for the merge. A general "go ahead", or an instruction inside a workflow, is not one. Where a skill or workflow forbids merging - the Herdr reviewer and orchestrator do - the prohibition wins even with an instruction: report the PR, its SHA, and this procedure, and hand the merge over.
+
+Stop on any failure or unknown result in the following checks.
+
+- `pr.read` reports `state: open`, `draft: false`, and `mergeable: true`, re-reading once when `mergeable` is `null`.
+- `base.ref` is `main`, `base.repo` is this repository, and `head.repo` is the expected one. A PR based on another branch (an `epic` branch) is outside this procedure and is handed over.
+- `git remote get-url origin` names the repository passed to gh. `--repo` fixes the gh target only; with a fork as `origin`, the later `git fetch origin main` reads the fork, and running the commands from the same checkout does not change that.
+- `head.sha` is the verified SHA: the reviewed LGTM target, or the SHA named by the instruction.
+- Every required check is `completed` with `success`. `pr.checks.read` carries no required flag, and one check name appears once for the push run and once for the pull request run, so match names instead of counting entries. For this repository the required names are the two jobs of [`.github/workflows/contract-tests.yml`](../.github/workflows/contract-tests.yml). Zero checks, a missing required name, a pending status, or any conclusion other than `success` stops the merge.
+
+Run the commands below in the checkout whose `origin` you verified. Keep the pre-merge head and the subject; both are the reference for the checks after the merge.
+
+```bash
+git fetch origin main
+before=$(git rev-parse origin/main)
+subject="<PR title> (#N)"
+gh pr merge <N> --squash --match-head-commit <verified-head-sha> --subject "$subject"
+```
+
+`--match-head-commit` fails the merge when the head moved after the verification. Do not pass `--body` or `--delete-branch`: this repository generates the squash body from the commit messages (`squash_merge_commit_message: COMMIT_MESSAGES`) and deletes the head branch on merge (`delete_branch_on_merge: true`). A failed merge is not retried; read the state with `pr.read` and report it.
+
+The command bypasses the dispatcher by design: it takes no `grant` input, returns no common envelope, and does not map exit codes (`gh/scripts/gh.sh` enforces the grant levels for its actions). Read the exit status and re-read the state with `pr.read`; do not parse the output and do not assume the dispatcher's guarantees.
+
+After the merge, stop unless all of the following hold.
+
+- `pr.read` reports `state: closed` with `merged: true` - REST reports `closed` for a merged PR, unlike the `MERGED` state the gh CLI prints - and `head.sha` is the verified SHA.
+- Exactly one commit in the first-parent range since the pre-merge head carries the subject passed above. The tip of `origin/main` is not the reference: later merges move it.
+
+```bash
+git fetch origin main
+git log --first-parent --format='%H %s' --reverse "$before"..origin/main |
+  MERGE_SUBJECT="$subject" awk '
+    BEGIN { s = ENVIRON["MERGE_SUBJECT"] }
+    { sha = $1; sub(/^[0-9a-f]+ /, ""); if ($0 == s) { print sha; n++ } }
+    END { printf "matches=%d\n", n > "/dev/stderr"; exit (n == 1 ? 0 : 1) }'
+```
+
+Require one match and a zero exit. Do not shorten the scan with `grep -m1`, `head -1`, or `grep -q`: an early exit SIGPIPEs the producer and, under `pipefail`, turns a success into a non-zero status. Pass the subject through `ENVIRON`, because `awk -v` expands escapes and a subject such as `C:\temp` would then differ. Compare against the string passed to `--subject`, not against the current PR title.
+
+- `git merge-base --is-ancestor <merged-sha> origin/main` succeeds.
+
+#### Rollout
+
+Rollout applies only when the PR changes a skill. `AGENTS.md` makes the PR body state which case applies (`Rollout: 必要` for a skill change, `Rollout: 不要` otherwise), so read that line instead of guessing from the diff. For a PR that changes no skill, the merge and its checks above complete the work: do not install a revision, reload sessions, or append to the record.
+
+Take the merged SHA as `<commit-sha>`.
+
+1. When [the rollout record](#rollout-record) is absent, first record the revision that is installed now ([Initial baseline](#initial-baseline)). Installing first would make the new revision the first line and lose the revision to roll back to.
+2. Apply the rollout gate from any local clone of this repository that carries an `origin` remote (`<checkout>` or `<clone>` both do):
 
 ```bash
 git fetch origin main
@@ -92,7 +144,39 @@ pi install git:github.com/u7chan/agent-harness@<commit-sha>
    Then `/reload` (or restart) every running session. A session reloaded after
    this step serves the new revision; one that skips it keeps its pre-install
    listing until it reloads.
-5. Run the smoke test.
+5. Run the smoke test with `EXPECTED=<commit-sha>`.
+6. Append the rolled-out revision to [the rollout record](#rollout-record).
+
+### Rollout record
+
+The record is the state that [Revision confirmation](#revision-confirmation) and [Rollback](#rollback) read. It lives outside the repository, per account, because a rollout applies to the account and a tracked file would need a PR of its own before it could describe the install.
+
+```bash
+record="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skill-distribution/rollout.jsonl"
+mkdir -p "$(dirname "$record")"  # then create it with mode 0600
+```
+
+Append one JSON object per rollout or rollback, after it succeeds:
+
+```json
+{"at":"<ISO8601>","sha":"<installed-or-rolled-back-sha>","previous":"<last-record-sha|null>","pr":"<PR URL>"}
+```
+
+- `sha` is the verified installed or rolled-back revision, and `previous` is the `sha` of the line before the append (`null` on the first line). The last line therefore always describes what is installed now.
+- A rollback appends the revision it restored. Never rewrite or drop a line, so A → B → A leaves A last and the Revision confirmation keeps working.
+- Do not append before the smoke test passes. A merge alone appends nothing, because the installed revision has not changed yet.
+- A corrupt or unreadable record is not reset. Stop and report it.
+- Read the current revision with `tail -1 "$record"`.
+
+#### Initial baseline
+
+When the record is absent and a revision is already installed, append that revision before installing the new one:
+
+1. Read the installed revision with `pi list` and `git -C <clone> rev-parse HEAD`, and verify it with `git merge-base --is-ancestor <sha> origin/main`, a reloaded session, and the smoke test with `EXPECTED=<sha>`.
+2. Append it with `"previous":null`.
+3. Roll out the new revision, then append it with `previous` set to the baseline.
+
+With nothing installed yet, the first rollout creates the first line with `"previous":null`.
 
 ### Revision confirmation
 
@@ -107,7 +191,7 @@ This proves the clone's revision, not what a long-running session loaded: a sess
 
 1. Run the command above at the start of a skill-dependent task.
 2. If the session has not been started or reloaded since the serving path last changed to that revision (the install; during migration, the symlink removal), run `/reload` (or restart the session) before relying on skill content; after the reload the loaded set matches the installed revision.
-3. Compare the revision against the expected SHA from the rollout record.
+3. Compare the revision against the `sha` of the last line of [the rollout record](#rollout-record) (`tail -1`).
 
 Rollout and rollback make step 2 the normal state by reloading every running session as part of the procedure.
 
