@@ -97,6 +97,8 @@ gh pr merge <N> --squash --match-head-commit <verified-head-sha> --subject "$sub
 
 `--match-head-commit` fails the merge when the head moved after the verification. Do not pass `--body` or `--delete-branch`: this repository generates the squash body from the commit messages (`squash_merge_commit_message: COMMIT_MESSAGES`) and deletes the head branch on merge (`delete_branch_on_merge: true`). A failed merge is not retried; read the state with `pr.read` and report it.
 
+The command bypasses the dispatcher by design: it takes no `grant` input, returns no common envelope, and does not map exit codes (`gh/scripts/gh.sh` enforces the grant levels for its actions). Read the exit status and re-read the state with `pr.read`; do not parse the output and do not assume the dispatcher's guarantees.
+
 After the merge, stop unless all of the following hold.
 
 - `pr.read` reports `state: closed` with `merged: true` - REST reports `closed` for a merged PR, unlike the `MERGED` state the gh CLI prints - and `head.sha` is the verified SHA.
@@ -116,6 +118,8 @@ Require one match and a zero exit. Do not shorten the scan with `grep -m1`, `hea
 - `git merge-base --is-ancestor <merged-sha> origin/main` succeeds.
 
 #### Rollout
+
+Rollout applies only when the PR changes a skill. `AGENTS.md` makes the PR body state which case applies (`Rollout: 必要` for a skill change, `Rollout: 不要` otherwise), so read that line instead of guessing from the diff. For a PR that changes no skill, the merge and its checks above complete the work: do not install a revision, reload sessions, or append to the record.
 
 Take the merged SHA as `<commit-sha>`.
 
