@@ -219,14 +219,15 @@
       "use strict";
 
       const ALL_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-      const ROLE_ORDER = ["impl", "review", "pr-fix", "ui-tester"];
+      const ROLE_ORDER = ["impl", "review", "pr-fix", "ui-tester", "orchestrator"];
       const ROLE_LABELS = {
         impl: "実装",
         review: "レビュー",
         "pr-fix": "修正",
         "ui-tester": "UI テスト",
+        orchestrator: "オーケストレーター（チーム外）",
       };
-      const OPTIONAL_ROLES = new Set(["ui-tester"]);
+      const OPTIONAL_ROLES = new Set(["ui-tester", "orchestrator"]);
 
       const elements = {
         status: document.getElementById("status"),
@@ -285,13 +286,15 @@
         for (const [role, spec] of Object.entries(profile.roles || {})) {
           roles[role] = { provider: spec.provider || "", model: spec.model || "", thinking: spec.thinking || "" };
         }
+        const optional = {};
+        for (const role of OPTIONAL_ROLES) optional[role] = Boolean(roles[role]);
         return {
           name: profile.name,
           hash: profile.hash,
           error: profile.error,
           unknown: profile.unknown,
           prFixShared: profile.pr_fix_shared_with_impl === true,
-          uiTester: Boolean(roles["ui-tester"]),
+          optional,
           roles,
         };
       }
@@ -528,11 +531,16 @@
           }
           if (OPTIONAL_ROLES.has(role)) {
             const toggle = el("label", { className: "switch" });
-            const box = el("input", { type: "checkbox", checked: draft.uiTester });
+            const box = el("input", { type: "checkbox", checked: draft.optional[role] });
             box.addEventListener("change", () => {
-              draft.uiTester = box.checked;
+              draft.optional[role] = box.checked;
               if (box.checked && !draft.roles[role]?.model) {
-                draft.roles[role] = { ...(draft.roles.impl || { provider: "", model: "", thinking: "" }) };
+                // ui-tester starts from the impl spec as before; the
+                // orchestrator starts empty because it is not a team member.
+                draft.roles[role] =
+                  role === "orchestrator"
+                    ? { provider: "", model: "", thinking: "" }
+                    : { ...(draft.roles.impl || { provider: "", model: "", thinking: "" }) };
                 controls[role]?.setSpec(draft.roles[role]);
               }
               controls[role].row.hidden = !box.checked;
@@ -542,7 +550,7 @@
             card.append(toggle);
           }
           controls[role] = createRoleRow(draft, role, index, models, onChange);
-          if (OPTIONAL_ROLES.has(role)) controls[role].row.hidden = !draft.uiTester;
+          if (OPTIONAL_ROLES.has(role)) controls[role].row.hidden = !draft.optional[role];
           card.append(controls[role].row);
         }
         syncShared();
@@ -555,7 +563,7 @@
           try {
             const roles = {};
             for (const role of ROLE_ORDER) {
-              if (OPTIONAL_ROLES.has(role) && !draft.uiTester) continue;
+              if (OPTIONAL_ROLES.has(role) && !draft.optional[role]) continue;
               const spec = controls[role]?.getSpec() || draft.roles[role];
               if (!spec || !spec.provider || !spec.model || !spec.thinking) continue;
               roles[role] = spec;

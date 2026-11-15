@@ -80,5 +80,8 @@ assert 'head が検証結果と LGTM の対象に一致する' in completion
 assert 'マージは行わない' in completion
 assert 'Draft でなければ `pr.ready` を実行せず、手順 6 へ進む' in completion
 assert '既に Ready だった場合は手順 4 の後' in completion
+pi_development = (root / '_docs' / 'pi-development.md').read_text()
+assert 'resolve [--profile <name>] --only-role review' in pi_development
+assert 'resolve [--profile <name>] --only-role orchestrator' in pi_development
 print('PR review workflow trigger, PR creation, evidence, 3+2-round, Resolve, Ready and human-merge contracts passed')
 PY

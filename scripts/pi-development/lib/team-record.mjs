@@ -21,11 +21,24 @@ export const DEFAULT_PROFILE_NAME = "default";
 /** File that names the profile a run uses by default. */
 export const ACTIVE_FILE_NAME = "active";
 
-/** Development role names, in full-team table order. */
-export const ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix", "ui-tester"]);
+/**
+ * Profile role names. `orchestrator` is stored and validated like any other
+ * role but is not a team member, so it comes last rather than in team order.
+ */
+export const ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix", "ui-tester", "orchestrator"]);
 
-/** Roles a profile must provide; `ui-tester` is the optional extra role. */
+/** Roles a profile must provide; `ui-tester` and `orchestrator` are optional. */
 export const REQUIRED_ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix"]);
+
+/**
+ * Roles a full-team read or a persistent switch resolves at runtime.
+ *
+ * `orchestrator` is deliberately absent: it is not part of the team, so a
+ * retired or unauthenticated orchestrator model must not block the team's own
+ * `resolve`/`use`. The start script resolves it through `--only-role`, and
+ * `--require-role orchestrator` adds it to a full-team read explicitly.
+ */
+export const TEAM_ROLE_NAMES = Object.freeze(["impl", "review", "pr-fix", "ui-tester"]);
 
 /**
  * A provider ID and a profile name may contain only these characters, so a
@@ -190,7 +203,9 @@ export function buildProfile(roles, prFixSharedWithImpl) {
  * usable. Everything a profile must provide is required: a missing or
  * malformed role, a missing shared flag, and a shared `pr-fix` that differs
  * from `impl` are all unresolvable, which sends the kickoff back to the
- * proposal and approval path.
+ * proposal and approval path. A stored `orchestrator` is optional but is
+ * shape-validated with the other roles, so a malformed one is never reported
+ * as usable.
  *
  * @param {unknown} raw parsed JSON
  * @param {{onlyRole?: string}} options read-only projection; absent for a full team

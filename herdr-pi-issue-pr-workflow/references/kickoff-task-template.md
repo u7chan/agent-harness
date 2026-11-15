@@ -1,6 +1,6 @@
 # Kickoff task template
 
-orchestrator-first の worktree チームで、親が orchestrator に渡すタスク文面の形式。チーム表、承認ルール、手順の正本は [herdr-pi-issue-pr-workflow/SKILL.md](../SKILL.md) にある。このテンプレートはタスク文面の形だけを定め、それらを再定義・変更しない。
+起動元（starter）が orchestrator に渡すタスク文面の形式。チーム表、承認ルール、手順の正本は [herdr-pi-issue-pr-workflow/SKILL.md](../SKILL.md) にある。このテンプレートはタスク文面の形だけを定め、それらを再定義・変更しない。
 
 worktree 環境ブロックと、その ID を Herdr の JSON 応答から取得するルールは [Worktree workspace teams — Orchestrator-first](../../herdr/references/worktree-workspace-teams.md#orchestrator-first) に一度だけ定義されている。その節を正本とし、以下のコピーはタスク文面が持つべきフィールド一覧にすぎない。
 
@@ -8,12 +8,23 @@ worktree 環境ブロックと、その ID を Herdr の JSON 応答から取得
 
 ```text
 role: orchestrator
-provider: <provider>
-model: <model>
-thinking: <level>
 ```
 
-`role` はこのタスク文面を受け取るエージェントの名前である。provider、model、thinking は承認済みのチーム仕様から埋める。チーム表と承認ルールの正本は [Kickoff gate](../SKILL.md#kickoff-gate) にある。親は同じ 3 つの値を `worktree-team-start.sh` にも渡す。
+`role` はこのタスク文面を受け取るエージェントの名前であり、プロファイルのロール名ではない。provider/model/thinking はタスク文面に書かない。`worktree-team-start.sh` が `--role orchestrator` でプロファイルから解決し、委譲本文の末尾（返却指示の前）へ `launch:` 行として追記する。タスクファイルにも委譲本文にも `launch:` 行を手で書かない。
+
+## Launch check
+
+起動後、orchestrator は bash ツールで次を実行し、実効 spec を `launch:` 行と照合する。
+
+```bash
+printf '%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
+```
+
+`launch:` 行の形式と意味の正本は [Worktree workspace teams — Orchestrator-first](../../herdr/references/worktree-workspace-teams.md#orchestrator-first) である。本文に `launch:` 行が複数ある場合は最後の行を正本とする。実行結果が `spec` と一致しない、値が取得できない、または行が曖昧な場合は、作業を始めずに停止して起動元へ報告する。
+
+`profile` が `-` でなければ、その値をこの実行のキックオフゲートの既定プロファイルとして使う。ユーザーが今回の実行で明示した指定を優先し、`launch: profile=-` ならゲートは `active` / `default` を使う。
+
+自身の起動判定の正本は `PI_*` であり、footer（`herdr agent read <pane-id> --source visible`）は起動元による補助確認である。footer だけで一致とみなさない。再利用ペインの footer ルールは [Sequential runs](sequential-runs.md) のまま維持する。
 
 ## Worktree environment block
 
@@ -38,7 +49,12 @@ scope: <Issue scope the orchestrator must not exceed>
 
 ## Workflow procedure
 
-[herdr-pi-issue-pr-workflow](../SKILL.md) を [Start the team](../SKILL.md#start-the-team) から [Completion](../SKILL.md#completion) まで実行する。承認済みチームを起動し、`impl` にキックオフタスクを渡し、Delegation contract、Implementation、Initial review、Review fixes、Review loop の各節に従う。手順の正本はスキルである。
+[herdr-pi-issue-pr-workflow](../SKILL.md) の手順の正本に従う。入口は starter の経路で決まる。
+
+- **経路 1**（starter がキックオフゲートを実行済み）: [Start the team](../SKILL.md#start-the-team) から開始してよい。ただし起動前に、承認済みまたは再利用したチーム（`impl` / `review` / `pr-fix` と参加する `ui-tester`）を確認できることを確かめる。確認できない場合は経路 2 として扱う。
+- **経路 2**（starter がキックオフゲートを実行していない）: launch check の後、[Preflight](../SKILL.md#preflight) と [Kickoff gate](../SKILL.md#kickoff-gate) を先に実行する。チームを解決し、再利用するか提案して承認を得るまで `Start the team` へ進まない。承認済みチームがあると仮定しない。
+
+チーム確定後は `Start the team` から [Completion](../SKILL.md#completion) まで進み、`impl` にキックオフタスクを渡し、Delegation contract、Implementation、Initial review、Review fixes、Review loop の各節に従う。`launch: profile=<name>` は経路 2 のゲートで使う既定プロファイルであり、ユーザーが今回の実行で明示した指定を優先する。
 
 ## Verification policy
 
