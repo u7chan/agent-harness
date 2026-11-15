@@ -29,6 +29,25 @@ for value in (
 ):
     assert value in gate, value
 assert '--only-role' not in gate, 'the Issue workflow must still validate the full team'
+# The orchestrator is stored in the profile but is not a team member: the team
+# table, the approval, and the reuse line stay on team roles, and the kickoff
+# gate never re-resolves the orchestrator's start-time specification.
+assert 'orchestrator はチームメンバーではない' in text
+assert 'チーム表・承認・再利用行の対象外' in text
+assert 'launch:' in team
+assert '| Role | Assignee | Provider | Model | Thinking | Selection reason |' in gate
+assert 'orchestrator=' not in gate, 'the reuse line stays on team roles'
+assert '| orchestrator |' not in gate, 'the team table stays on team roles'
+template = (root / 'references' / 'kickoff-task-template.md').read_text()
+assert '起動元（starter）が orchestrator に渡すタスク文面' in template
+assert 'role: orchestrator' in template
+for value in ('provider: <provider>', 'model: <model>', 'thinking: <level>'):
+    assert value not in template, value
+assert '親は同じ 3 つの値を' not in template
+assert '--role orchestrator' in template
+assert 'launch:' in template
+assert 'PI_PROVIDER' in template and 'PI_MODEL' in template and 'PI_REASONING_LEVEL' in template
+assert '`PI_*`' in template
 assert 'PR が存在し、Draft のままである' in text
 assert 'PR を自動で Ready にしたり' in text
 assert 'herdr-pi-issue-pr-workflow/scripts/' not in text

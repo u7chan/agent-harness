@@ -122,7 +122,7 @@ herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<
 `herdr workspace create --cwd <path>` で作成したワークスペースには worktree 情報がないため、形状ルールから辺を導けない。[Workspaces without worktree information](references/async-delegation.md#workspaces-without-worktree-information) を参照する。
 
 ユーザーが worktree ワークスペース内で自己完結するチームを依頼した場合は、[Worktree workspace teams](references/worktree-workspace-teams.md) に従って起動・調整する。
-orchestrator-first 構成では、親が worktree を作成し、`worktree-team-start.sh` でそのルートペインに orchestrator をちょうど 1 つ起動し、worktree 環境ブロックを渡す。その後 orchestrator がチームを作成・起動する（[Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)）。
+orchestrator-first 構成では、起動元（starter）が worktree を作成し、`worktree-team-start.sh --role orchestrator` でそのルートペインに orchestrator をちょうど 1 つ起動し、worktree 環境ブロックを渡す。その後 orchestrator がチームを作成・起動する（[Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)）。starter は `herdr-pi-issue-pr-workflow` の親に限らない。同じ `repo_root` から `worktree-team` 辺を導出できる親チェックアウトのペインなら、別の Pi ペインでもよい。ただしそのペインはキックオフゲートを通っていないため、provider/model/thinking をその場で選ばずプロファイルから解決する。起動・`launch:` 行・報告の正本は同節、プロファイル解決の正本は [Pi Development Profiles](../_docs/pi-development.md)。
 
 ### Scope intent and intended crossings
 

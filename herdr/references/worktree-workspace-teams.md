@@ -45,18 +45,64 @@ herdr/scripts/scope-grant.sh grant --source <parent-workspace> --target-repo <re
 
 ### Orchestrator-first
 
-この構成では、親が worktree を作成し、そのルートペインに orchestrator をちょうど 1 人起動する。その後 orchestrator がチームを作成・駆動し、親はチームのペインを作成しない。
+この構成では、worktree を作成した起動元（starter）が、そのルートペインに orchestrator をちょうど 1 人起動する。その後 orchestrator がチームを作成・駆動し、starter とワークフローの親はチームのペインを作成しない。
+
+starter には 2 つの経路がある。
+
+- **経路 1**: `herdr-pi-issue-pr-workflow` の親がキックオフゲートを通し、承認済みチームを起動する。orchestrator 自身の仕様はチームの承認対象ではなく、この経路でもプロファイルから解決する。
+- **経路 2**: 別の Pi ペインがこのスキルだけを読んで起動する。このペインはキックオフゲートを通っていないため、承認済みチームも orchestrator の仕様も持たない。それでも provider/model/thinking を `pi --list-models` からその場で選ばず、プロファイルから解決する。
+
+プロファイル解決の正本は [Pi Development Profiles](../../_docs/pi-development.md)、起動・`launch:` 行・報告の正本はこの節とする。同じ手順をキックオフテンプレートへ複製しない。
+
+どちらの経路でも、starter は対象 worktree と同じ `repo_root` を持つ親チェックアウトのペインでなければならない（[Starting and coordinating the team](#starting-and-coordinating-the-team) の `worktree-team` 辺を導出できる側）。兄弟 worktree や 2 つ目のチェックアウトからの起動は形状ルールで拒否されるため、`herdr/scripts/scope-grant.sh` で辺を記録してから起動する。生の `herdr agent start` で境界を迂回しない。
 
 1. [Topology creation](#topology-creation) のとおりに worktree を作成し、その JSON 応答からリンク済みワークスペース ID とルートペイン ID を保持する。
-2. worktree 環境ブロックを含む orchestrator のタスクファイルを書き、親ワークスペースから orchestrator を起動する。
+2. worktree 環境ブロックを含む orchestrator のタスクファイルを書く。タスクファイルには provider/model/thinking も `launch:` 行も書かない。
+3. starter のワークスペースから、プロファイルのロールを解決して orchestrator を起動する。
 
    ```bash
+   herdr/scripts/worktree-team-start.sh <root-pane-id> <orchestrator-name> \
+     --role orchestrator <task-file>
+   ```
+
+   この実行だけ別のプロファイルを使う場合は `--profile` を足す。指定したプロファイルが存在しない・不正な場合は `active` へフォールバックせず停止する。
+
+   ```bash
+   herdr/scripts/worktree-team-start.sh <root-pane-id> <orchestrator-name> \
+     --role orchestrator --profile <name> <task-file>
+   ```
+
+   `--role` はプロファイルのロール名であり、タスク文面の `role: orchestrator` とは別物である。agent 名も単なるラベルで、ロール名と一致する必要はない。`--profile` を省略すると `active`、次に `default` を使う。`--resolver <path>` はモデル仕様リゾルバを差し替えるテスト・上級者向けのオプションで、絶対パスで指定する（start は変換せず `team-record.sh` へ渡す）。
+
+   スクリプトは `team-record.sh resolve --only-role <role>` で仕様を解決し、起動引数に使い、解決結果を stderr と委譲本文の末尾（返却指示の前）へ `launch:` 行として出す。
+
+   ```text
+   launch: profile=<name|-> role=<profile-role|-> spec=<provider>/<model>/<thinking> spec_source=<profile|explicit> origin=<explicit|active|default>
+   ```
+
+   プロファイルモードでは `profile` が使用したプロファイル名、`role` が `--role`、`spec_source=profile`、`origin` が team-record の `source` になる。starter は stderr の `launch:` 行を応答に含める。タスクファイルや委譲本文に `launch:` 行が複数ある場合は最後の行を正本とし、内容が曖昧なら停止する。
+
+   プロファイルに orchestrator が無い初回はまだ起動できない。プロファイル解決の手順は [Pi Development Profiles](../../_docs/pi-development.md) を正本とし、`write` で追加するか、次の一度限りの明示モードで起動する。
+
+   ```bash
+   # write は全置換なので、保持する既存チームのロールもすべて渡す。
+   scripts/pi-development/team-record.sh write --profile <name> \
+     --pr-fix-shared-with-impl <true|false> \
+     --role impl=<provider>/<model>/<thinking> \
+     --role review=<provider>/<model>/<thinking> \
+     --role pr-fix=<provider>/<model>/<thinking> \
+     --role orchestrator=<provider>/<model>/<thinking>
+
+   # プロファイルに orchestrator が無い場合の一度限りの明示モード。
    herdr/scripts/worktree-team-start.sh <root-pane-id> <orchestrator-name> \
      --provider <provider> --model <model> --thinking <level> <task-file>
    ```
 
-   これが親による worktree ワークスペースへの唯一の `worktree-team-start.sh` 呼び出しである。スクリプトのスコープ、起動、返却のルールはそのまま適用される。
-3. orchestrator は worktree ワークスペース内のチームを所有する。ペインの作成（`herdr/scripts/pane-layout.sh apply`）、エージェントの起動（`herdr agent start`）、タスクの委譲（`herdr/scripts/parent-delegate-async.sh`）を行う。親は `impl`、`review`、`ui-tester` などのロールペインを事前に作ったり、それらのエージェントを起動したりしてはならない。チームごとに書き込み主体は 1 つである。
+   明示モードはプロファイルを読まない。「プロファイルに orchestrator が無い場合だけ」は規約であり、スクリプトで強制しない。starter は `launch: ... spec_source=explicit origin=explicit` を応答に含めて監査する。明示 3 値と `--role`、3 値の一部だけ、`--role` なしの `--profile` や `--resolver`、モード未指定はすべて usage error（終了コード 2）であり、何も起動しない。
+
+   この起動が、starter による worktree ワークスペースへの唯一の `worktree-team-start.sh` 呼び出しである。経路 2 ではワークフローの親が同じ worktree へ別の orchestrator を追加しない。スクリプトのスコープ、起動、返却のルールはそのまま適用される。
+4. starter は orchestrator の起動 spec を確認する。判定の正本は orchestrator 側で読む `PI_*` であり、starter は補助として `herdr agent read <pane-id> --source visible` の footer を見てよいが、footer だけで一致とみなさない。orchestrator は起動後に `printf '%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"` を実行し、`launch:` の `spec` と照合する。一致しない、または取得できない場合は停止して報告する（[キックオフ用テンプレート](../../herdr-pi-issue-pr-workflow/references/kickoff-task-template.md)）。
+5. orchestrator は worktree ワークスペース内のチームを所有する。ペインの作成（`herdr/scripts/pane-layout.sh apply`）、エージェントの起動（`herdr agent start`）、タスクの委譲（`herdr/scripts/parent-delegate-async.sh`）を行う。親は `impl`、`review`、`ui-tester` などのロールペインを事前に作ったり、それらのエージェントを起動したりしてはならない。チームごとに書き込み主体は 1 つである。
 
 #### Worktree environment block
 

@@ -71,6 +71,8 @@ scripts/pi-development/resolve-model-spec.sh \
 
 ユーザーが承認したチーム編成は、ユーザーが所有する名前付きプロファイルとして保存する。保存、選択、検証、ヘルパーコマンド、出力契約はスキル外の [Pi Development Profiles](../_docs/pi-development.md) を正本とする。パッケージルートから `scripts/pi-development/team-record.sh` を使う。このワークフローではロール単位の部分投影ではなく、常にチーム全体を解決する。
 
+orchestrator はチームメンバーではない。チーム表・承認・再利用行の対象外であり、キックオフゲートが解決するのはチームロールだけである。orchestrator の仕様は起動時の `launch:` 行で固定済みであり（[Worktree workspace teams](../herdr/references/worktree-workspace-teams.md#orchestrator-first)）、ゲートで再解決しない。`write` は全置換なので、orchestrator を保持するには `--role orchestrator=<provider>/<model>/<thinking>` も渡す。
+
 通常の実行ではプロファイルを書き換えない。実行限定の上書きや `ui-tester` の除外は保存済み編成を変えない。正本を変更できるのは明示的な `use`/`write` 操作、および次の初期化だけ。
 
 この実行で合意したチームを `default` として初期化（bootstrap）するのは、次の条件が**すべて**成立したときだけ。

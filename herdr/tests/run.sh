@@ -812,11 +812,185 @@ worktree_team_start_flow() {
   [ ! -e "$HERDR_TEST_TARGET" ]
 }
 
+# Fixtures for the profile mode of worktree-team-start.sh. Every profile lives
+# under a temporary PI_CODING_AGENT_DIR, so the real user profiles are never
+# read, and --resolver replaces the model-spec resolver (always an absolute
+# path, as the script passes it through unchanged).
+profile_home() { # <tag> -> prints the temporary agent dir
+  local home="$TEST_TMP/pi-agent-$1"
+  mkdir -p "$home/pi-development/profiles"
+  printf '%s' "$home"
+}
+
+write_profile_fixture() { # <agent-dir> <name> <json>
+  printf '%s\n' "$3" > "$1/pi-development/profiles/$2.json"
+}
+
+write_profile_resolvers() {
+  cat > "$TEST_TMP/resolver-ok.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'provider=stub model=stub requested=high supported=high effective=high result=ok thinking_level_map={}\n'
+STUB
+  cat > "$TEST_TMP/resolver-marker.sh" <<STUB
+#!/usr/bin/env bash
+printf 'called\n' >> "$TEST_TMP/resolver-calls"
+printf 'provider=stub model=stub requested=high supported=high effective=high result=ok thinking_level_map={}\n'
+STUB
+  chmod +x "$TEST_TMP/resolver-ok.sh" "$TEST_TMP/resolver-marker.sh"
+}
+
+worktree_team_start_profile_mode() {
+  local task_file="$TEST_TMP/profile-task.md" home launch err
+  printf '%s\n' 'Goal: coordinate the worktree team' 'Acceptance: the team reports back' > "$task_file"
+  write_profile_resolvers
+
+  home="$(profile_home default)"
+  write_profile_fixture "$home" default '{
+  "pr_fix_shared_with_impl": true,
+  "roles": {
+    "impl": {"provider": "impl-provider", "model": "impl-model", "thinking": "high"},
+    "review": {"provider": "review-provider", "model": "review-model", "thinking": "medium"},
+    "pr-fix": {"provider": "impl-provider", "model": "impl-model", "thinking": "high"},
+    "orchestrator": {"provider": "openrouter", "model": "anthropic/claude-x", "thinking": "max"}
+  }
+}'
+  write_profile_fixture "$home" crew '{
+  "pr_fix_shared_with_impl": true,
+  "roles": {
+    "impl": {"provider": "impl-provider", "model": "impl-model", "thinking": "high"},
+    "review": {"provider": "review-provider", "model": "review-model", "thinking": "medium"},
+    "pr-fix": {"provider": "impl-provider", "model": "impl-model", "thinking": "high"},
+    "orchestrator": {"provider": "openai-codex", "model": "gpt-6.1-sol", "thinking": "high"}
+  }
+}'
+
+  # The default profile supplies all three flags; the task text stays intact and
+  # the launch line is appended before the wrapper's return instruction.
+  reset_logs
+  err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --resolver "$TEST_TMP/resolver-ok.sh" "$task_file" 2>&1 >/dev/null)"
+  [ "$(wc -l < "$HERDR_TEST_STARTS")" -eq 1 ]
+  grep -Fqx 'agent start orchestrator --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
+  [ "$(wc -l < "$HERDR_TEST_WAITS")" -eq 1 ]
+  grep -Fqx 'wB:p2 orchestrator' "$HERDR_TEST_RENAMES"
+  launch='launch: profile=default role=orchestrator spec=openrouter/anthropic/claude-x/max spec_source=profile origin=default'
+  grep -Fqx "$launch" <<< "$err"
+  assert_file_eq wB:p2 "$HERDR_TEST_TARGET"
+  grep -Fq 'Goal: coordinate the worktree team' "$HERDR_TEST_MESSAGE"
+  [ "$(grep -c '^launch: ' "$HERDR_TEST_MESSAGE")" -eq 1 ]
+  grep -Fqx "$launch" "$HERDR_TEST_MESSAGE"
+  awk '/^launch: /{ l=NR } /Direct parent pane for result return/{ r=NR } END { exit !(l && r && l < r) }' "$HERDR_TEST_MESSAGE"
+
+  # --profile selects another profile and reports source=explicit.
+  reset_logs
+  err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --profile crew --resolver "$TEST_TMP/resolver-ok.sh" "$task_file" 2>&1 >/dev/null)"
+  grep -Fqx 'agent start orchestrator --kind pi --pane wB:p2 --timeout 60000 -- --provider openai-codex --model gpt-6.1-sol --thinking high' "$HERDR_TEST_STARTS"
+  grep -Fqx 'launch: profile=crew role=orchestrator spec=openai-codex/gpt-6.1-sol/high spec_source=profile origin=explicit' <<< "$err"
+
+  # active selects the profile when --profile is absent.
+  printf 'crew\n' > "$home/pi-development/active"
+  reset_logs
+  err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --resolver "$TEST_TMP/resolver-ok.sh" "$task_file" 2>&1 >/dev/null)"
+  grep -Fqx 'launch: profile=crew role=orchestrator spec=openai-codex/gpt-6.1-sol/high spec_source=profile origin=active' <<< "$err"
+  rm -f "$home/pi-development/active"
+
+  # The explicit mode reads no profile at all, even when none exists.
+  reset_logs
+  err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$TEST_TMP/no-such-pi-agent" "$START_SCRIPT" wB:p2 impl \
+    --provider anthropic --model claude-sonnet-4-5 --thinking high "$task_file" 2>&1 >/dev/null)"
+  grep -Fqx 'agent start impl --kind pi --pane wB:p2 --timeout 60000 -- --provider anthropic --model claude-sonnet-4-5 --thinking high' "$HERDR_TEST_STARTS"
+  launch='launch: profile=- role=- spec=anthropic/claude-sonnet-4-5/high spec_source=explicit origin=explicit'
+  grep -Fqx "$launch" <<< "$err"
+  grep -Fqx "$launch" "$HERDR_TEST_MESSAGE"
+}
+
+worktree_team_start_profile_failures() {
+  local task_file="$TEST_TMP/profile-error-task.md" home fake_root
+  printf '%s\n' 'Goal: fail closed' > "$task_file"
+  write_profile_resolvers
+
+  home="$(profile_home errors)"
+  write_profile_fixture "$home" default '{
+  "pr_fix_shared_with_impl": true,
+  "roles": {
+    "impl": {"provider": "p", "model": "m", "thinking": "high"},
+    "review": {"provider": "p", "model": "m", "thinking": "high"},
+    "pr-fix": {"provider": "p", "model": "m", "thinking": "high"}
+  }
+}'
+
+  # Mode combinations fail closed with a usage status and start nothing.
+  reset_logs
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --role orchestrator --provider p --model m --thinking high "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --role orchestrator --provider p "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --provider p "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --provider p --model m "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --thinking high "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --profile default "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl --resolver "$TEST_TMP/resolver-ok.sh" "$task_file"
+  expect_rc 2 "$START_SCRIPT" wB:p2 impl "$task_file"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  [ ! -e "$HERDR_TEST_TARGET" ]
+
+  # An unknown role keeps team-record's usage status and starts nothing.
+  reset_logs
+  expect_rc 2 env PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 impl \
+    --role reviewer --resolver "$TEST_TMP/resolver-ok.sh" "$task_file"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+
+  # A profile without the role fails closed, and a missing explicit profile
+  # never falls back to active or default.
+  reset_logs
+  expect_rc 1 env PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --resolver "$TEST_TMP/resolver-ok.sh" "$task_file"
+  expect_rc 1 env PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --profile ghost --resolver "$TEST_TMP/resolver-ok.sh" "$task_file"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  [ ! -e "$HERDR_TEST_TARGET" ]
+
+  # The scope check runs before profile resolution: a rejected edge exits 3
+  # and the resolver is never called.
+  reset_logs
+  rm -f "$TEST_TMP/resolver-calls"
+  expect_scope_reject repo-mismatch env PI_CODING_AGENT_DIR="$home" \
+    "$START_SCRIPT" wE:p2 orchestrator --role orchestrator \
+    --resolver "$TEST_TMP/resolver-marker.sh" "$task_file"
+  [ ! -e "$TEST_TMP/resolver-calls" ]
+  [ ! -s "$HERDR_TEST_STARTS" ]
+
+  # A team-record that prints no record is this script's own error (exit 1),
+  # and the helper path comes from the script location, not the caller's cwd.
+  fake_root="$TEST_TMP/fake-package"
+  rm -rf "$fake_root"
+  mkdir -p "$fake_root/herdr" "$fake_root/scripts/pi-development"
+  cp -R "$HERDR_DIR/scripts" "$fake_root/herdr/scripts"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fake_root/scripts/pi-development/team-record.sh"
+  chmod +x "$fake_root/scripts/pi-development/team-record.sh"
+  reset_logs
+  (cd "$TEST_TMP" && expect_rc 1 env PI_CODING_AGENT_DIR="$home" \
+    "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file")
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  [ ! -e "$HERDR_TEST_TARGET" ]
+
+  # A record without the resolved role key is also this script's error.
+  cat > "$fake_root/scripts/pi-development/team-record.sh" <<'FAKE'
+#!/usr/bin/env bash
+printf 'command=resolve profile=default source=default present=true result=ok\n'
+exit 0
+FAKE
+  chmod +x "$fake_root/scripts/pi-development/team-record.sh"
+  reset_logs
+  (cd "$TEST_TMP" && expect_rc 1 env PI_CODING_AGENT_DIR="$home" \
+    "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file")
+  [ ! -s "$HERDR_TEST_STARTS" ]
+}
+
 cli_failure_is_propagated() {
   expect_rc 17 env HERDR_TEST_RC=17 "$PARENT_SCRIPT" wG:p2 prompt
   expect_rc 17 env HERDR_TEST_RC=17 "$CHILD_SCRIPT" wG:p2 completed body
 }
-
 parent_display_name_fallbacks() {
   local prompt='run the child'
   printf '%s\n' \
@@ -1220,16 +1394,22 @@ markdown_check() { # <skill-dir>...
   "$MARKDOWN_CHECK" "$@"
 }
 
-# A copy of the skill markdown and the one other-skill file that herdr/SKILL.md
-# links to.  The negative tests mutate this copy so the real tree stays clean.
+# A copy of the skill markdown and the other-skill files that herdr/SKILL.md and
+# herdr/references/*.md link to. The negative tests mutate this copy so the real
+# tree stays clean.
 MARKDOWN_FIXTURE_ROOT="$TEST_TMP/markdown-fixture"
 
 setup_markdown_fixture() {
   rm -rf "$MARKDOWN_FIXTURE_ROOT"
-  mkdir -p "$MARKDOWN_FIXTURE_ROOT/herdr/references" "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow"
+  mkdir -p "$MARKDOWN_FIXTURE_ROOT/herdr/references" \
+    "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow/references" \
+    "$MARKDOWN_FIXTURE_ROOT/_docs"
   cp "$HERDR_DIR/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/herdr/SKILL.md"
   cp "$HERDR_DIR"/references/*.md "$MARKDOWN_FIXTURE_ROOT/herdr/references/"
   cp "$HERDR_DIR/../herdr-pi-issue-pr-workflow/SKILL.md" "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow/SKILL.md"
+  cp "$HERDR_DIR/../herdr-pi-issue-pr-workflow/references/kickoff-task-template.md" \
+    "$MARKDOWN_FIXTURE_ROOT/herdr-pi-issue-pr-workflow/references/kickoff-task-template.md"
+  cp "$HERDR_DIR/../_docs/pi-development.md" "$MARKDOWN_FIXTURE_ROOT/_docs/pi-development.md"
 }
 
 replace_in_file() {
@@ -1323,7 +1503,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=33
+expected_count=35
 
 run_test parent_success
 run_test child_success
@@ -1338,6 +1518,8 @@ run_test workspace_list_failure_is_rejected
 run_test self_targets_are_rejected
 run_test scope_grant_cli
 run_test worktree_team_start_flow
+run_test worktree_team_start_profile_mode
+run_test worktree_team_start_profile_failures
 run_test cli_failure_is_propagated
 run_test parent_display_name_fallbacks
 run_test python3_isolation

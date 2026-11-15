@@ -113,6 +113,17 @@ eq("isProfileName rejects an empty value", lib.isProfileName(""), false);
 eq("isProfileName rejects a non-string", lib.isProfileName(null), false);
 eq("profileFileName appends the suffix", lib.profileFileName("fallback"), "fallback.json");
 
+// Role lists: the orchestrator is a profile role, not a team role.
+eq("ROLE_NAMES keeps team order and adds the orchestrator last", lib.ROLE_NAMES, [
+  "impl",
+  "review",
+  "pr-fix",
+  "ui-tester",
+  "orchestrator",
+]);
+eq("TEAM_ROLE_NAMES excludes the orchestrator", lib.TEAM_ROLE_NAMES, ["impl", "review", "pr-fix", "ui-tester"]);
+eq("REQUIRED_ROLE_NAMES stays on the three team roles", lib.REQUIRED_ROLE_NAMES, ["impl", "review", "pr-fix"]);
+
 // active: exactly one line, at most one trailing newline, a valid name.
 eq("parseActiveContent accepts a trailing newline", activeReasonOf("fallback\n"), "ok:fallback");
 eq("parseActiveContent accepts no trailing newline", activeReasonOf("fallback"), "ok:fallback");
@@ -228,12 +239,35 @@ eq(
   reasonOf({ ...valid(), roles: makeRoles({ "ui-tester": { provider: "opencode-go", model: "" , thinking: "max" } }) }),
   "bad-role-spec",
 );
+eq(
+  "validateProfile accepts a stored orchestrator",
+  reasonOf(valid({ roles: makeRoles({ orchestrator: { provider: "openai-codex", model: "gpt-6-astra", thinking: "high" } }) })),
+  "ok:impl,review,pr-fix,orchestrator",
+);
+eq(
+  "validateProfile rejects a malformed orchestrator",
+  reasonOf(valid({ roles: makeRoles({ orchestrator: { provider: "openai/ai", model: "m", thinking: "high" } }) })),
+  "bad-role-spec",
+);
+eq(
+  "validateProfile does not require an orchestrator",
+  reasonOf(valid()),
+  "ok:impl,review,pr-fix",
+);
 
 // buildProfile: the canonical content the writer stores.
 eq(
   "buildProfile keeps role order",
   Object.keys(lib.buildProfile(makeRoles({ "ui-tester": { provider: "opencode-go", model: "m", thinking: "max" } }), false).roles),
   ["impl", "review", "pr-fix", "ui-tester"],
+);
+eq(
+  "buildProfile orders the orchestrator after the team roles",
+  Object.keys(lib.buildProfile(makeRoles({
+    "ui-tester": { provider: "opencode-go", model: "m", thinking: "max" },
+    orchestrator: { provider: "openai-codex", model: "gpt-6-astra", thinking: "high" },
+  }), false).roles),
+  ["impl", "review", "pr-fix", "ui-tester", "orchestrator"],
 );
 eq("buildProfile stores the shared flag", lib.buildProfile(makeRoles(), true).pr_fix_shared_with_impl, true);
 eq(
@@ -307,10 +341,12 @@ IMPL='{"provider":"opencode-go","model":"deepseek-v4.1-flash","thinking":"high"}
 REVIEW='{"provider":"openai-codex","model":"gpt-6-astra","thinking":"medium"}'
 PRFIX='{"provider":"opencode-go","model":"deepseek-v4.1-flash","thinking":"high"}'
 UI_TESTER='{"provider":"opencode-go","model":"deepseek-v4-flash","thinking":"max"}'
+ORCHESTRATOR='{"provider":"openai-codex","model":"gpt-6-astra","thinking":"high"}'
 UNRESOLVABLE='{"provider":"opencode-go","model":"unresolvable","thinking":"high"}'
 CLAMPED='{"provider":"opencode-go","model":"clamped-model","thinking":"high"}'
 ROLES='{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"'}'
 ROLES_UI_TESTER='{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"ui-tester":'"$UI_TESTER"'}'
+ROLES_ORCHESTRATOR='{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"orchestrator":'"$ORCHESTRATOR"'}'
 
 profile_json() { # shared roles-json
   printf '{"pr_fix_shared_with_impl":%s,"roles":%s}' "$1" "$2"
@@ -1211,6 +1247,131 @@ check_eq "review-only explicit selection leaves active alone" "$(active_content 
 put_active "$D" 'missing\n'
 capture_in "$D" resolve --only-role review --resolver "$WORK/stub-ok.sh"
 check_eq "review-only never falls back from a broken active" "$(kv "$OUT" reason)" "missing-active-profile"
+
+# --- orchestrator role -----------------------------------------------------
+
+# A stored orchestrator is shape-validated, reported, and kept out of the
+# full-team runtime resolution: an unavailable orchestrator model must not stop
+# the team, so only the team roles are resolved here.
+D="$(new_agent orchestrator)"
+put_profile "$D" default "$(profile_json true "$ROLES_ORCHESTRATOR")"
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_exit "a stored orchestrator resolves the full team" "0"
+check_eq "a stored orchestrator is reported" "$(kv "$OUT" orchestrator)" "openai-codex/gpt-6-astra/high"
+check_eq "a stored orchestrator keeps the shared flag" "$(kv "$OUT" pr_fix_shared_with_impl)" "true"
+
+D="$(new_agent orchestrator-unavailable)"
+put_profile "$D" default \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"orchestrator":'"$UNRESOLVABLE"'}}'
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_exit "an unavailable orchestrator does not block a full-team read" "0"
+check_eq "an unavailable orchestrator is reported as stored" "$(kv "$OUT" orchestrator)" \
+  "opencode-go/unresolvable/high"
+capture_in "$D" use default --resolver "$WORK/stub-mixed.sh"
+check_exit "an unavailable orchestrator does not block use" "0"
+check_eq "use reports the stored orchestrator" "$(kv "$OUT" orchestrator)" "opencode-go/unresolvable/high"
+check_eq "use still switches active" "$(active_content "$D")" "default"
+
+# A malformed orchestrator is never reported as usable by a full-team read.
+check_invalid "orchestrator-bad-thinking" \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"orchestrator":{"provider":"openai-codex","model":"gpt-6-astra","thinking":"extreme"}}}' \
+  bad-role-spec
+check_invalid "orchestrator-not-object" \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"orchestrator":"openai-codex/gpt-6-astra/high"}}' \
+  bad-role-spec
+
+# `--only-role orchestrator` is the start-time resolution of the launch spec.
+D="$(new_agent orchestrator-only)"
+put_profile "$D" default '{"roles":{"orchestrator":'"$ORCHESTRATOR"'}}'
+capture_in "$D" resolve --only-role orchestrator --resolver "$WORK/stub-mixed.sh"
+check_exit "only-role orchestrator exits ok" "0"
+check_eq "only-role orchestrator returns the spec" "$(kv "$OUT" orchestrator)" "openai-codex/gpt-6-astra/high"
+check_eq "only-role orchestrator returns no team role" "$(kv "$OUT" impl)" ""
+check_not_contains "only-role orchestrator invents no composition" "$OUT" 'pr_fix_shared_with_impl='
+
+put_profile "$D" default "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --only-role orchestrator --resolver "$WORK/stub-mixed.sh"
+check_nonzero "only-role orchestrator without a stored role"
+check_eq "only-role orchestrator reports the missing role" "$(kv "$OUT" result)" "invalid"
+check_eq "only-role orchestrator missing reason" "$(kv "$OUT" reason)" "missing-role"
+
+# A model ID may contain a slash, and the launch reader splits on the first
+# and last slash only.
+D="$(new_agent orchestrator-slash)"
+put_profile "$D" default \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"orchestrator":{"provider":"openrouter","model":"anthropic/claude-x","thinking":"max"}}}'
+capture_in "$D" resolve --only-role orchestrator --resolver "$WORK/stub-echo.sh"
+check_eq "only-role orchestrator keeps a slashed model" "$(kv "$OUT" orchestrator)" \
+  "openrouter/anthropic/claude-x/max"
+
+# `--require-role orchestrator` adds the stored orchestrator to the runtime
+# resolution without making it a team role.
+D="$(new_agent orchestrator-required)"
+put_profile "$D" default "$(profile_json true "$ROLES_ORCHESTRATOR")"
+capture_in "$D" resolve --require-role orchestrator --resolver "$WORK/stub-mixed.sh"
+check_exit "a required orchestrator present exits ok" "0"
+check_eq "a required orchestrator is reported" "$(kv "$OUT" orchestrator)" "openai-codex/gpt-6-astra/high"
+
+put_profile "$D" default "$(profile_json true "$ROLES")"
+capture_in "$D" resolve --require-role orchestrator --resolver "$WORK/stub-mixed.sh"
+check_nonzero "a required orchestrator absent"
+check_eq "a required orchestrator absent result" "$(kv "$OUT" result)" "unresolved"
+check_eq "a required orchestrator is reported" "$(kv "$OUT" unresolved)" "orchestrator"
+check_eq "a required orchestrator reports absent" "$(kv "$OUT" unresolved_result)" "absent"
+
+put_profile "$D" default \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"orchestrator":'"$UNRESOLVABLE"'}}'
+capture_in "$D" resolve --require-role orchestrator --resolver "$WORK/stub-mixed.sh"
+check_eq "a required unavailable orchestrator result" "$(kv "$OUT" result)" "unresolved"
+check_eq "a required unavailable orchestrator is reported" "$(kv "$OUT" unresolved)" "orchestrator"
+check_eq "a required unavailable orchestrator keeps the resolver token" \
+  "$(kv "$OUT" unresolved_result)" "unknown"
+
+put_profile "$D" default \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$UNRESOLVABLE"',"pr-fix":'"$PRFIX"',"orchestrator":'"$UNRESOLVABLE"'}}'
+capture_in "$D" resolve --require-role orchestrator --resolver "$WORK/stub-mixed.sh"
+check_eq "a team role failure wins over the orchestrator" "$(kv "$OUT" unresolved)" "review"
+
+put_profile "$D" default \
+  '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$UNRESOLVABLE"',"pr-fix":'"$PRFIX"'}}'
+capture_in "$D" resolve --require-role orchestrator --resolver "$WORK/stub-mixed.sh"
+check_eq "an absent required orchestrator is answered first" "$(kv "$OUT" unresolved)" "orchestrator"
+check_eq "an absent required orchestrator reports absent before a team role" \
+  "$(kv "$OUT" unresolved_result)" "absent"
+
+# `write --role orchestrator=...` stores and resolves the orchestrator, and a
+# write that omits it removes it (the write is a full replacement).
+D="$(new_agent write-orchestrator)"
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
+  --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}" \
+  --role orchestrator=openai-codex/gpt-6-astra/high
+check_eq "write with an orchestrator exits ok" "$RC" "0"
+check_eq "write stores the orchestrator" \
+  "$(json_field "$(asset "$D")/profiles/default.json" roles.orchestrator.model)" "gpt-6-astra"
+check_eq "write reports the orchestrator role" "$(kv "$OUT" roles)" "impl,review,pr-fix,orchestrator"
+capture_in "$D" resolve --only-role orchestrator --resolver "$WORK/stub-mixed.sh"
+check_eq "the written orchestrator resolves through only-role" "$(kv "$OUT" orchestrator)" \
+  "openai-codex/gpt-6-astra/high"
+
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
+  --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+check_eq "a write without the orchestrator exits ok" "$RC" "0"
+check_not_contains "a write without the orchestrator removes it" \
+  "$(cat "$(asset "$D")/profiles/default.json")" 'orchestrator'
+
+D="$(new_agent write-orchestrator-unresolved)"
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
+  --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}" \
+  --role orchestrator=opencode-go/unresolvable/high
+check_nonzero "a write with an unavailable orchestrator"
+check_eq "a write with an unavailable orchestrator result" "$(kv "$OUT" result)" "unresolved"
+check_eq "a write with an unavailable orchestrator names the role" "$(kv "$OUT" unresolved)" "orchestrator"
+check_eq "a write with an unavailable orchestrator writes nothing" "$(kv "$OUT" written)" "false"
+if [ -e "$(asset "$D")/profiles/default.json" ]; then
+  ng "a rejected orchestrator write leaves no file" "found $(asset "$D")/profiles/default.json"
+else
+  ok "a rejected orchestrator write leaves no file"
+fi
 
 # --- legacy migration guard ----------------------------------------------
 D="$(new_agent legacy-only)"

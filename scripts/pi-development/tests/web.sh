@@ -216,11 +216,14 @@ check_contains "an old master is marked stale" "$(cat "$WORK/last")" '"stale_rea
 
 # --- PUT /api/profile -------------------------------------------------------
 
-valid_body() { # hash [shared] [ui-tester] [thinking]
-  local hash="$1" shared="${2:-true}" ui="${3:-}" thinking="${4:-max}"
+valid_body() { # hash [shared] [ui-tester] [thinking] [orchestrator-model]
+  local hash="$1" shared="${2:-true}" ui="${3:-}" thinking="${4:-max}" orch="${5:-}"
   local roles="\"impl\":{\"provider\":\"p\",\"model\":\"m\",\"thinking\":\"$thinking\"},\"review\":{\"provider\":\"p\",\"model\":\"m\",\"thinking\":\"$thinking\"},\"pr-fix\":{\"provider\":\"p\",\"model\":\"m\",\"thinking\":\"$thinking\"}"
   if [ -n "$ui" ]; then
     roles="$roles,\"ui-tester\":{\"provider\":\"p\",\"model\":\"m\",\"thinking\":\"$ui\"}"
+  fi
+  if [ -n "$orch" ]; then
+    roles="$roles,\"orchestrator\":{\"provider\":\"p\",\"model\":\"$orch\",\"thinking\":\"high\"}"
   fi
   printf '{"profile":"default","expected_hash":"%s","pr_fix_shared_with_impl":%s,"roles":{%s}}' "$hash" "$shared" "$roles"
 }
@@ -244,6 +247,29 @@ check_eq "conflict leaves the file alone" "$(hash_of "$PROFILES/default.json")" 
 code="$(api PUT /api/profile "$(valid_body "$after" true "" high)")"
 check_eq "saving without ui-tester returns 200" "$code" "200"
 check_not_contains "omitting ui-tester removes it" "$(cat "$PROFILES/default.json")" 'ui-tester'
+
+# The orchestrator is a known but optional stored role: a save that sends it
+# keeps it, state reports it as stored, and a save that omits it removes it
+# because write replaces the whole profile.
+after="$(hash_of "$PROFILES/default.json")"
+code="$(api PUT /api/profile "$(valid_body "$after" true "" max orchestrator-a)")"
+check_eq "saving with orchestrator returns 200" "$code" "200"
+check_contains "save stores the orchestrator" "$(cat "$PROFILES/default.json")" '"orchestrator"'
+check_contains "save stores the orchestrator model" "$(cat "$PROFILES/default.json")" '"orchestrator-a"'
+
+code="$(api GET /api/state)"
+check_contains "state reports the stored orchestrator" "$(cat "$WORK/last")" '"orchestrator":{"provider":"p","model":"orchestrator-a"'
+check_not_contains "state reports no unknown keys for the orchestrator" "$(cat "$WORK/last")" '"orchestrator":[]'
+
+# The editor's role toggle for the orchestrator is labelled as outside the team.
+code="$(api GET /)"
+check_eq "index still serves with a stored orchestrator" "$code" "200"
+check_contains "index has an orchestrator role toggle" "$(cat "$WORK/last")" 'オーケストレーター（チーム外）'
+
+after="$(hash_of "$PROFILES/default.json")"
+code="$(api PUT /api/profile "$(valid_body "$after" true "" max)")"
+check_eq "saving without orchestrator returns 200" "$code" "200"
+check_not_contains "omitting orchestrator removes it" "$(cat "$PROFILES/default.json")" 'orchestrator'
 
 after="$(hash_of "$PROFILES/default.json")"
 code="$(api PUT /api/profile "{\"profile\":\"default\",\"expected_hash\":\"$after\",\"pr_fix_shared_with_impl\":true,\"roles\":{\"impl\":{\"provider\":\"p\",\"model\":\"m\",\"thinking\":\"max\"},\"review\":{\"provider\":\"p\",\"model\":\"m\",\"thinking\":\"max\"},\"pr-fix\":{\"provider\":\"p\",\"model\":\"m\",\"thinking\":\"high\"}}}")"

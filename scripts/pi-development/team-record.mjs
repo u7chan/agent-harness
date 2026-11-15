@@ -60,6 +60,7 @@ import {
   DEFAULT_PROFILE_NAME,
   REQUIRED_ROLE_NAMES,
   ROLE_NAMES,
+  TEAM_ROLE_NAMES,
   buildProfile,
   field,
   formatRoleSpec,
@@ -100,16 +101,25 @@ resolve options:
   --profile <name>    use this profile for the run (extensionless name)
   --only-role <role>  validate and resolve only this known role (read-only).
       Unused roles and the impl/pr-fix shared flag are ignored. Cannot be
-      combined with --require-role or used with use/write.
+      combined with --require-role or used with use/write. The known roles are
+      impl, review, pr-fix, ui-tester, and orchestrator, so
+      \`--only-role orchestrator\` resolves a stored orchestrator launch spec.
   --require-role <role>
       also require this role in the profile (repeatable). Any role name is
       accepted, so a role this version does not know yet answers \`unresolved\`
       instead of failing the argument check, and the kickoff returns to the
-      proposal path.
+      proposal path. A present required role outside the team roles is also
+      resolved at runtime, so \`--require-role orchestrator\` resolves the
+      stored orchestrator in addition to the team roles.
+
+A full-team \`resolve\` and \`use\` resolve the team roles (impl, review, pr-fix,
+ui-tester) at runtime only. A stored orchestrator is shape-validated and
+reported as a stored value; a retired or unauthenticated orchestrator model
+does not block the team.
 
 use:
   use <name>          validate the named profile and write it to \`active\`.
-      Only a profile whose every role resolves is selected.
+      Only a profile whose team roles resolve is selected.
   use -- <name>       the same, for a name that starts with \`-\`; \`--\` ends
       option parsing, so \`use -- -fallback\` reaches the profile
       \`profiles/-fallback.json\`.
@@ -118,10 +128,12 @@ write options:
   --profile <name>    required; the profile to write, and the only file this
       command changes (\`active\` is untouched).
   --role <role>=<provider>/<model>/<thinking>
-      team member to record (repeatable); impl, review, and pr-fix are
-      required, ui-tester is optional, and the role name must be one of them.
-      The provider is the first segment and the thinking level is the last
-      one, so a model ID may contain \`/\`.
+      role to record (repeatable); impl, review, and pr-fix are required,
+      ui-tester and orchestrator are optional, and the role name must be one
+      of ROLE_NAMES. The provider is the first segment and the thinking level
+      is the last one, so a model ID may contain \`/\`. \`write\` replaces the
+      whole profile, so a role that is omitted is removed; pass
+      \`--role orchestrator=...\` to keep a stored orchestrator.
   --pr-fix-shared-with-impl <true|false>
       required; whether pr-fix reuses the impl agent. When \`true\`, the
       pr-fix specification must equal the impl specification.
@@ -131,8 +143,9 @@ If only the legacy pi-issue-pr-workflow asset exists, commands stop with
 automatic migration, or bootstrap over the legacy profiles.
 
 Every command prints one key=value line and exits nonzero unless \`result=ok\`.
-\`write\` and \`use\` validate every role through the resolver, so the user asset
-only ever holds specifications that resolved at write time.`;
+\`write\` validates every role it is given through the resolver and \`use\`
+validates the team roles, so the user asset only ever holds specifications
+that resolved at write time.`;
 
 /** Print the single key=value line; `writeSync` keeps it complete on exit. */
 function emit(fields) {
@@ -492,9 +505,13 @@ function loadProfile(file, onlyRole = "") {
   return { result: "ok", profile: validation.profile, raw };
 }
 
-/** Every role of a profile must resolve before the profile is usable. */
-function resolveRoles(profile, resolver) {
-  for (const role of ROLE_NAMES) {
+/**
+ * Resolve the given roles through the resolver and return the first failure.
+ * A role without a stored spec is skipped; a caller that must have one checks
+ * its presence first, so `absent` is never confused with `resolved`.
+ */
+function resolveRoles(profile, resolver, roles) {
+  for (const role of roles) {
     const spec = profile.roles[role];
     if (!spec) {
       continue;
@@ -505,6 +522,22 @@ function resolveRoles(profile, resolver) {
     }
   }
   return null;
+}
+
+/**
+ * Roles a full-team read resolves at runtime: the team roles, plus every
+ * required role outside the team. Only `orchestrator` can be both present in a
+ * validated profile and outside the team list, and a role this version does
+ * not know is never present, so the presence check already answered `absent`.
+ */
+function runtimeRoles(requireRoles) {
+  const roles = [...TEAM_ROLE_NAMES];
+  for (const role of requireRoles) {
+    if (!roles.includes(role)) {
+      roles.push(role);
+    }
+  }
+  return roles;
 }
 
 function commandResolve(options) {
@@ -581,13 +614,19 @@ function commandResolve(options) {
     }
   }
 
-  const failed = resolveRoles(profile, resolverPath(options));
+  const failed = resolveRoles(
+    profile,
+    resolverPath(options),
+    options.onlyRole ? [options.onlyRole] : runtimeRoles(options.requireRoles),
+  );
   if (failed) {
     emit(unresolvedFields(failed.role, failed.result));
     return 1;
   }
 
-  const teamFields = ROLE_NAMES.filter((role) => profile.roles[role]).map((role) => [
+  // A stored orchestrator is a shape-validated value from the file, not a
+  // runtime resolution, so it is reported last and never gates this result.
+  const roleValues = ROLE_NAMES.filter((role) => profile.roles[role]).map((role) => [
     role,
     formatRoleSpec(profile.roles[role]),
   ]);
@@ -596,7 +635,7 @@ function commandResolve(options) {
     ["present", "true"],
     ["result", "ok"],
     ...(options.onlyRole ? [] : [["pr_fix_shared_with_impl", String(profile.pr_fix_shared_with_impl)]]),
-    ...teamFields,
+    ...roleValues,
   ]);
   return 0;
 }
@@ -652,7 +691,9 @@ function commandUse(options) {
     return fail("invalid", loaded.reason, loaded.raw === undefined ? [] : roleFields(loaded.raw));
   }
   const profile = loaded.profile;
-  const failed = resolveRoles(profile, resolverPath(options));
+  // Only the team roles are resolved: `orchestrator` is stored and reported
+  // but a stored orchestrator spec must not block a persistent switch.
+  const failed = resolveRoles(profile, resolverPath(options), TEAM_ROLE_NAMES);
   if (failed) {
     return fail("unresolved", "role", [
       ["unresolved", failed.role],
@@ -731,7 +772,9 @@ function commandWrite(options) {
   }
 
   const profile = buildProfile(roles, options.prFixSharedWithImpl);
-  const failed = resolveRoles(profile, resolverPath(options));
+  // `write` resolves every role it was given, including a supplied
+  // orchestrator, so an unresolved spec is never stored.
+  const failed = resolveRoles(profile, resolverPath(options), ROLE_NAMES);
   if (failed) {
     return fail("unresolved", "role", [
       ["unresolved", failed.role],

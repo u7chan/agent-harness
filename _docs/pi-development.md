@@ -19,7 +19,7 @@ Profiles are not distributed with the skills. A name matches
 `^[A-Za-z0-9._-]+$`, is neither `.` nor `..`, and is passed without `.json`.
 `active` contains one name with at most one trailing newline.
 
-The full-team format is unchanged:
+The profile format holds the full team plus the optional orchestrator:
 
 ```json
 {
@@ -27,18 +27,25 @@ The full-team format is unchanged:
   "roles": {
     "impl": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"},
     "review": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"},
-    "pr-fix": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"}
+    "pr-fix": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"},
+    "orchestrator": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"}
   }
 }
 ```
 
-`ui-tester` is optional. There is no version field. Unknown keys are ignored.
-Full-team validation requires `impl`, `review`, `pr-fix`, a boolean shared flag,
-and equal `impl`/`pr-fix` specs when that flag is true. Writes are atomic
-(temporary file plus rename), mode `0600`, for both profiles and `active`.
+`ui-tester` and `orchestrator` are optional. There is no version field. Unknown
+keys are ignored. Full-team validation requires `impl`, `review`, `pr-fix`, a
+boolean shared flag, and equal `impl`/`pr-fix` specs when that flag is true.
+Writes are atomic (temporary file plus rename), mode `0600`, for both profiles
+and `active`.
 
-Only team specifications belong here. Never persist a run's PR, phase, review
-round, reviewed head, findings, or pane IDs.
+`orchestrator` is not a team member: the team table, the approval, and the
+reuse line never include it. It is stored in a profile because the same role
+specification (provider, model, thinking) is what a worktree team start
+resolves for the orchestrator.
+
+Only team and orchestrator launch specifications belong here. Never persist a
+run's PR, phase, review round, reviewed head, findings, or pane IDs.
 
 ## Selection and commands
 
@@ -53,29 +60,47 @@ scripts/pi-development/team-record.sh resolve [--profile <name>] [--require-role
 # Role-only, read-only consumer: validate/resolve only review.
 scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role review
 
+# The same projection for an orchestrator launch spec.
+scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role orchestrator
+
 # Persistent selection: validate the full team, then change only active.
 scripts/pi-development/team-record.sh use <name>
 # A dash-leading name needs the end-of-options terminator: use -- -fallback.
 
 # Explicit full-team save: validate every supplied role; leave active alone.
+# `write` replaces the whole profile, so pass every role you want to keep.
 scripts/pi-development/team-record.sh write --profile <name> \
   --pr-fix-shared-with-impl <true|false> \
   --role impl=<provider>/<model>/<thinking> \
   --role review=<provider>/<model>/<thinking> \
   --role pr-fix=<provider>/<model>/<thinking> \
-  [--role ui-tester=<provider>/<model>/<thinking>]
+  [--role ui-tester=<provider>/<model>/<thinking>] \
+  [--role orchestrator=<provider>/<model>/<thinking>]
 
 scripts/pi-development/resolve-model-spec.sh \
   --provider <provider> --model <model> --thinking <level>
 ```
 
+A save that omits `orchestrator` removes a stored one, because `write` is a
+full replacement. Pass `--role orchestrator=...` to keep it, and never drop a
+stored role you did not mean to change.
+
 `--only-role` accepts one known role. It projects the selected role before
 shape validation and runtime resolution: missing, malformed, unavailable, or
-clamped **unused** roles and the shared flag cannot block a review-only run.
-The selected role still needs a complete, exact, supported spec. It cannot be
-combined with `--require-role` or used with `use`/`write`. A full-team read,
-save, or persistent switch still validates the whole team. A role-only read
-never rewrites the profile or switches `active`.
+clamped **unused** roles and the shared flag cannot block the run. The selected
+role still needs a complete, exact, supported spec. It cannot be combined with
+`--require-role` or used with `use`/`write`. A full-team read, save, or
+persistent switch still validates the whole team. A role-only read never
+rewrites the profile or switches `active`.
+
+A full-team `resolve` and `use` resolve the team roles (`impl`, `review`,
+`pr-fix`, `ui-tester`) at runtime only. A stored `orchestrator` is
+shape-validated and reported as a stored value, never resolved by those
+commands: a retired or unauthenticated orchestrator model must not block the
+team. The orchestrator spec is resolved when it is started
+(`resolve --only-role orchestrator`). `--require-role <role>` also resolves the
+required role, so `--require-role orchestrator` checks and resolves the stored
+orchestrator on top of the team roles. `write` resolves every role it is given.
 
 Use `pi --list-models` to inspect the live catalog; thinking-level validation
 comes from the installed runtime's public API, never a static model table. If `pi`
@@ -107,13 +132,16 @@ scripts/pi-development/refresh-models.sh [--pi-root <pi-package>] [--out <file>]
 `GET /` serves the document. `GET /api/state` returns every profile with its
 hash, stored roles, and unknown keys, plus the master with
 `status` (`ok`, `missing`, `invalid`), `stale`, `stale_reason`, and its
-candidates. `PUT /api/profile` takes `profile`, `expected_hash`,
+candidates. The editor shows an optional-role toggle for `ui-tester` and
+`orchestrator`: a profile without the role starts with the toggle off, and a
+save that leaves it off omits the role (a full replacement removes it).
+`PUT /api/profile` takes `profile`, `expected_hash`,
 `pr_fix_shared_with_impl`, and `roles`; it answers 200 with the write record,
 400 for an invalid request, 404 for an unknown profile, 409 when the hash moved
 (the file is untouched), 422 when `write` rejects the team, and 502 when the
-helper cannot run. Omitting `ui-tester` removes it. `POST /api/models/refresh`
-runs the refresh helper, answers 200 with its record, 500 when it fails, and
-409 while a refresh is already running.
+helper cannot run. Omitting `ui-tester` or `orchestrator` removes it.
+`POST /api/models/refresh` runs the refresh helper, answers 200 with its
+record, 500 when it fails, and 409 while a refresh is already running.
 
 `GET /api/state` does not run `resolve`: a resolve boots the pi runtime and
 costs seconds per profile, while the file view needs nothing it can add. The
@@ -202,7 +230,13 @@ check `systemctl --user status <unit>` after a failure.
 Each helper prints one key=value line and exits zero only for `result=ok`.
 `resolve` includes `profile`, `source` (`explicit`, `active`, `default`),
 `record`, `profiles_present`, `present`, and `result`. Success adds the resolved
-roles, plus `pr_fix_shared_with_impl` for a full-team read only.
+roles, plus `pr_fix_shared_with_impl` for a full-team read only. A full-team
+read and `use` report a stored `orchestrator=` as a shape-validated value from
+the file, not a runtime resolution, while the team roles in the same line are
+resolved. `--only-role <role>` reports `<role>=<provider>/<model>/<thinking>`
+for the selected role and resolves only that role. Invalid and unresolved
+records repeat the stored role values, including `orchestrator=` when the file
+has one; `use` reports the stored `orchestrator=` the same way.
 
 Missing reasons: `no-profiles`, `missing-selected-profile`,
 `missing-active-profile`, `missing-explicit-profile`. Invalid reasons include
