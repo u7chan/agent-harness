@@ -29,6 +29,14 @@ check_contains() { # name haystack needle
   esac
 }
 
+check_not_contains() { # name haystack needle
+  local name="$1" hay="$2" needle="$3"
+  case "$hay" in
+    *"$needle"*) ng "$name" "should NOT contain: $needle" ;;
+    *) ok "$name" ;;
+  esac
+}
+
 section_text() { # file heading (heading includes the leading hashes)
   awk -v heading="$2" '
     $0 == heading { inside = 1; next }
@@ -67,6 +75,10 @@ for value in \
   'コード Span'; do
   check_contains "the shared contract contains $value" "$HUMAN_BRIEF_TEXT" "$value"
 done
+check_contains "the template note avoids the review term" "$HUMAN_BRIEF_TEXT" \
+  '人間向けの要約。AI・エージェントはこの範囲を仕様・証跡として読まない。'
+check_not_contains "the template note does not reintroduce the review term" "$HUMAN_BRIEF_TEXT" \
+  '人間レビュー用。AI・エージェント'
 
 # --- the orchestrator owns the section -------------------------------------
 

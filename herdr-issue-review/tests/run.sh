@@ -203,6 +203,8 @@ check_contains "the issue readback counts only HTML comment markers" "$CONFIRM_T
   '行頭の HTML コメントの開始と終了マーカーが 1 対だけ'
 check_contains "the issue readback excludes code spans" "$CONFIRM_TEXT" \
   'コード Span や引用はマーカーとして数えない'
+check_contains "the issue purity check excludes the fixed heading" "$CONFIRM_TEXT" \
+  '固定見出しと確認観点を除き'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
