@@ -8,6 +8,7 @@
 - Commit messages must use an English Conventional Commit prefix, such as `feat(gh): add action filter`.
 - PR descriptions must be written in Japanese and include `Issues`, `Why`, `Summary`, `Changes`, `Verification`, and `Rollout`. `Rollout` states whether the post-merge rollout procedure in [_docs/skill-distribution.md](_docs/skill-distribution.md) applies: `Rollout: 必要` when the PR changes any skill, otherwise `Rollout: 不要`.
 - When a PR changes a user-visible surface or a repository requires evidence, include the evidence section defined in [_docs/pr-evidence.md](_docs/pr-evidence.md) in the PR body. Never post evidence as a PR comment.
+- Long Issue/PR bodies use the human review brief defined in [_docs/human-brief.md](_docs/human-brief.md): automatically for large changes, always when the user asks. Agents skip the marked section; it is not evidence.
 - Write review, improvement, design/planning, and Herdr skills in Japanese, and all other skills in English. Keep commands, identifiers, and other machine-readable contracts in English.
 - Quoted text inside a skill keeps its original language and is marked with a code span or quotation marks so a reader can tell it from leftover text: runtime fixed lines, trigger words and phrases the user says, and headings of Japanese-language documents.
 - Runtime output follows the conversation language unless an active instruction or the user overrides it; the `## Language` section of [kabeuchi/SKILL.md](kabeuchi/SKILL.md) is the authoritative rule and applies to every skill.

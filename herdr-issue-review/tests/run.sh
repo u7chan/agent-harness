@@ -66,6 +66,11 @@ GATE_LINE="$(section_line "$SKILL_MD" "## 開始前チェック")"
 ARTIFACT_LINE="$(section_line "$SKILL_MD" "## 成果物ファイル")"
 PROCEDURE_LINE="$(section_line "$SKILL_MD" "## 手順")"
 REVIEWER_TEXT="$(subsection_text "$SKILL_MD" "### 1. レビュアーのペインと起動 spec を用意する")"
+BRIEF_TEXT="$(subsection_text "$SKILL_MD" "### 5. 人間レビュー用サマリを付ける")"
+BRIEF_LINE="$(section_line "$SKILL_MD" "### 5. 人間レビュー用サマリを付ける")"
+CONFIRM_LINE="$(section_line "$SKILL_MD" "### 6. Issue を確定する")"
+DELEGATION_TEXT="$(subsection_text "$SKILL_MD" "### 2. 1 回目を委譲する")"
+CONFIRM_TEXT="$(subsection_text "$SKILL_MD" "### 6. Issue を確定する")"
 
 # --- the gate exists and runs before every side effect ---------------------
 
@@ -163,6 +168,43 @@ check_contains "the reviewer section starts with the provider and model flags" "
 # The user's explicit values outrank the profile.
 check_contains "the preconditions let the user override the profile" \
   "$(section_text "$SKILL_MD" "## 前提")" 'ユーザーが明示指定した値はプロファイルより優先する'
+
+# --- the human review brief (contract: _docs/human-brief.md) --------------
+
+check_contains "the artifact file points at the shared brief contract" \
+  "$(section_text "$SKILL_MD" "## 成果物ファイル")" '../_docs/human-brief.md'
+check_contains "the delegation skips the brief" "$DELEGATION_TEXT" \
+  'Issue 本文の `pi:human-brief` 範囲は読まない'
+
+if [ -n "$BRIEF_LINE" ] && [ -n "$CONFIRM_LINE" ] && [ "$BRIEF_LINE" -lt "$CONFIRM_LINE" ]; then
+  ok "the brief is prepared before the issue is filed"
+else
+  ng "the brief is prepared before the issue is filed" \
+    "brief line '${BRIEF_LINE:-none}' confirm line '${CONFIRM_LINE:-none}'"
+fi
+
+check_contains "the brief uses the explained contract" "$BRIEF_TEXT" '../_docs/human-brief.md'
+check_contains "the brief uses the explain-video renderer" "$BRIEF_TEXT" '../explain-video/SKILL.md'
+check_contains "the brief supports a GIF" "$BRIEF_TEXT" 'GIF'
+check_contains "the brief supports an MP4" "$BRIEF_TEXT" 'MP4'
+check_contains "the brief is marked" "$BRIEF_TEXT" '`pi:human-brief`'
+check_contains "the brief is attached" "$BRIEF_TEXT" 'attachments'
+check_contains "the issue marker omits head" "$BRIEF_TEXT" \
+  'Issue の開始マーカーには `head` を付けない'
+check_contains "the brief heading is exempt from the review-record ban" \
+  "$(section_text "$SKILL_MD" "## 成果物ファイル")" 'この禁止の対象外'
+check_contains "a missing renderer falls back to text" "$BRIEF_TEXT" \
+  'FFmpeg または Playwright が使えない場合'
+check_contains "the issue is read back after writing" "$CONFIRM_TEXT" 'issue.get'
+check_contains "the issue write can carry attachments" "$CONFIRM_TEXT" 'attachments'
+check_contains "the issue update replaces only the marker range" "$CONFIRM_TEXT" \
+  '行頭のマーカー間だけを差し替える'
+check_contains "the issue readback counts only HTML comment markers" "$CONFIRM_TEXT" \
+  '行頭の HTML コメントの開始と終了マーカーが 1 対だけ'
+check_contains "the issue readback excludes code spans" "$CONFIRM_TEXT" \
+  'コード Span や引用はマーカーとして数えない'
+check_contains "the issue purity check excludes the fixed heading" "$CONFIRM_TEXT" \
+  '固定見出しと確認観点を除き'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

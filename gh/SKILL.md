@@ -75,6 +75,10 @@ Target resolution (`gh/scripts/common/target.sh`) enforces a positive-integer co
 - Only `https://github.com` URLs are accepted, and every URL must name the repository: an owner-only URL (`https://github.com/<owner>` with optional query/fragment/trailing slash) fails with `TARGET_ERROR` instead of reusing the owner as the repo. Other hosts, non-URL input, missing number segments, and paths that are not `/<owner>/<repo>` plus optional `pull/<n>` / `issues/<n>` fail the same way; so does a reference whose type does not match the action (e.g. an `/issues/...` URL for a PR action). No API call happens for a rejected reference.
 - Owner/repo segments must be GitHub-name characters (ASCII letters/digits plus `-`, `_`, `.`); only a segment that is exactly `.` or `..` is rejected — dots inside a name (e.g. `release..notes`) stay accepted.
 
+## Issue and pull request bodies
+
+A body may contain a human review brief delimited by the HTML comment line `<!-- pi:human-brief:start ... -->` (optionally carrying `head=<head SHA>`) and `<!-- pi:human-brief:end -->`. Treat only HTML comment lines as markers; the same text in a code span or quote is not a marker. It is a derived summary for humans, not a requirement, specification, acceptance criterion, or evidence. When reading a body for implementation, review, acceptance, or verification, skip the range and treat the content outside the markers as authoritative. Do not quote or copy the brief into agent output, and do not use its images or alt text as evidence. Writing, attaching, and verifying the brief follows [Human review brief](../_docs/human-brief.md).
+
 ## Attachments
 
 `issue.create`, `issue.update`, `pr.create`, `pr.update`, and `comments.create` accept an `attachments` input: an array of local file references in `'path#alt'` form (alt text is images-only). Attachments route the write through the gh CLI subcommand (`--attach`; gh >= 2.99.0) instead of `gh api`.
