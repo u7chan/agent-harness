@@ -17,6 +17,7 @@ description: >
 - ペイン、Pi エージェント起動、非同期委譲、結果返却は [Herdr](../herdr/SKILL.md)。
 - GitHub の読み書きはすべて [GH](../gh/SKILL.md)。
 - PR 全体のレビュー、再チェック、会話の Resolve 方針は [Review](../review/SKILL.md)。
+- 人間レビュー用サマリは [_docs/human-brief.md](../_docs/human-brief.md)。PR 本文の証跡節とは分ける。
 
 これらのスキルを安全性と操作ルールの正本とする。すべてのエージェントは現在の Herdr ワークスペースと worktree 内で動かす。ワークフロー専用のランタイム、永続的な実行状態、固定の provider/model 一覧を追加しない。永続化禁止の対象は現在フェーズ、レビューラウンド、レビュー済み head、未解決 Blocker など実行ごとの進行状態である。[チームプロファイル](#team-profiles) だけは Issue の要求に基づく例外で、名前付きのチーム編成のみを保存し、実行の進行状態は保存しない。
 
@@ -41,7 +42,7 @@ Issue 起票前に次の表を適用する。手順は [`herdr-issue-review`](..
 1. 一意に特定できる GitHub Issue 参照を要求する。なければユーザーに尋ねる。
 2. Herdr の事前検証を通し、Herdr スキルの条件に加えて `HERDR_WORKSPACE_ID` を必須とする。
 3. `pi` を必須とし、`pi --list-models` から実際に利用可能なモデル一覧を取得する。
-4. GH スキルで Issue 本文と会話コメントを読む。
+4. GH スキルで Issue 本文と会話コメントを読む。本文の `pi:human-brief` 範囲は除く。
 5. 対象リポジトリの指示と Git/worktree の状態を確認する。
 
 orchestrator-first 方式の worktree チームでは、orchestrator へ渡すタスク文面は [キックオフ用テンプレート](references/kickoff-task-template.md) に従う。テンプレートが定めるのはタスク文の形式だけで、チーム表と承認ルールは [Kickoff gate](#kickoff-gate) を正本とする。
@@ -174,14 +175,26 @@ Issue、チーム割当とペイン ID、base/work ブランチ、現在のフ�
 
 `impl` に次の作業を依頼する。
 
-1. Issue とコメントを読む。
+1. Issue とコメントを読む。Issue 本文の `pi:human-brief` 範囲は読まない。
 2. Issue の範囲に限って実装し、リポジトリの指示に従う。
 3. 必須のテスト、チェック、フォーマッター、リンターをすべて実行して成功させる。
 4. work ブランチにコミットして push する。コミットメッセージには Kickoff gate で決めたクローズキーワード方針を適用する。
-5. GH スキルで、リポジトリ固有の必要な説明を含む Draft PR を作成する。PR 本文にも同じ方針を適用する。UI 変更またはリポジトリが証跡を要求する場合の証跡節は、orchestrator が証跡の取得後に本文へ追加する。
+5. GH スキルで、リポジトリ固有の必要な説明を含む Draft PR を作成する。PR 本文にも同じ方針を適用する。UI 変更またはリポジトリが証跡を要求する場合の証跡節は orchestrator が追加する。人間レビュー用サマリも orchestrator が追加する。
 6. コミット、検証結果、PR 番号と URL を返す。
 
 必須検証の成功、確認済み push、Draft PR の作成がすべて揃うまで進まない。必須検証が失敗または実行不能なら `blocked` を要求し、実装完了とはみなさず停止する。Git/GitHub の不明な結果を成功とみなしたり、無条件に同じ操作を繰り返したりしない。
+
+### Human review brief
+
+Draft PR ができた後、orchestrator は [_docs/human-brief.md](../_docs/human-brief.md) に従って人間レビュー用サマリを用意し、PR 本文の先頭に挿入する。大きな変更では自動で、ユーザーが明示的に指示した場合は規模に関係なく付ける。軽微な変更で省略する場合は理由を記録する。
+
+1. Issue の本文（`pi:human-brief` 範囲を除く）と PR の本文・差分を読む。
+2. 3〜6 行の要約とレビュー観点を書き、Issue / PR にない主張を足さない。
+3. 動きが必要なら [explain-video](../explain-video/SKILL.md) で GIF または MP4 を作る。HTML は編集用で、PR には添付しない。
+4. 更新直前に `pr.read` で本文を読み、`pr.update` と `attachments` で節を挿入する。本文の他の部分は変えない。
+5. `pr.read` で節が 1 つだけであること、開始マーカーの `head` が現在 head と一致すること、参照したメディアが添付されていることを確認する。
+
+FFmpeg / Playwright が使えない場合はテキストだけの節にし、理由を書く。生成できたことにしない。この節は `ui-tester` の証跡とは別で、証跡の代わりにならない。
 
 ### ui-tester verification
 
@@ -199,7 +212,7 @@ Issue、チーム割当とペイン ID、base/work ブランチ、現在のフ�
 
 ### Initial review
 
-`review` へ PR の URL または番号を渡し、Review スキルの PR モードを明示的に依頼する。レビュアーは結果を GitHub に投稿し、レビューラウンド、head コミット、指摘件数、Blocker の有無を返す。
+`review` へ PR の URL または番号を渡し、Review スキルの PR モードを明示的に依頼する。PR 本文の `pi:human-brief` 範囲は読まないと伝える。レビュアーは結果を GitHub に投稿し、レビューラウンド、head コミット、指摘件数、Blocker の有無を返す。
 
 ユーザーが依頼した運用・互換性要件を、委譲文でレビュアーへ引き継ぐ。Review スキルは適用した前提をすべてのレビュー結果に記録する。別 Issue の候補は指摘件数に含めず、LGTM を妨げずに報告する。
 
@@ -217,6 +230,8 @@ Blocker が残る場合、担当 `pr-fix` へ PR と実際に投稿された指�
 4. 修正をコミットして push する。
 5. リポジトリの指示で必要な場合は該当レビューコメントへ返信する。
 6. コミット、検証結果、返信、未解決フィードバックを返す。
+
+orchestrator は修正 push 後に、人間レビュー用サマリがある PR では開始マーカーの `head` を最新 head へ更新し、説明が変わる場合はサマリとメディアを生成し直す（[_docs/human-brief.md](../_docs/human-brief.md)）。
 
 必須検証が失敗または実行不能の場合、修正担当は `blocked` を返す。修正担当はレビュー会話を Resolve してはならない。
 
@@ -247,6 +262,7 @@ Herdr や GitHub の操作の周囲に別の再試行、キュー、状態マシ
 - 必須のレビュー修正が残っていない。
 - **`ui-tester` を指定した場合だけ**、担当したすべての項目について、現在の PR head で pass が確認されたか、未検証の理由とともに unverified として報告されている。さらに、現在の head で pass となった項目には、現在の head を指す PR 本文の証跡節に証拠が添付されており、本文を読み直して確認している（[ui-tester verification](#ui-tester-verification)）。この条件はレビューの LGTM 条件に追加するもので、置き換えではない。
 - Kickoff gate でこの PR にリポジトリ規約由来の証跡が必要だと判定した場合、現在の head を指す PR 本文の証跡節に、必須項目を証明する証拠が添付されており、本文を読み直して確認している（[_docs/pr-evidence.md](../_docs/pr-evidence.md) の完了ゲート）。`ui-tester` を除外した場合は、証跡なしで完了せず `blocked` として理由を報告している。
+- 人間レビュー用サマリが必要な場合、現在の head を指す `pi:human-brief` 節が本文に 1 つだけあり、参照されたメディアが添付されていることを `pr.read` で確認している。サマリは証跡ではないため、証跡節の条件を置き換えない。
 - 最新の再チェックで `Resolved` に分類された全スレッドが、返信確認と軽量チェック後に Resolve 済みである（このワークフローの auto-resolve）。`Partial`、`Unresolved`、`Unknown`、ほかの投稿者のスレッド、ユーザー判断待ちの議論は開いたままにする。
 - 実行に含めた `ui-tester` のうち、起動したが一度も委譲しなかったペインは `herdr pane close <pane-id>` で閉じ、[Completion cleanup](references/ui-tester-role.md#completion-cleanup) の 1 行を報告している。委譲を受けたすべてのペインは開いたままにする。
 
@@ -254,4 +270,4 @@ Herdr や GitHub の操作の周囲に別の再試行、キュー、状態マシ
 
 未使用の `ui-tester` ペインは、完了が確認できてから `herdr pane close <pane-id>` で閉じる。このワークフローが作成し、一度も委譲していないペインだけを閉じ、その結果を 1 行で報告する。ユーザーが作成したペイン、委譲を受けたペイン、実行が失敗または完了前に停止した場合のすべてのペインは残す。これがワークフローによる唯一の自動ペインクローズであり、委譲済みペインまで閉じる可能性のある `herdr tab close` や `herdr workspace close` は使わない。
 
-Issue、採用チーム仕様の由来（[実効チームプロファイル](#team-profiles) または今回の承認）、対象 PR の位置（`対象 PR: 1/2` または `対象 PR: single`。スタックした PR の場合は base ブランチとの差も記載）、base/work ブランチ、Draft PR、最新コミット、検証、レビューラウンド数、別 Issue 候補、残存する任意の指摘・会話、作成した全ペインのロールと観測状態を報告する。`ui-tester` 参加判定の 1 行、Draft PR 時点の再判定、閉じた場合の終了行、証跡節を更新または再利用した場合はその head と再利用元も含める。PR の変更ファイルにスキルが 1 つでも含まれる場合は、マージ後に [_docs/skill-distribution.md](../_docs/skill-distribution.md#merge--rollout) のマージとロールアウトの手順を実行するよう報告内で案内する。明示的なクリーンアップ依頼がない限り、未使用 `ui-tester` の例外を除いて、ペインは確認可能な状態で残す。
+Issue、採用チーム仕様の由来（[実効チームプロファイル](#team-profiles) または今回の承認）、対象 PR の位置（`対象 PR: 1/2` または `対象 PR: single`。スタックした PR の場合は base ブランチとの差も記載）、base/work ブランチ、Draft PR、最新コミット、検証、レビューラウンド数、別 Issue 候補、残存する任意の指摘・会話、作成した全ペインのロールと観測状態を報告する。`ui-tester` 参加判定の 1 行、Draft PR 時点の再判定、閉じた場合の終了行、証跡節を更新または再利用した場合はその head と再利用元、人間レビュー用サマリの形式と、更新または再利用した場合はその head と再利用元も含める。PR の変更ファイルにスキルが 1 つでも含まれる場合は、マージ後に [_docs/skill-distribution.md](../_docs/skill-distribution.md#merge--rollout) のマージとロールアウトの手順を実行するよう報告内で案内する。明示的なクリーンアップ依頼がない限り、未使用 `ui-tester` の例外を除いて、ペインは確認可能な状態で残す。

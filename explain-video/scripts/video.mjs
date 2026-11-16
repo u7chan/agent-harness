@@ -46,6 +46,22 @@ function frameName(index) {
   return `frame-${String(index).padStart(6, '0')}.png`;
 }
 
+function readRender(output) {
+  const raw = JSON.parse(fs.readFileSync(path.join(output, 'render.json'), 'utf8'));
+  return settings(raw.fps, raw.width, raw.height, raw.frames);
+}
+
+function requireFrames(output, config) {
+  const framesDir = path.join(output, 'frames');
+  const names = fs.readdirSync(framesDir);
+  requireValue(names.length === config.frames, `expected ${config.frames} frames, found ${names.length}`);
+  for (let i = 0; i < config.frames; i++) {
+    const stat = fs.statSync(path.join(framesDir, frameName(i)));
+    requireValue(stat.isFile() && stat.size > 0, `missing or empty frame ${i}`);
+  }
+  return framesDir;
+}
+
 function prepare(args) {
   requireValue(args.length >= 3 && args.length <= 6,
     'prepare <source.html> <new-output-dir> <seconds> [fps=24] [width=1280] [height=720]');
@@ -112,15 +128,8 @@ function prepare(args) {
 function encode(args) {
   requireValue(args.length === 1, 'encode <output-dir>');
   const output = fs.realpathSync(args[0]);
-  const raw = JSON.parse(fs.readFileSync(path.join(output, 'render.json'), 'utf8'));
-  const config = settings(raw.fps, raw.width, raw.height, raw.frames);
-  const framesDir = path.join(output, 'frames');
-  const names = fs.readdirSync(framesDir);
-  requireValue(names.length === config.frames, `expected ${config.frames} frames, found ${names.length}`);
-  for (let i = 0; i < config.frames; i++) {
-    const stat = fs.statSync(path.join(framesDir, frameName(i)));
-    requireValue(stat.isFile() && stat.size > 0, `missing or empty frame ${i}`);
-  }
+  const config = readRender(output);
+  const framesDir = requireFrames(output, config);
   const video = path.join(output, 'video.mp4');
   const report = path.join(output, 'verification.json');
   const partial = path.join(output, 'video.partial.mp4');
@@ -149,12 +158,65 @@ function encode(args) {
   return result;
 }
 
+function encodeGif(args) {
+  requireValue(args.length >= 1 && args.length <= 4,
+    'encode-gif <output-dir> [width=640] [fps=12] [colors=128]');
+  const [directory, widthArg = '640', fpsArg = '12', colorsArg = '128'] = args;
+  const output = fs.realpathSync(directory);
+  const config = readRender(output);
+  const width = positive(widthArg, 'width', true);
+  const gifFps = positive(fpsArg, 'fps', true);
+  const colors = positive(colorsArg, 'colors', true);
+  requireValue(width % 2 === 0, 'width must be even');
+  requireValue(gifFps <= config.fps, 'fps must not exceed the captured frame rate');
+  requireValue(colors >= 2 && colors <= 256, 'colors must be between 2 and 256');
+  const framesDir = requireFrames(output, config);
+  const gif = path.join(output, 'video.gif');
+  const report = path.join(output, 'verification-gif.json');
+  const partial = path.join(output, 'video.partial.gif');
+  requireValue(!fs.existsSync(gif) && !fs.existsSync(report) && !fs.existsSync(partial),
+    'gif, report, or partial output already exists; use a fresh directory');
+  const height = Math.max(2, Math.round((config.height * width) / config.width / 2) * 2);
+  const filter = `fps=${gifFps},scale=${width}:${height}:flags=lanczos,split[s0][s1];` +
+    `[s0]palettegen=max_colors=${colors}:stats_mode=diff[p];` +
+    `[s1][p]paletteuse=dither=bayer:bayer_scale=3`;
+  command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-xerror', '-n',
+    '-framerate', String(config.fps), '-start_number', '0',
+    '-i', path.join(framesDir, 'frame-%06d.png'), '-frames:v', String(config.frames),
+    '-vf', filter, '-loop', '0', partial]);
+  const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames',
+    '-show_streams', '-show_format', '-of', 'json', partial]));
+  const stream = probe.streams?.find(s => s.codec_type === 'video');
+  const duration = Number(probe.format?.duration);
+  const expectedFrames = Math.round((config.frames * gifFps) / config.fps);
+  requireValue(probe.streams?.length === 1 && stream?.codec_name === 'gif' &&
+    stream.width === width && stream.height === height &&
+    Math.abs(Number(stream.nb_read_frames) - expectedFrames) <= 1 &&
+    Number.isFinite(duration) && duration > 0 &&
+    Math.abs(duration - config.frames / config.fps) <= 1 / gifFps,
+  'encoded GIF does not match the requested frame sequence');
+  command('ffmpeg', ['-v', 'error', '-xerror', '-i', partial, '-f', 'null', '-']);
+  const bytes = fs.statSync(partial).size;
+  const limit = 10 * 1024 * 1024;
+  requireValue(bytes <= limit,
+    `GIF is ${bytes} bytes, over the 10 MB attachment limit; reduce width, fps, or colors, or use MP4`);
+  fs.renameSync(partial, gif);
+  const result = { gif, source: path.join(output, 'source.html'), ...config,
+    gifWidth: width, gifHeight: height, gifFps, colors,
+    durationSeconds: duration, bytes, codec: stream.codec_name,
+    audio: false, decode: 'passed' };
+  writeJSON(report, result);
+  return result;
+}
+
 try {
   const [action, ...args] = process.argv.slice(2);
-  requireValue(action === 'prepare' || action === 'encode',
+  requireValue(action === 'prepare' || action === 'encode' || action === 'encode-gif',
     'usage: video.mjs prepare <source.html> <new-output-dir> <seconds> [fps] [width] [height]\n' +
-    '       video.mjs encode <output-dir>');
-  console.log(JSON.stringify(action === 'prepare' ? prepare(args) : encode(args), null, 2));
+    '       video.mjs encode <output-dir>\n' +
+    '       video.mjs encode-gif <output-dir> [width=640] [fps=12] [colors=128]');
+  const result = action === 'prepare' ? prepare(args) : action === 'encode' ? encode(args) : encodeGif(args);
+  console.log(JSON.stringify(result, null, 2));
 } catch (error) {
   console.error(`[explain-video] ${error.message}`);
   process.exitCode = 1;

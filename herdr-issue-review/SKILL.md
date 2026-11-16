@@ -47,6 +47,8 @@ description: >
 
 事実には根拠（ファイルパスと該当箇所）を添え、レビュアーが実コードで裏取りできるようにする。
 
+レビュー収束後、[_docs/human-brief.md](../_docs/human-brief.md) に従って `pi:human-brief` 節を先頭へ追加する。レビュアーはこの節を設計として読まない。
+
 ## 手順
 
 ### 1. レビュアーのペインと起動 spec を用意する
@@ -82,6 +84,7 @@ description: >
 - 検証: リポジトリの実コードと docs で、事実関係・契約・既存の作法を裏取りする
 - 観点: 実装時に詰まる抜け / スコープの過剰・不足 / docs の更新漏れ / テスト方針との整合
 - 形式: 指摘を 重大 / 中 / 軽 に分け、各指摘に根拠（ファイルパス + 該当箇所）を付ける。結論は OK / 条件付きOK / 要修正
+- 読み取り範囲: Issue 本文の `pi:human-brief` 範囲は読まない。範囲外の本文だけを設計としてレビューする
 - 制約: 読み取りのみ（ファイル変更・Issue 編集・コミットは禁止）。成果物本文にレビューの記録を足さない
 
 ### 3. 返信を反映する
@@ -95,29 +98,51 @@ description: >
 - 2 回目以降は同じペインへ、**前回の指摘の解消判定と更新差分だけ**を確認させる（全体を再レビューさせない）
 - 前回の指摘を列挙し、解消 / 未解消 / 別の形で残る を判定させる。併せて、新たな矛盾・スコープ増・レビュー記録の混入を確認させる
 - 結論は LGTM / 残指摘（重大・中・軽）
+- 再レビューで `pi:human-brief` 節があっても、設計の正本は範囲外の本文だけとする
 - 打ち切りは既定 3 回（ユーザー指定があればその回数）。上限で止めたら、残った指摘と採否の理由を報告する
 
-### 5. Issue を確定する
+### 5. 人間レビュー用サマリを付ける
+
+[_docs/human-brief.md](../_docs/human-brief.md) に従う。大きな変更では自動で付け、ユーザーが明示的に指示した場合は規模に関係なく付ける。軽微な変更で省略する場合は、理由を会話側に残す。
+
+1. 収束した本文から、3〜6 行の要約とレビュー観点を書く。本文にない主張を足さない。
+2. 動きが説明に必要な場合は [explain-video](../explain-video/SKILL.md) で GIF または MP4 を作る。HTML は編集用で、Issue には添付しない。
+3. 本文の先頭に `pi:human-brief` の節を挿入する。Issue の開始マーカーには `head` を付けない。
+4. 成果物は `/tmp` に置く。GIF は alt 付き、MP4 は alt なしで参照し、同じパスを `attachments` に入れる。
+5. FFmpeg または Playwright が使えない場合は、テキストだけの節にして理由を書く。生成できたことにしない。
+
+### 6. Issue を確定する
 
 GitHub への書き込みは [gh](../gh/SKILL.md) の dispatcher を使う（対象リポジトリは実行ディレクトリから解決される）。
 
 ```bash
-# 起票
+# 起票（GIF を添付する例）
 jq -n --rawfile body /tmp/<topic>-issue.md \
-  '{title:"<title>", body:$body, labels:["<label>"], grant:"write"}' > /tmp/<topic>-issue-create.json
+  --arg media /tmp/<topic>-brief.gif \
+  '{title:"<title>", body:$body, labels:["<label>"],
+    attachments:[$media + "#変更の流れ"], grant:"write"}' > /tmp/<topic>-issue-create.json
 gh/scripts/gh.sh issue.create /tmp/<topic>-issue-create.json
 
-# 更新
+# 更新（GIF を添付する例）
 jq -n --rawfile body /tmp/<topic>-issue.md \
-  '{number:<number>, body:$body, grant:"write"}' > /tmp/<topic>-issue-update.json
+  --arg media /tmp/<topic>-brief.gif \
+  '{number:<number>, body:$body,
+    attachments:[$media + "#変更の流れ"], grant:"write"}' > /tmp/<topic>-issue-update.json
 gh/scripts/gh.sh issue.update /tmp/<topic>-issue-update.json
+
+# 読み直し
+jq -n '{number:<number>}' > /tmp/<topic>-issue-get.json
+gh/scripts/gh.sh issue.get /tmp/<topic>-issue-get.json
 ```
 
+- MP4 は alt を付けず、本文では `![](<absolute path>)` の単独段落にし、`attachments:[$media]` にする。メディアを付けない場合は `attachments` を省略する
 - タイトル・本文・ラベルは日本語。ラベルはリポジトリの既存のものを使う
-- 確定後に本文を読み直し、「レビュー / 指摘 / 下書き / Ver」のような語が混入していないか確認する
-- 報告: Issue の URL、タイトル、ラベル、往復回数、未反映の指摘
+- `issue.get` で本文を読み直し、`pi:human-brief` の開始と終了が 1 対だけであること、参照したメディアのローカルパスが本文に残っていないことを確認する
+- 「レビュー / 指摘 / 下書き / Ver」のような語が混入していないか確認する
+- 報告: Issue の URL、タイトル、ラベル、往復回数、未反映の指摘、サマリの形式（GIF / MP4 / テキスト）とサイズ
 
 ## 注意
 
 - レビュアーのペインは、ユーザーが明示した時だけ閉じる
-- 成果物ファイルは `/tmp` に置き、リポジトリへコミットしない
+- 成果物ファイルとサマリ用の GIF / MP4 は `/tmp` に置き、リポジトリへコミットしない
+- サマリは証跡ではない。UI 変更の証跡が必要な場合は、別の契約に従う

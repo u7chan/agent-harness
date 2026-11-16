@@ -265,6 +265,8 @@ expect_doc_keywords recheck-resolve-head-guard "$RECHECK_REFERENCE" 'head の変
 expect_doc_min_occurrences recheck-resolve-head-guard-both-sections "$RECHECK_REFERENCE" 'head の変化' 2
 expect_doc_keywords skill-verifies-lgtm-head "$REVIEW_SKILL" 'LGTM' '検証' 'head'
 expect_doc_keywords skill-start-materials "$REVIEW_SKILL" '変更目的' '受け入れ条件' '禁止される結果' '維持すべき既存契約'
+expect_doc_contains skill-human-brief-link "$REVIEW_SKILL" '../_docs/human-brief.md'
+expect_doc_contains skill-human-brief-scope "$REVIEW_SKILL" '`pi:human-brief` 範囲は読まず'
 expect_doc_order skill-materials-before-lens "$REVIEW_SKILL" '維持すべき既存契約' '関係する観点'
 expect_doc_keywords skill-anti-inference "$REVIEW_SKILL" 'こうあるべき' '推測'
 expect_doc_keywords skill-verification-path "$REVIEW_SKILL" '第三者' '再現'

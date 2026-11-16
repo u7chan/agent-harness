@@ -120,5 +120,22 @@ and disclose this limitation; do not claim a continuous-playback review.
 Keep publication separate: return local paths to the caller, who may use the gh
 skill to attach them. This skill does not impose upload limits or post anything.
 
+## Encode a GIF
+
+Use the same captured frames. `encode-gif` downsamples to the requested width and
+frame rate, quantizes a palette, and validates the result. Pick a width that keeps
+captions readable at the width the body displays; 640 is a common default.
+
+```bash
+node "$VIDEO" encode-gif "$OUT" [width=640] [fps=12] [colors=128]
+```
+
+The helper writes `video.gif` and `verification-gif.json`, rejects an existing
+output, checks the GIF codec, dimensions, duration, frame count, and decode with
+ffprobe, and fails when the file exceeds 10 MB. A failed size check is not a reason
+to attach the file: reduce the width, frame rate, or colors, or use MP4. Existing
+videos/reports are not replaced. Inspect the GIF in a viewer for looping, text
+legibility, banding, and pacing; ffprobe does not prove those.
+
 For an edit, change the HTML/outline and run `prepare` into a fresh directory;
 capture files snapshot the source and do not follow subsequent HTML edits.

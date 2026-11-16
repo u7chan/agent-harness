@@ -24,7 +24,8 @@ for value in (
     '別の coordinator、`impl`、`pr-fix`、`ui-tester` を起動しない',
     '../herdr/SKILL.md', '../gh/SKILL.md', '../review/SKILL.md',
     '../review/references/recheck.md', '../_docs/pi-development.md',
-    '../_docs/skill-distribution.md#merge--rollout',
+    '../_docs/skill-distribution.md#merge--rollout', '../_docs/human-brief.md',
+    'pi:human-brief', '人間レビュー用サマリ',
     'scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role review',
     'ランタイムのデフォルトや別モデルへ黙って切り替えない', 'migration-required',
     'プロファイルや `active` を自動作成・保存・変更しない', '起動引数だけでは証拠にならない',
@@ -64,8 +65,23 @@ for value in (
     assert value in pr_evidence, value
 for value in ('PR 本文には入れない', 'comments.create', 'comments.update'):
     assert value not in pr_evidence, value
+human_brief = (root / '_docs' / 'human-brief.md').read_text()
+for value in (
+    'pi:human-brief:start', 'pi:human-brief:end', '## 人間レビュー用サマリ',
+    'GIF', 'MP4', 'attachments', 'pr.update', 'issue.get', '10 MB',
+    'AI', '正本', 'UI Evidence', 'この節は証跡ではなく', 'head',
+):
+    assert value in human_brief, value
+assert '本文の `pi:human-brief` 範囲は除く' in text
+assert 'PR 本文の `pi:human-brief` 範囲は読まないことも伝える' in text
+assert '人間レビュー用サマリが必要な場合' in text
+assert '証跡の代わりにならない' in evidence
+gh_skill = (root / 'gh' / 'SKILL.md').read_text()
+assert 'pi:human-brief' in gh_skill
+assert 'not a requirement' in gh_skill
 review = (root / 'review' / 'SKILL.md').read_text()
 assert 'PR 作成、別ペインのレビュアー、修正ループ、Ready まで含む依頼には使わない' in review
+assert '`pi:human-brief` 範囲は読まず' in review
 recheck = (root / 'review' / 'references' / 'recheck.md').read_text()
 assert 'round_kind=polish' in recheck
 assert 'polish_round=<1|2>' in recheck
