@@ -118,7 +118,8 @@ View the MP4 and compare its contents to the evidence and outline. If playback
 is unavailable, extract decoded stills at scene and transition times with FFmpeg
 and disclose this limitation; do not claim a continuous-playback review.
 Keep publication separate: return local paths to the caller, who may use the gh
-skill to attach them. This skill does not impose upload limits or post anything.
+skill to attach them. This skill does not post anything. The GIF encoder's 10 MB
+check is a local guard for the GitHub attachment limit, not an upload step.
 
 ## Encode a GIF
 
@@ -132,10 +133,11 @@ node "$VIDEO" encode-gif "$OUT" [width=640] [fps=12] [colors=128]
 
 The helper writes `video.gif` and `verification-gif.json`, rejects an existing
 output, checks the GIF codec, dimensions, duration, frame count, and decode with
-ffprobe, and fails when the file exceeds 10 MB. A failed size check is not a reason
-to attach the file: reduce the width, frame rate, or colors, or use MP4. Existing
-videos/reports are not replaced. Inspect the GIF in a viewer for looping, text
-legibility, banding, and pacing; ffprobe does not prove those.
+ffprobe, and fails when the file exceeds 10 MB. A failed encode removes its partial
+file, so the same captured frames can be re-encoded with a smaller width, frame
+rate, or palette; use MP4 if it still does not fit. Existing `video.gif` and
+verification reports are not replaced. Inspect the GIF in a viewer for looping,
+text legibility, banding, and pacing; ffprobe does not prove those.
 
 For an edit, change the HTML/outline and run `prepare` into a fresh directory;
 capture files snapshot the source and do not follow subsequent HTML edits.

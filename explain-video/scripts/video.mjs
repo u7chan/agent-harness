@@ -180,27 +180,35 @@ function encodeGif(args) {
   const filter = `fps=${gifFps},scale=${width}:${height}:flags=lanczos,split[s0][s1];` +
     `[s0]palettegen=max_colors=${colors}:stats_mode=diff[p];` +
     `[s1][p]paletteuse=dither=bayer:bayer_scale=3`;
-  command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-xerror', '-n',
-    '-framerate', String(config.fps), '-start_number', '0',
-    '-i', path.join(framesDir, 'frame-%06d.png'), '-frames:v', String(config.frames),
-    '-vf', filter, '-loop', '0', partial]);
-  const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames',
-    '-show_streams', '-show_format', '-of', 'json', partial]));
-  const stream = probe.streams?.find(s => s.codec_type === 'video');
-  const duration = Number(probe.format?.duration);
-  const expectedFrames = Math.round((config.frames * gifFps) / config.fps);
-  requireValue(probe.streams?.length === 1 && stream?.codec_name === 'gif' &&
-    stream.width === width && stream.height === height &&
-    Math.abs(Number(stream.nb_read_frames) - expectedFrames) <= 1 &&
-    Number.isFinite(duration) && duration > 0 &&
-    Math.abs(duration - config.frames / config.fps) <= 1 / gifFps,
-  'encoded GIF does not match the requested frame sequence');
-  command('ffmpeg', ['-v', 'error', '-xerror', '-i', partial, '-f', 'null', '-']);
-  const bytes = fs.statSync(partial).size;
-  const limit = 10 * 1024 * 1024;
-  requireValue(bytes <= limit,
-    `GIF is ${bytes} bytes, over the 10 MB attachment limit; reduce width, fps, or colors, or use MP4`);
-  fs.renameSync(partial, gif);
+  let stream;
+  let duration;
+  let bytes;
+  try {
+    command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-xerror', '-n',
+      '-framerate', String(config.fps), '-start_number', '0',
+      '-i', path.join(framesDir, 'frame-%06d.png'), '-frames:v', String(config.frames),
+      '-vf', filter, '-loop', '0', partial]);
+    const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames',
+      '-show_streams', '-show_format', '-of', 'json', partial]));
+    stream = probe.streams?.find(s => s.codec_type === 'video');
+    duration = Number(probe.format?.duration);
+    const expectedFrames = Math.round((config.frames * gifFps) / config.fps);
+    requireValue(probe.streams?.length === 1 && stream?.codec_name === 'gif' &&
+      stream.width === width && stream.height === height &&
+      Math.abs(Number(stream.nb_read_frames) - expectedFrames) <= 1 &&
+      Number.isFinite(duration) && duration > 0 &&
+      Math.abs(duration - config.frames / config.fps) <= 1 / gifFps,
+    'encoded GIF does not match the requested frame sequence');
+    command('ffmpeg', ['-v', 'error', '-xerror', '-i', partial, '-f', 'null', '-']);
+    bytes = fs.statSync(partial).size;
+    const limit = 10 * 1024 * 1024;
+    requireValue(bytes <= limit,
+      `GIF is ${bytes} bytes, over the 10 MB attachment limit; reduce width, fps, or colors, or use MP4`);
+    fs.renameSync(partial, gif);
+  } catch (error) {
+    fs.rmSync(partial, { force: true });
+    throw error;
+  }
   const result = { gif, source: path.join(output, 'source.html'), ...config,
     gifWidth: width, gifHeight: height, gifFps, colors,
     durationSeconds: duration, bytes, codec: stream.codec_name,

@@ -62,7 +62,9 @@ for value in \
   '10 MB' \
   'attachments' \
   'この節は証跡ではなく' \
-  '範囲外の本文を正本'; do
+  '範囲外の本文を正本' \
+  '行頭の HTML コメント' \
+  'コード Span'; do
   check_contains "the shared contract contains $value" "$HUMAN_BRIEF_TEXT" "$value"
 done
 
@@ -94,12 +96,14 @@ for value in \
   '`pr.update`' \
   '`attachments`' \
   '`head`' \
+  '行頭の HTML コメントのマーカーが 1 対だけ' \
+  'コード Span や引用はマーカーとして数えない' \
   'FFmpeg / Playwright が使えない場合'; do
   check_contains "the brief section contains $value" "$BRIEF_TEXT" "$value"
 done
 
 check_contains "the completion gate requires the brief" "$SKILL_TEXT" \
-  '`pi:human-brief` 節が本文に 1 つだけあり'
+  '行頭の `pi:human-brief` マーカーが 1 対だけ'
 check_contains "the brief is refreshed after a fix push" "$SKILL_TEXT" \
   '修正 push 後に、人間レビュー用サマリがある PR'
 check_contains "the completion gate keeps the evidence separate" "$SKILL_TEXT" \

@@ -189,10 +189,10 @@ Issue、チーム割当とペイン ID、base/work ブランチ、現在のフ�
 Draft PR ができた後、orchestrator は [_docs/human-brief.md](../_docs/human-brief.md) に従って人間レビュー用サマリを用意し、PR 本文の先頭に挿入する。大きな変更では自動で、ユーザーが明示的に指示した場合は規模に関係なく付ける。軽微な変更で省略する場合は理由を記録する。
 
 1. Issue の本文（`pi:human-brief` 範囲を除く）と PR の本文・差分を読む。
-2. 3〜6 行の要約とレビュー観点を書き、Issue / PR にない主張を足さない。
+2. 3〜6 行の要約と確認観点を書き、Issue / PR にない主張を足さない。
 3. 動きが必要なら [explain-video](../explain-video/SKILL.md) で GIF または MP4 を作る。HTML は編集用で、PR には添付しない。
 4. 更新直前に `pr.read` で本文を読み、`pr.update` と `attachments` で節を挿入する。本文の他の部分は変えない。
-5. `pr.read` で節が 1 つだけであること、開始マーカーの `head` が現在 head と一致すること、参照したメディアが添付されていることを確認する。
+5. `pr.read` で行頭の HTML コメントのマーカーが 1 対だけであること、開始マーカーの `head` が現在 head と一致すること、参照したメディアが添付されていることを確認する。コード Span や引用はマーカーとして数えない。
 
 FFmpeg / Playwright が使えない場合はテキストだけの節にし、理由を書く。生成できたことにしない。この節は `ui-tester` の証跡とは別で、証跡の代わりにならない。
 
@@ -262,7 +262,7 @@ Herdr や GitHub の操作の周囲に別の再試行、キュー、状態マシ
 - 必須のレビュー修正が残っていない。
 - **`ui-tester` を指定した場合だけ**、担当したすべての項目について、現在の PR head で pass が確認されたか、未検証の理由とともに unverified として報告されている。さらに、現在の head で pass となった項目には、現在の head を指す PR 本文の証跡節に証拠が添付されており、本文を読み直して確認している（[ui-tester verification](#ui-tester-verification)）。この条件はレビューの LGTM 条件に追加するもので、置き換えではない。
 - Kickoff gate でこの PR にリポジトリ規約由来の証跡が必要だと判定した場合、現在の head を指す PR 本文の証跡節に、必須項目を証明する証拠が添付されており、本文を読み直して確認している（[_docs/pr-evidence.md](../_docs/pr-evidence.md) の完了ゲート）。`ui-tester` を除外した場合は、証跡なしで完了せず `blocked` として理由を報告している。
-- 人間レビュー用サマリが必要な場合、現在の head を指す `pi:human-brief` 節が本文に 1 つだけあり、参照されたメディアが添付されていることを `pr.read` で確認している。サマリは証跡ではないため、証跡節の条件を置き換えない。
+- 人間レビュー用サマリが必要な場合、現在の head を指す行頭の `pi:human-brief` マーカーが 1 対だけ本文にあり、参照されたメディアが添付されていることを `pr.read` で確認している。コード Span や引用はマーカーとして数えない。サマリは証跡ではないため、証跡節の条件を置き換えない。
 - 最新の再チェックで `Resolved` に分類された全スレッドが、返信確認と軽量チェック後に Resolve 済みである（このワークフローの auto-resolve）。`Partial`、`Unresolved`、`Unknown`、ほかの投稿者のスレッド、ユーザー判断待ちの議論は開いたままにする。
 - 実行に含めた `ui-tester` のうち、起動したが一度も委譲しなかったペインは `herdr pane close <pane-id>` で閉じ、[Completion cleanup](references/ui-tester-role.md#completion-cleanup) の 1 行を報告している。委譲を受けたすべてのペインは開いたままにする。
 

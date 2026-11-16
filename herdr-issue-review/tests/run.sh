@@ -189,10 +189,20 @@ check_contains "the brief supports a GIF" "$BRIEF_TEXT" 'GIF'
 check_contains "the brief supports an MP4" "$BRIEF_TEXT" 'MP4'
 check_contains "the brief is marked" "$BRIEF_TEXT" '`pi:human-brief`'
 check_contains "the brief is attached" "$BRIEF_TEXT" 'attachments'
+check_contains "the issue marker omits head" "$BRIEF_TEXT" \
+  'Issue の開始マーカーには `head` を付けない'
+check_contains "the brief heading is exempt from the review-record ban" \
+  "$(section_text "$SKILL_MD" "## 成果物ファイル")" 'この禁止の対象外'
 check_contains "a missing renderer falls back to text" "$BRIEF_TEXT" \
   'FFmpeg または Playwright が使えない場合'
 check_contains "the issue is read back after writing" "$CONFIRM_TEXT" 'issue.get'
 check_contains "the issue write can carry attachments" "$CONFIRM_TEXT" 'attachments'
+check_contains "the issue update replaces only the marker range" "$CONFIRM_TEXT" \
+  '行頭のマーカー間だけを差し替える'
+check_contains "the issue readback counts only HTML comment markers" "$CONFIRM_TEXT" \
+  '行頭の HTML コメントの開始と終了マーカーが 1 対だけ'
+check_contains "the issue readback excludes code spans" "$CONFIRM_TEXT" \
+  'コード Span や引用はマーカーとして数えない'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

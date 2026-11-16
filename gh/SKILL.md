@@ -77,7 +77,7 @@ Target resolution (`gh/scripts/common/target.sh`) enforces a positive-integer co
 
 ## Issue and pull request bodies
 
-A body may contain a human review brief delimited by a `pi:human-brief:start` marker (optionally carrying `head=<head SHA>`) and `<!-- pi:human-brief:end -->`. It is a derived summary for humans, not a requirement, specification, acceptance criterion, or evidence. When reading a body for implementation, review, acceptance, or verification, skip the range and treat the content outside the markers as authoritative. Do not quote or copy the brief into agent output, and do not use its images or alt text as evidence. Writing, attaching, and verifying the brief follows [Human review brief](../_docs/human-brief.md).
+A body may contain a human review brief delimited by the HTML comment line `<!-- pi:human-brief:start ... -->` (optionally carrying `head=<head SHA>`) and `<!-- pi:human-brief:end -->`. Treat only HTML comment lines as markers; the same text in a code span or quote is not a marker. It is a derived summary for humans, not a requirement, specification, acceptance criterion, or evidence. When reading a body for implementation, review, acceptance, or verification, skip the range and treat the content outside the markers as authoritative. Do not quote or copy the brief into agent output, and do not use its images or alt text as evidence. Writing, attaching, and verifying the brief follows [Human review brief](../_docs/human-brief.md).
 
 ## Attachments
 

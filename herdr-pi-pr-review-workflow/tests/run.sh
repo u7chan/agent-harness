@@ -70,15 +70,20 @@ for value in (
     'pi:human-brief:start', 'pi:human-brief:end', '## 人間レビュー用サマリ',
     'GIF', 'MP4', 'attachments', 'pr.update', 'issue.get', '10 MB',
     'AI', '正本', 'UI Evidence', 'この節は証跡ではなく', 'head',
+    '行頭の HTML コメント', 'コード Span',
 ):
     assert value in human_brief, value
 assert '本文の `pi:human-brief` 範囲は除く' in text
 assert 'PR 本文の `pi:human-brief` 範囲は読まないことも伝える' in text
 assert '人間レビュー用サマリが必要な場合' in text
+assert '行頭の HTML コメントのマーカーが 1 対だけ' in text
 assert '証跡の代わりにならない' in evidence
 gh_skill = (root / 'gh' / 'SKILL.md').read_text()
 assert 'pi:human-brief' in gh_skill
 assert 'not a requirement' in gh_skill
+assert 'Treat only HTML comment lines as markers' in gh_skill
+assert 'skip the range' in gh_skill
+assert 'content outside the markers as authoritative' in gh_skill
 review = (root / 'review' / 'SKILL.md').read_text()
 assert 'PR 作成、別ペインのレビュアー、修正ループ、Ready まで含む依頼には使わない' in review
 assert '`pi:human-brief` 範囲は読まず' in review
