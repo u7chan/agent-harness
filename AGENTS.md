@@ -6,7 +6,7 @@
 - When working on an `epic` branch, open the PR targeting the `epic` branch. Otherwise, target `main`.
 - Branch names must use lowercase kebab-case with a type prefix, such as `feat/add-action-filter`.
 - Commit messages must use an English Conventional Commit prefix, such as `feat(gh): add action filter`.
-- PR descriptions must be written in Japanese and include `Issues`, `Why`, `Summary`, `Changes`, `Verification`, and `Rollout`. `Rollout` states whether the post-merge rollout procedure in [_docs/skill-distribution.md](_docs/skill-distribution.md) applies: `Rollout: 必要` when the PR changes any skill, otherwise `Rollout: 不要`.
+- PR descriptions must be written in Japanese and include `Issues`, `Why`, `Summary`, `Changes`, `Verification`, and `Rollout`. `Rollout` states whether the post-merge rollout procedure in [_docs/skill-distribution.md](_docs/skill-distribution.md) applies: `Rollout: 必要` when the PR changes any skill or the distribution layout, command, or manifest, otherwise `Rollout: 不要`.
 - When a PR changes a user-visible surface or a repository requires evidence, include the evidence section defined in [_docs/pr-evidence.md](_docs/pr-evidence.md) in the PR body. Never post evidence as a PR comment.
 - Long Issue/PR bodies use the human review brief defined in [_docs/human-brief.md](_docs/human-brief.md): automatically for large changes, always when the user asks. Agents skip the marked section; it is not evidence.
 - Write review, improvement, design/planning, and Herdr skills in Japanese, and all other skills in English. Keep commands, identifiers, and other machine-readable contracts in English.

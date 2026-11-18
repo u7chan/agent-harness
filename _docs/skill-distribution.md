@@ -145,7 +145,7 @@ Require one match and a zero exit. Do not shorten the scan with `grep -m1`, `hea
 
 #### Rollout
 
-Rollout applies only when the PR changes a skill. `AGENTS.md` makes the PR body state which case applies (`Rollout: 必要` for a skill change, `Rollout: 不要` otherwise), so read that line instead of guessing from the diff. For a PR that changes no skill, the merge and its checks above complete the work: do not install a revision, reload sessions, or append to the record.
+Rollout applies when the PR changes a skill, or when it changes the distribution layout, command, or manifest: in the second case the merged revision is what introduces the new procedure, so nothing else can deliver it. `AGENTS.md` makes the PR body state which case applies (`Rollout: 必要` or `Rollout: 不要`), so read that line instead of guessing from the diff. For a PR that changes neither, the merge and its checks above complete the work: do not install a revision, reload sessions, or append to the record.
 
 Take the merged SHA as `<commit-sha>`.
 
@@ -274,6 +274,8 @@ Order matters: the legacy package and the new links must not serve the same skil
 6. Run the [smoke test](#smoke-test) with `<merged-sha>`, then check one session's skill listing for the expected names and for the absence of a collision warning.
 7. The command already appended the record line for `<merged-sha>`; verify it with `status` instead of appending another line.
 8. Moved assets: the old record at `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skill-distribution/rollout.jsonl` is history under the previous layout. Keep it as a record and start the new one under `<dist-root>`; do not append to both.
+
+Emergency rollback inside the cutover window, before the pi registration is removed: re-register the previous pinned package (`pi install git:github.com/u7chan/agent-harness@<previous-served-sha>`) and remove the per-skill links with the Uninstall snippet in the README. After step 4, the previous pi-managed revision is no longer a valid rollback target because it predates `skills.json`; the oldest target is the revision this cutover serves.
 
 ## Non-goals
 
