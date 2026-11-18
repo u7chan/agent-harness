@@ -344,6 +344,137 @@ check_eq "verify --no-link skips the links" "$STATUS" 0
 run_dist status --link-dir "$WORK/no-such-link-dir"
 check_eq "status tolerates a missing link directory" "$STATUS" 0
 check_contains "status reports the absent links" "$OUT" "links=absent"
+check_absent_path "--no-link records no link directory" "$ROOT_DIR/link-dirs"
+
+# --- 14. Layout conflicts stop before the switch ----------------------------
+new_origin preflight
+ROOT_DIR="$WORK/dist-preflight"
+LINKS_A="$WORK/links-pf-a"
+LINKS_B="$WORK/links-pf-b"
+mkdir -p "$LINKS_A" "$LINKS_B"
+REPO_URL="file://$ORIGIN"
+run_dist update --link-dir "$LINKS_A" --link-dir "$LINKS_B"
+check_eq "preflight install exits 0" "$STATUS" 0
+FIRST_SHA="$FIRST_SHA"
+git -C "$SOURCE" rm -q beta/SKILL.md
+printf '{"schema_version":1,"skills":["alpha"]}\n' >"$SOURCE/skills.json"
+git -C "$SOURCE" add -A
+git -C "$SOURCE" commit -q -m 'fixture: drop beta'
+git -C "$SOURCE" push -q origin main
+SECOND_SHA="$(git -C "$SOURCE" rev-parse HEAD)"
+ln -sfn "$WORK/foreign-target" "$LINKS_B/alpha"
+run_dist update --link-dir "$LINKS_A" --link-dir "$LINKS_B"
+check_eq "layout conflict fails" "$([ "$STATUS" -ne 0 ] && echo yes)" "yes"
+check_contains "layout conflict names the cause" "$OUT" "foreign symlink"
+check_eq "conflict leaves the served revision alone" "$(readlink -f "$ROOT_DIR/current")" \
+  "$ROOT_DIR/releases/$FIRST_SHA"
+check_eq "conflict leaves an earlier link directory untouched" \
+  "$([ -f "$LINKS_A/beta/SKILL.md" ] && echo yes)" "yes"
+check_eq "conflict appends no record line" \
+  "$(wc -l <"$ROOT_DIR/rollout.jsonl" | tr -d ' ')" "1"
+check_absent_path "conflict publishes no new release" "$ROOT_DIR/releases/$SECOND_SHA"
+
+# --- 15. Post-switch failure restores the old release ----------------------
+if [ "$(id -u)" -eq 0 ]; then
+  ok "post-switch rollback (skipped: root cannot test a read-only directory)"
+else
+  new_origin readonly
+  ROOT_DIR="$WORK/dist-readonly"
+  LINKS="$WORK/links-ro"
+  mkdir -p "$LINKS"
+  REPO_URL="file://$ORIGIN"
+  run_dist update --link-dir "$LINKS"
+  check_eq "readonly install exits 0" "$STATUS" 0
+  KEPT_SHA="$FIRST_SHA"
+  git -C "$SOURCE" rm -q beta/SKILL.md
+  printf '{"schema_version":1,"skills":["alpha"]}\n' >"$SOURCE/skills.json"
+  git -C "$SOURCE" add -A
+  git -C "$SOURCE" commit -q -m 'fixture: drop beta'
+  git -C "$SOURCE" push -q origin main
+  chmod 500 "$LINKS"
+  run_dist update --link-dir "$LINKS"
+  chmod 700 "$LINKS"
+  check_eq "failed link step fails the run" "$([ "$STATUS" -ne 0 ] && echo yes)" "yes"
+  check_contains "failed link step reports the restore" "$OUT" "restored $KEPT_SHA"
+  check_eq "failed link step restores the old release" "$(readlink -f "$ROOT_DIR/current")" \
+    "$ROOT_DIR/releases/$KEPT_SHA"
+  check_eq "failed link step appends no record line" \
+    "$(wc -l <"$ROOT_DIR/rollout.jsonl" | tr -d ' ')" "1"
+  check_eq "failed link step keeps the old skill links" \
+    "$([ -f "$LINKS/beta/SKILL.md" ] && echo yes)" "yes"
+  run_dist status --link-dir "$LINKS"
+  check_eq "restored state is consistent" "$STATUS" 0
+fi
+
+# --- 15b. Failed first install leaves no links behind ----------------------
+if [ "$(id -u)" -eq 0 ]; then
+  ok "first-install cleanup (skipped: root cannot test a read-only directory)"
+else
+  new_origin cleanup
+  ROOT_DIR="$WORK/dist-cleanup"
+  LINKS_OK="$WORK/links-cleanup-ok"
+  LINKS_RO="$WORK/links-cleanup-ro"
+  mkdir -p "$LINKS_OK" "$LINKS_RO"
+  chmod 500 "$LINKS_RO"
+  REPO_URL="file://$ORIGIN"
+  run_dist update --link-dir "$LINKS_OK" --link-dir "$LINKS_RO"
+  chmod 700 "$LINKS_RO"
+  check_eq "failed first install fails the run" "$([ "$STATUS" -ne 0 ] && echo yes)" "yes"
+  check_absent_path "failed first install serves nothing" "$ROOT_DIR/current"
+  check_absent_path "failed first install writes no record" "$ROOT_DIR/rollout.jsonl"
+  check_eq "failed first install removes the links it created" \
+    "$(ls -A "$LINKS_OK" | wc -l | tr -d ' ')" "0"
+fi
+
+# --- 16. Corrupt rollout record ---------------------------------------------
+new_origin corrupt
+ROOT_DIR="$WORK/dist-corrupt"
+LINKS="$WORK/links-corrupt"
+mkdir -p "$LINKS"
+REPO_URL="file://$ORIGIN"
+run_dist update --link-dir "$LINKS"
+check_eq "corrupt-record install exits 0" "$STATUS" 0
+printf 'not-json\n' >>"$ROOT_DIR/rollout.jsonl"
+printf 'x\n' >"$SOURCE/alpha/EXTRA"
+git -C "$SOURCE" add -A
+git -C "$SOURCE" commit -q -m 'fixture: unrelated change'
+git -C "$SOURCE" push -q origin main
+NEXT_SHA="$(git -C "$SOURCE" rev-parse HEAD)"
+run_dist update --link-dir "$LINKS"
+check_eq "corrupt record stops the update" "$([ "$STATUS" -ne 0 ] && echo yes)" "yes"
+check_contains "corrupt record names the cause" "$OUT" "rollout record is corrupt"
+check_eq "corrupt record keeps the served revision" "$(readlink -f "$ROOT_DIR/current")" \
+  "$ROOT_DIR/releases/$FIRST_SHA"
+check_eq "corrupt record is not appended to" \
+  "$(wc -l <"$ROOT_DIR/rollout.jsonl" | tr -d ' ')" "2"
+check_absent_path "corrupt record publishes no new release" "$ROOT_DIR/releases/$NEXT_SHA"
+run_dist status --link-dir "$LINKS"
+check_eq "status stops on a corrupt record" "$([ "$STATUS" -ne 0 ] && echo yes)" "yes"
+
+# --- 17. Recorded link directories -----------------------------------------
+new_origin recorded
+ROOT_DIR="$WORK/dist-recorded"
+LINKS="$WORK/links-rec"
+mkdir -p "$LINKS"
+REPO_URL="file://$ORIGIN"
+run_dist update --link-dir "$LINKS"
+check_eq "recorded install exits 0" "$STATUS" 0
+check_eq "linked directories are recorded" "$(cat "$ROOT_DIR/link-dirs")" "$LINKS"
+run_dist status
+check_eq "status reads the recorded directories" "$STATUS" 0
+check_contains "recorded status reports the links" "$OUT" "links=ok"
+rm "$LINKS/alpha"
+run_dist status
+check_eq "drift in a recorded directory fails status" "$([ "$STATUS" -ne 0 ] && echo yes)" "yes"
+check_contains "status reports the recorded drift" "$OUT" "links=drift"
+run_dist verify
+check_eq "verify reads the recorded directories" "$([ "$STATUS" -ne 0 ] && echo yes)" "yes"
+run_dist update
+check_eq "update repairs the recorded directories" "$STATUS" 0
+check_eq "repaired recorded link resolves" "$([ -f "$LINKS/alpha/SKILL.md" ] && echo yes)" "yes"
+run_dist status --link-dir "$HOME/.agents/skills"
+check_eq "an explicit directory overrides the record" "$([ "$STATUS" -ne 0 ] && echo yes)" "yes"
+check_contains "override reports the unlinked default" "$OUT" "links=drift"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

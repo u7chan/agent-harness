@@ -3,7 +3,8 @@ name: contract-tests
 # Runs the gh dispatcher contract suite, the action catalog consistency
 # check, the review payload and recheck tests, the playwright skill mock tests,
 # the Herdr async wrapper tests, shared development model-spec and team-profile
-# tests, the skill manifest and distribution tests, both PR workflow
+# tests, the repository's own skill manifest check and the distribution tests,
+# both PR workflow
 # documentation contracts, the herdr-issue-review start-gate documentation
 # contract, and the markdown link and anchor check over every
 # skill's SKILL.md and references on every push and pull request. All checks are
@@ -67,9 +68,14 @@ jobs:
       - name: Run herdr-issue-review start-gate contract tests
         run: herdr-issue-review/tests/run.sh
 
-      # The skill list comes from skills.json, the neutral manifest that defines
-      # the served skill set, so a newly added skill is checked without editing
-      # this workflow.
+      # The suite fixtures prove the checks themselves; this step runs the
+      # manifest check against the repository, so a nested SKILL.md, an
+      # unlisted skill, or a package.json that drifts from skills.json fails CI.
+      # The skill list itself comes from skills.json, so a newly added skill is
+      # checked without editing this workflow.
+      - name: Check the skill manifest and the one-level layout
+        run: scripts/check-skill-manifest.sh
+
       - name: Run skill manifest and distribution tests
         run: scripts/tests/run.sh
 

@@ -68,6 +68,7 @@ Layout of `<dist-root>`:
   git/                    bare mirror of <repo-url>; the only fetch cache
   releases/<sha>/         immutable tree exported with `git archive`
   current -> releases/<sha>
+  link-dirs               the harness directories that were linked last
   rollout.jsonl           append-only rollout record
 ```
 
@@ -77,7 +78,9 @@ Layout of `<dist-root>`:
 - **One update command, owned by this repository.** `scripts/skill-distribution/dist.sh` implements rollout, rollback, status, and verification, and it ships in the release tree together with every skill, so `_docs/` and `scripts/` references inside a skill resolve at the served revision. Workstation repositories call it; they do not reimplement the fetch, gate, staging, switch, or link logic.
 - **The gate lives in the command.** Every rollout and rollback checks `git merge-base --is-ancestor <sha> origin/main` against the mirror's `origin/main` ref before publishing, so a SHA that is not on `main` never becomes the served revision. A rollback checks against the last fetched `origin/main`, which is why the gate can still run offline.
 - **Links, not copies.** For each skill in the release manifest, the command creates `<link-dir>/<skill>` pointing at `<dist-root>/current/<skill>`. The link target does not change across releases, so a switch needs no link work, and only the harness directories that exist are touched. At least one link directory must exist for `update` and `verify`; the command never creates the parent directory, so a machine with no harness skill directory is prepared with `--no-link` and linked later. The command owns the links it created (its targets are under `<dist-root>`) and removes links for skills that the release no longer serves. A real directory in a link position is never replaced, and a foreign symlink is refused unless `--replace-links` is given for a migration.
+- **Link layout is checked before the switch.** Every link directory is inspected against the target release's manifest before anything is published or served: a real path, or a symlink this command does not own, stops the run with the served revision and the links untouched. If the post-switch reconcile or verification still fails, the previous release is served again, the links are reconciled against its manifest, and no record line is written; a failed first install removes the links it created and serves nothing.
 - **Link ownership.** `~/.agents/skills` and the other harness directories are owned by each workstation's configuration; this repository creates and removes only the per-skill links inside them. It never creates the parent directory and never removes it. `~/.claude/skills` may be a symlink to `~/.agents/skills`; the two paths are then the same directory and the command treats them as such.
+- **The linked directories are recorded.** `update` writes the set it linked to `<dist-root>/link-dirs`. `status` and `verify` read that set, so their default view matches the install even when it was linked into a non-default directory; an explicit `--link-dir` still overrides it, and `--no-link` records nothing.
 
 Rejected alternatives:
 
@@ -157,7 +160,7 @@ Take the merged SHA as `<commit-sha>`.
    scripts/skill-distribution/dist.sh update --sha <commit-sha> --pr <PR URL>
    ```
 
-   The command fetches `origin/main` into `<dist-root>/git`, gates the requested SHA, exports and verifies the release, switches `current`, reconciles the per-skill links, verifies them, and appends `<rollout-record>`. Omitting `--sha` serves the current `origin/main` head, which is only what you want when no later merge should be skipped. On the first cutover from the pi package install, add `--replace-links` as described in [Compatibility and migration](#compatibility-and-migration).
+   The command fetches `origin/main` into `<dist-root>/git`, gates the requested SHA, checks the link layout of every link directory against the target release, exports and verifies the release, switches `current`, reconciles the per-skill links, verifies them, records the linked directories, and appends `<rollout-record>`. A layout conflict stops before a release is published; any later failure restores the previous revision and its links. Omitting `--sha` serves the current `origin/main` head, which is only what you want when no later merge should be skipped. On the first cutover from the pi package install, add `--replace-links` as described in [Compatibility and migration](#compatibility-and-migration).
 4. Unregister the legacy pi package when it is still registered: after the switch and before the reload, run `pi list` once and, if it names `git:github.com/u7chan/agent-harness`, `pi remove git:github.com/u7chan/agent-harness`. Skipping this leaves two different real paths for the same skill names, which Pi reports as a collision. A machine without pi skips this step; nothing in the distribution path depends on pi.
 5. `/reload` (or restart) every running session. A session reloaded after this step serves the new revision; one that skips it keeps its pre-switch listing until it reloads.
 6. Run the [smoke test](#smoke-test) with the installed SHA, then the session-level listing check.
@@ -183,6 +186,7 @@ The command creates the file with mode 0600 if it is absent. Append one JSON obj
 - A rollback appends the revision it restored. Never rewrite or drop a line, so A → B → A leaves A last and revision confirmation keeps working.
 - `pr` is the PR URL passed with `--pr`, or `null` when the step was run without one.
 - Do not append before the smoke test passes. The command appends only after the release and the links verify; a merge alone appends nothing, because the served revision has not changed yet.
+- The whole file is validated before a switch, not just its last line: an unparseable or malformed line stops the run while the served revision and the links stay unchanged, and nothing is appended or rewritten.
 - A corrupt or unreadable record is not reset. Stop and report it. Restoring an older record is a manual decision.
 - Read the current revision with `tail -1 "$record" | jq -r .sha` or, preferably, with `status`, which compares it to `current` for you.
 
@@ -203,7 +207,7 @@ All workspaces of one account share the same `<dist-root>`, so one command confi
 scripts/skill-distribution/dist.sh status
 ```
 
-The command prints `revision=<sha>`, `release=ok|invalid|absent`, `record=<sha|none>`, `record-match=yes|no`, and `links=ok|drift|absent`, and exits non-zero unless a valid release is served, the last record line names it, and no link has drifted. `links=absent` means no link directory exists, which is a prepared-but-unlinked state rather than drift.
+The command prints `revision=<sha>`, `release=ok|invalid|absent`, `record=<sha|none>`, `record-match=yes|no`, and `links=ok|drift|absent`, and exits non-zero unless a valid release is served, the last record line names it, and no link has drifted. `links=absent` means no link directory exists, which is a prepared-but-unlinked state rather than drift. Without `--link-dir`, the command inspects the directories recorded by the last `update`.
 
 ```bash
 readlink -f "${AGENT_HARNESS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-harness}/current"
@@ -240,7 +244,7 @@ test -f <link-dir>/<any-served-skill>/SKILL.md
 test -f <link-dir>/<any-served-skill>/../_docs/skill-distribution.md
 ```
 
-`verify` re-reads the release's own `skills.json`, checks that every listed skill has a `SKILL.md`, that `current` names the expected SHA, that the record's last line names the same SHA, and that every per-skill link in `<link-dir>` resolves. It fails when no link directory exists; `--no-link` is the explicit way to verify a release that is not linked yet. Reading the manifest from the served tree rather than from `<checkout>` keeps a rollback validated against the revision being served.
+`verify` re-reads the release's own `skills.json`, checks that every listed skill has a `SKILL.md`, that `current` names the expected SHA, that the record's last line names the same SHA, and that every per-skill link in the linked directories resolves. Without `--link-dir` it uses the directories recorded by the last `update`. It fails when no link directory exists; `--no-link` is the explicit way to verify a release that is not linked yet. Reading the manifest from the served tree rather than from `<checkout>` keeps a rollback validated against the revision being served.
 
 As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills and no collision warning; a session started or reloaded after the switch is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
 

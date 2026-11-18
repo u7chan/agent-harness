@@ -60,6 +60,7 @@ GIT_DIR_PATH="$ROOT/git"
 RELEASES="$ROOT/releases"
 CURRENT="$ROOT/current"
 RECORD="$ROOT/rollout.jsonl"
+LINK_DIRS_FILE="$ROOT/link-dirs"
 MAIN_REF="refs/remotes/origin/main"
 DEFAULT_LINK_DIR="$HOME/.agents/skills"
 
@@ -246,13 +247,22 @@ switch_current() {
 
 # --- Rollout record ----------------------------------------------------------
 
+# The whole file is validated before a switch: a record with one unparseable or
+# malformed line is corrupt, and appending a good line after it would hide the
+# damage. Nothing is rewritten or dropped here.
+record_validate() {
+  [ -f "$RECORD" ] || return 0
+  [ -s "$RECORD" ] || return 0
+  jq -e -s 'length > 0 and all(.[]; (type == "object") and (.sha | type == "string") and (.sha | length == 40))' \
+    "$RECORD" >/dev/null 2>&1 || die "rollout record is corrupt: $RECORD"
+}
+
 record_last() {
   [ -f "$RECORD" ] || return 1
+  record_validate
   local last
   last="$(tail -n 1 "$RECORD")"
   [ -n "$last" ] || return 1
-  jq -e '(.sha | type == "string") and (.sha | length == 40)' <<<"$last" >/dev/null 2>&1 ||
-    die "rollout record is corrupt: $RECORD"
   jq -r '.sha' <<<"$last"
 }
 
@@ -281,16 +291,32 @@ record_ensure_baseline() {
 
 # --- Harness links -----------------------------------------------------------
 
+# The directories that were linked last are recorded, so status and verify
+# inspect what is actually linked instead of only the default directory. An
+# explicit --link-dir always wins.
 link_dirs() {
   if [ -n "$LINK_DIRS" ]; then
     printf '%s' "$LINK_DIRS"
+  elif [ -f "$LINK_DIRS_FILE" ]; then
+    cat "$LINK_DIRS_FILE"
   else
     printf '%s\n' "$DEFAULT_LINK_DIR"
   fi
 }
 
+record_link_dirs() {
+  [ "$NO_LINK" = 1 ] && return 0
+  local tmp="$LINK_DIRS_FILE.tmp.$$"
+  link_dirs >"$tmp"
+  mv -T "$tmp" "$LINK_DIRS_FILE" || die "cannot record link directories: $LINK_DIRS_FILE"
+}
+
+skills_of() {
+  jq -r '.skills[]' "$1/skills.json"
+}
+
 manifest_skills() {
-  jq -r '.skills[]' "$CURRENT/skills.json"
+  skills_of "$CURRENT"
 }
 
 in_manifest() {
@@ -349,7 +375,7 @@ reconcile_link_dir() {
     fi
   done
 
-  printf '%s %s' "$count" "$removed"
+  printf 'link-dir=%s status=ok skills=%s removed=%s\n' "$dir" "$count" "$removed"
 }
 
 # Reads only: reports the first inconsistency and returns 1. A link must
@@ -380,16 +406,78 @@ reconcile_links() {
     printf 'links=skipped reason=no-link\n'
     return 0
   fi
-  local dir counts
+  local dir
   while IFS= read -r dir; do
     [ -n "$dir" ] || continue
     if [ ! -d "$dir" ]; then
       printf 'link-dir=%s status=skipped reason=missing\n' "$dir"
       continue
     fi
-    counts="$(reconcile_link_dir "$dir")"
-    printf 'link-dir=%s status=ok skills=%s removed=%s\n' \
-      "$dir" "${counts% *}" "${counts#* }"
+    reconcile_link_dir "$dir"
+  done < <(link_dirs)
+}
+
+# Read the skill list of a revision from its published tree, or straight from
+# the mirror when the tree is not exported yet.
+skills_of_revision() {
+  local sha="$1"
+  if [ -f "$RELEASES/$sha/skills.json" ]; then
+    skills_of "$RELEASES/$sha"
+    return 0
+  fi
+  git -C "$GIT_DIR_PATH" show "$sha:skills.json" 2>/dev/null | jq -r '.skills[]'
+}
+
+# Fail before anything is switched or linked: a real path, or a symlink this
+# command does not own, stops the run while the served revision is untouched.
+link_preflight() {
+  [ "$NO_LINK" = 1 ] && return 0
+  local sha="$1" dir skill link cur count=0 manifest
+  manifest="$(skills_of_revision "$sha")"
+  [ -n "$manifest" ] || die "cannot read skills.json for $sha"
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    [ -d "$dir" ] || continue
+    count=$((count + 1))
+    while IFS= read -r skill; do
+      link="$dir/$skill"
+      if [ -L "$link" ]; then
+        cur="$(readlink "$link")"
+        [ "$cur" = "$CURRENT/$skill" ] && continue
+        if link_is_ours "$cur" || [ "$REPLACE_LINKS" = 1 ]; then continue; fi
+        die "refusing to replace a foreign symlink: $link -> $cur (pass --replace-links to migrate)"
+      elif [ -e "$link" ]; then
+        die "refusing to replace a real path: $link"
+      fi
+    done <<EOF
+$manifest
+EOF
+  done < <(link_dirs)
+  [ "$count" -gt 0 ] || die "no link directory exists; create one or pass --no-link"
+}
+
+# After a failed post-switch check the previous release is served again; links
+# this run moved are reconciled against that manifest again. Best effort: the
+# original failure is reported, and a conflict that stopped the run stays put.
+restore_links() {
+  [ "$NO_LINK" = 1 ] && return 0
+  (reconcile_links >/dev/null 2>&1) || true
+}
+
+# On a failed first install nothing is served, so the links this run created are
+# dangling by construction; remove only those.
+remove_our_links() {
+  [ "$NO_LINK" = 1 ] && return 0
+  local dir entry
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    [ -d "$dir" ] || continue
+    for entry in "$dir"/*; do
+      [ -L "$entry" ] || continue
+      case "$(readlink "$entry")" in
+        "$CURRENT"/*) unlink "$entry" || true ;;
+      esac
+    done
   done < <(link_dirs)
 }
 
@@ -431,12 +519,14 @@ verify_record() {
 apply_revision() {
   local target="$1" before rev
   before="$(current_rev)" || before=""
+  record_validate
 
   if [ "$before" = "$target" ] && release_verify "$CURRENT"; then
     record_ensure_baseline
     reconcile_links
     verify_links
     verify_record "$target"
+    record_link_dirs
     printf 'state=already-current\nprevious=%s\n' "$before"
     printf 'revision=%s\n' "$target"
     return 0
@@ -447,11 +537,14 @@ apply_revision() {
   if ! (reconcile_links && verify_links); then
     if [ -n "$before" ]; then
       switch_current "$before"
+      restore_links
       die "post-switch verification failed; restored $before"
     fi
     unlink "$CURRENT"
+    remove_our_links
     die "post-switch verification failed; no current release is served"
   fi
+  record_link_dirs
   record_append "$target" "$before" "$PR_URL"
   verify_record "$target"
   printf 'state=%s\nprevious=%s\n' \
@@ -463,6 +556,7 @@ apply_revision() {
 run_update() {
   require_absolute_root
   mkdir -p "$ROOT" "$RELEASES"
+  record_validate
   ensure_git_repo
   fetch_main
 
@@ -476,6 +570,8 @@ run_update() {
       die "cannot resolve $MAIN_REF"
   fi
   gate_main "$target"
+  # A layout conflict stops the run before a release is published or served.
+  link_preflight "$target"
   prepare_release "$target"
   apply_revision "$target"
 }
@@ -484,6 +580,7 @@ run_rollback() {
   [ -n "$WANT_SHA" ] || usage
   require_full_sha "$WANT_SHA" "revision"
   require_absolute_root
+  record_validate
 
   # A release that is already on disk is switched without touching the network,
   # so a rollback stays available while the fetch source is unreachable.
@@ -492,11 +589,13 @@ run_rollback() {
       die "release verification failed: $RELEASES/$WANT_SHA (remove it and retry)"
     printf 'release=reused\n'
     gate_main "$WANT_SHA"
+    link_preflight "$WANT_SHA"
   else
     mkdir -p "$ROOT" "$RELEASES"
     ensure_git_repo
     fetch_main
     gate_main "$WANT_SHA"
+    link_preflight "$WANT_SHA"
     prepare_release "$WANT_SHA"
   fi
   apply_revision "$WANT_SHA"
