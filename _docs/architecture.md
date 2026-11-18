@@ -60,6 +60,8 @@ Instruction-only skills use natural-language judgment and existing tools directl
 
 Checks that span every skill live at the repository root under `scripts/` rather than inside one skill (for example `scripts/check-markdown-links.sh`), and CI runs them directly over the skill directories.
 
+`scripts/check-media-artifacts.sh` guards the same boundary from the other side. UI evidence belongs in the PR body ([pr-evidence.md](pr-evidence.md)), so a screenshot or recording outside `_docs/assets/` is a failure rather than an asset, and an asset under `_docs/assets/` that no document links to is a leftover. A name that only appears in prose is not a link, and the asset directory cannot vouch for itself. `.gitignore` covers the same extensions for the ordinary `git add -A`; the check covers a forced add, a file written by a script, and an extension in upper case.
+
 Small deterministic helpers used by multiple skills also live outside skill
 directories: `scripts/pi-development/` owns development profile I/O, exact Pi
 model validation, and the local profile editor with its model master, and ships

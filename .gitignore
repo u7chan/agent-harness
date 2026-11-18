@@ -1,0 +1,21 @@
+# UI evidence and local media never belong in the repository. Screenshots and
+# recordings go to a temporary directory such as PW_ARTIFACT_DIR and are
+# attached to the PR body instead; see _docs/pr-evidence.md.
+#
+# The one exception is a documentation image under _docs/assets/: it is part of
+# a document, not a picture of a screen. scripts/check-media-artifacts.sh fails
+# on every other path with these extensions, and also on an asset under
+# _docs/assets/ that no document links to. Change both together.
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.tif
+*.tiff
+*.mp4
+*.webm
+*.mov
+*.mkv
+!_docs/assets/**
