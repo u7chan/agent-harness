@@ -6,10 +6,10 @@ migration or legacy read/write fallback is shipped.
 ## Timing
 
 For operational use, run this between tasks as part of the merged revision's
-[rollout](skill-distribution.md), before using the updated workflows. Install
-the pinned merged revision, migrate the settings, reload all sessions, then
-smoke-test both the installed revision and the profiles. Do not leave old
-sessions writing the old location after the cutover.
+[rollout](skill-distribution.md), before using the updated workflows. Serve the
+merged revision, migrate the settings, reload all sessions, then smoke-test both
+the served revision and the profiles. Do not leave old sessions writing the old
+location after the cutover.
 
 Before merge, follow [skill testing](skill-testing.md) and copy the settings
 into a temporary agent directory for session-scoped verification. Do not move
@@ -49,7 +49,7 @@ the new root is `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-development/`.
    if test -f "$NEW/active"; then chmod 600 "$NEW/active"; fi
    ```
 
-3. Run the new helper from `<clone>` (the pinned clone in
+3. Run the new helper from `<dist-root>/current` (the served release tree in
    [Notation](skill-distribution.md#notation)). Resolve every kept profile as a
    full team, then resolve the effective review role. Only `result=ok` passes;
    if any check fails, stop before workflow execution and inspect the model

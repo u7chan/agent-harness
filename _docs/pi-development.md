@@ -186,9 +186,9 @@ on the authenticated providers.
 
 ### Run as a service
 
-Run the editor from the pinned `<clone>` that already serves the skills, so the
-service and the skills share one revision. Never `checkout` or `pull` that
-clone: its revision changes only through the rollout procedure in
+Run the editor from `<dist-root>/current`, the release tree that already serves
+the skills, so the service and the skills share one revision. Never edit that
+tree: its revision changes only through the rollout procedure in
 [skill-distribution.md](skill-distribution.md).
 
 ```ini
@@ -200,7 +200,7 @@ After=network.target
 Type=simple
 Environment=PATH=<node-bin-dir>:<pi-bin-dir>:/usr/local/bin:/usr/bin:/bin
 Environment=PI_CODING_AGENT_DIR=%h/.pi/agent
-ExecStart=<node> <clone>/scripts/pi-development/web/server.mjs
+ExecStart=<node> <dist-root>/current/scripts/pi-development/web/server.mjs
 Restart=always
 RestartSec=2
 
@@ -216,7 +216,7 @@ revision until it restarts.
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now <unit>
-# After a rollout or rollback of <clone>:
+# After a rollout or rollback of <dist-root>:
 systemctl --user restart <unit>
 ```
 

@@ -67,6 +67,12 @@ their tests. Its user-owned settings contract is
 in [pi-development.md](pi-development.md). Removing a consumer must not remove
 these helpers; this is shared tooling, not a workflow runtime or another skill.
 
+`scripts/skill-distribution/` owns the harness-neutral distribution command,
+and `scripts/check-skill-manifest.sh` validates the neutral skill manifest, the
+derived pi mirror, and the one-level skill layout. Their contract and the
+distribution layout are in [skill-distribution.md](skill-distribution.md); the
+tests for both live in `scripts/tests/` and run without a harness or network.
+
 ## CI
 
 `contract-tests` is the only workflow. Every remote action it calls is pinned to a full commit SHA and keeps the release tag in a trailing comment, so a diff shows which release moved:
