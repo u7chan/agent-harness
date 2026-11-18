@@ -7,8 +7,9 @@
 
 ## なぜこのナレッジが必要か
 
-スキルの操作セットは**ピン留めクローン**(pi install が配置する固定 SHA のクローン。
-配置先パスについては [_docs/skill-distribution.md](skill-distribution.md) 参照)であり、
+スキルの操作セットは**配布リリース**(`<dist-root>/releases/<sha>` の固定 SHA ツリーで、
+`<dist-root>/current` が serving path。
+配置先と不変条件は [_docs/skill-distribution.md](skill-distribution.md) 参照)であり、
 開発チェックアウト・worktree はスキャンパスにない(_docs/skill-distribution.md 参照)。
 
 つまりブランチ上のスキル変更は、別ペインの pi を普通に起動しても**見えない**。
@@ -22,8 +23,8 @@
 インストール済みスキルとの衝突で明示パスがロードされない(下記実測)ため、通常環境の検証には
 使えない。方法1 の記録は `--skill` 衝突挙動の観察用として残す。
 
-両方法ともセッション限定であり、global の配布先(ピン留めクローン、`~/.agents/skills/` 等)や
-project の skill 配置を書き換えない。ピン留めクローンの更新(`pi install` / `pi update`)も行わない。
+両方法ともセッション限定であり、global の配布先(`<dist-root>/current`、`~/.agents/skills/` 等)や
+project の skill 配置を書き換えない。配布先の切り替え(`dist.sh update` / `dist.sh rollback`)も行わない。
 
 ### 方法1: `--skill` によるセッション限定ロード(衝突あり)
 
@@ -99,7 +100,7 @@ git -C <checkout> rev-parse HEAD   # 想定 revision を記録。テスト中は
   読み取りアクションで再取得して実体(URL 等)を裏取りする
 - テスト痕跡(本文・コメントへの画像埋め込み)は「残す(検証証跡)」か「戻す」かを事前に決める
 - マージ後も、配布手順([_docs/skill-distribution.md](skill-distribution.md))が最終確認
-  (gate チェック → pi install → 全セッション /reload → スモーク)
+  (`dist.sh update` → 旧 pi パッケージ登録の解除 → 全セッション /reload → `dist.sh verify`)
 - 注意: 「コメントへの --attach は NG」という情報が流布しているが、gh 2.99.0 では
   issue コメント・PR コメントとも実機で成功した(2026-09-02 実測)。外部情報を鵜呑みにせず
   実機で確認すること

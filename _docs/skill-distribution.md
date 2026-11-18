@@ -8,28 +8,39 @@ Installing the repository by symlinking a working checkout into `~/.agents/skill
 
 ## Notation
 
-Code blocks in this document contain no machine-specific paths: per the rule in [AGENTS.md](../AGENTS.md), the checkout and clone locations of the machine where a procedure runs appear as placeholders. Substitute the values of your own environment:
+Code blocks in this document contain no machine-specific paths: per the rule in [AGENTS.md](../AGENTS.md), the checkout and distribution locations of the machine where a procedure runs appear as placeholders. Substitute the values of your own environment:
 
-- `<checkout>` — a local checkout or linked worktree of this repository used for development. Steps that need only the repository's files or history (the rollout gate, the `pi --skill` example under Development) run from it.
-- `<clone>` — the pi-managed clone that serves the installed skill set: created and pinned by `pi install git:github.com/u7chan/agent-harness@<commit-sha>`, one per user account, shared by all workspaces of that account; `pi list` prints its location. Commands that verify or act on the installed revision use it.
-- `<commit-sha>` (also written `<merged-sha>`, `<previous-verified-sha>`, and `<installed-or-rolled-back-sha>` where a step installs or verifies one specific revision) — a full commit SHA, chosen by the procedure step or taken from the rollout record.
-- `<rollout-record>` — `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skill-distribution/rollout.jsonl`, the account-scoped record defined under [Rollout record](#rollout-record).
+- `<checkout>` — a local checkout or linked worktree of this repository used for development. Steps that need only the repository's files or history (the merge checks, the `pi --skill` example under Development) run from it.
+- `<dist-root>` — the account-scoped distribution root, resolved from `AGENT_HARNESS_HOME` and defaulting to `${XDG_DATA_HOME:-$HOME/.local/share}/agent-harness`. It holds the bare fetch mirror (`git/`), one immutable tree per revision (`releases/<sha>/`), the `current` symlink, and the rollout record. It must be an absolute path.
+- `<repo-url>` — the fetch source, resolved from `AGENT_HARNESS_REPO_URL` and defaulting to `https://github.com/u7chan/agent-harness.git`.
+- `<release-sha>` (also written `<merged-sha>`, `<previous-sha>`, and `<installed-or-rolled-back-sha>` where a step installs or verifies one specific revision) — a lowercase full 40-character commit SHA. The update command accepts only full SHAs so that a record line never depends on a local abbreviation rule.
+- `<rollout-record>` — `<dist-root>/rollout.jsonl`, the account-scoped record defined under [Rollout record](#rollout-record).
+- `<link-dir>` — one harness skill directory that holds the per-skill links, such as `~/.agents/skills`. `--link-dir` may be repeated; without it the command uses `~/.agents/skills`.
+- `<dist-command>` — `scripts/skill-distribution/dist.sh` in this repository, run from `<checkout>`.
 
-Per-user skill directories of the harnesses (`~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`, project `.pi/skills`, `.agents/skills`) are conventions with the same meaning on every machine using those harnesses and are written literally. Absolute paths of an individual machine's checkouts, clones, and worktrees never appear.
+Per-user skill directories of the harnesses (`~/.pi/agent/skills`, `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`, project `.pi/skills`, `.agents/skills`) are conventions with the same meaning on every machine using those harnesses and are written literally. Absolute paths of an individual machine's checkouts and distribution roots never appear.
 
 ## Verified facts
 
-Measured on the reference machine (pi 0.84.4, Linux) while the symlink install of the Problem section was in place. The record captures that machine's state at measurement time — the Design section has since replaced the symlink install with a pinned pi package — and keeps the measured behaviors, not the machine-specific path values.
+The first block is the measurement of the superseded symlink install: it records that machine's state at measurement time (pi 0.84.4, Linux), and the Design section has since replaced both that install and the pi package install that followed it. The measured behaviors are kept, not the machine-specific path values.
 
 - `~/.agents/skills/agent-harness` resolved to the shared checkout of this repository — a regular branch checkout, not a bare tree.
 - Pi loads skills from global `~/.pi/agent/skills/` and `~/.agents/skills/`, project `.pi/skills/` and `.agents/skills/`, packages, the settings `skills` array, and `--skill` paths. Names and descriptions are captured once at session startup; full `SKILL.md`, references, and scripts are read on demand.
 - Visibility experiment (uncommitted edit): a file written into the checkout was readable through `~/.agents/skills/agent-harness/...` immediately and disappeared when deleted.
 - Visibility experiment (branch position): with a linked worktree exposed through a symlink, an uncommitted edit and a commit on a side branch were both readable through the link; the readable content always followed the checkout's current working tree, not any fixed revision.
-- Sessions launched inside linked Herdr worktrees of this repository (the reference setup runs one worktree per task) have no project skill location, so they resolve every skill through the global symlink, that is, through the shared checkout. The Herdr-side procedure for that topology is in [herdr/references/worktree-workspace-teams.md](../herdr/references/worktree-workspace-teams.md).
-- No skill file in this repository references `~/.agents/skills` or any checkout or clone path; the symlink install was documented only in `README.md`.
+- Sessions launched inside linked Herdr worktrees of this repository (the reference setup runs one worktree per task) have no project skill location, so they resolve every skill through the global path. The Herdr-side procedure for that topology is in [herdr/references/worktree-workspace-teams.md](../herdr/references/worktree-workspace-teams.md).
+- No skill file in this repository references `~/.agents/skills` or any checkout path.
 - Pi settings declared npm packages only — no git packages and no `skills` array. `~/.claude/skills` was symlinked to `~/.agents/skills`.
 
 Consequence: at startup listing time and at every on-demand read, the served content is "whatever the checkout holds right now". No gate exists between editing and distribution.
+
+Measured on 2026-11-18 while designing the current layout ([#285](https://github.com/u7chan/agent-harness/issues/285)); both spikes ran on WSL with Claude Code 2.1.327 and Pi v1.5.2:
+
+- Claude Code discovers skills exactly one directory below a scan path. A skill at `~/.agents/skills/<skill>/SKILL.md` is found; one at `~/.agents/skills/<group>/<skill>/SKILL.md` is not, so a directory-level link to the distribution root is not a distribution mechanism for that harness.
+- Pi reads two levels, so it finds both shapes. Its skill loader resolves real paths and silently skips a second file with the same name; two per-skill links that resolve to the same file therefore raise no collision warning, while two different targets with the same skill name do.
+- `../` inside a linked skill directory resolves in the target tree: `~/.agents/skills/herdr/../_docs/` and `~/.agents/skills/herdr/../scripts/` reached the clone's own copies, and a link to an unlinked sibling skill (`herdr` referencing `herdr-pi-issue-pr-workflow`) still resolved.
+- Per-skill links preserve the executable bit of scripts and the relative references of `SKILL.md`, so a release tree can carry `_docs/` and `scripts/` beside the skills at one revision.
+- Codex CLI discovery is unverified. The harness table under [Compatibility and migration](#compatibility-and-migration) marks it as such instead of claiming it.
 
 ## Consistency unit
 
@@ -37,36 +48,54 @@ The unit of revision consistency is the **install**: one pinned revision shared 
 
 Invariants:
 
-1. The operational skill set is immutable per revision. It is never edited in place; it changes only by installing a different pinned revision.
+1. The operational skill set is immutable per revision. A release tree is never edited in place; it changes only by installing a different pinned revision.
 2. Only a commit reachable from `origin/main` may be installed as the operational set (rollout gate).
 3. Any agent can confirm the installed revision with one command, from any workspace, and after a reload its loaded skill set matches that revision.
-4. Rollback is the same operation as rollout, targeting a previously verified revision.
-5. Development checkouts and worktrees are never on a skill scan path.
+4. Rollback is the same operation as rollout, targeting a previously verified revision, and it works without network access while that release is still on disk.
+5. Development checkouts and worktrees are never on a skill scan path, and no release tree holds a git working copy.
+6. The served revision is the same for every harness on the machine: they read one set of links into one release, not per-harness copies.
 
-Guarantee scope: a session's skill listing is captured at session startup or `/reload`; `SKILL.md` bodies, references, and scripts are read from the clone on demand. An install changes the clone for every reader immediately. Install-unit consistency therefore holds for sessions started or reloaded after the serving path last changed: after an install in steady state, and after the symlink removal during migration. A session that stays alive across an install mixes its pre-install listing with post-install file content until it reloads; the rollout and rollback procedures close this window by requiring a reload, and installs are applied between tasks.
+Guarantee scope: a session's skill listing is captured at session startup or `/reload`; `SKILL.md` bodies, references, and scripts are read from the release tree on demand. A switch changes what every later read resolves to, so a session that stays alive across a switch mixes its pre-switch listing with post-switch file content until it reloads. The rollout and rollback procedures close this window by requiring a reload, and installs are applied between tasks.
 
 ## Design
 
-Use pi's package mechanism with a pinned git source instead of the symlink.
+Distribution is git plus a symlink switch. It no longer uses the pi package mechanism, and no step calls pi, claude, codex, or another harness CLI.
 
-- `package.json` in this repository declares `pi.skills` with the top-level skill directories; this list is the authoritative definition of the skill set.
-- Install and pin: `pi install git:github.com/u7chan/agent-harness@<commit-sha>`.
-- Pi clones the repository into `<clone>` — pi's per-user git package location (see the Notation section above) — and loads the declared skills from the clone.
-- Pin full commit SHAs. `pi update` does not move pinned refs; it reconciles the clone to the configured ref (reset and clean), so the clone always matches the configured revision.
-- Development happens in the checkout or in linked worktrees. Neither is a scan path after migration, so unmerged changes stay invisible to other workspaces.
+Layout of `<dist-root>`:
+
+```text
+<dist-root>/
+  git/                    bare mirror of <repo-url>; the only fetch cache
+  releases/<sha>/         immutable tree exported with `git archive`
+  current -> releases/<sha>
+  link-dirs               the harness directories that were linked last
+  rollout.jsonl           append-only rollout record
+```
+
+- **Releases instead of a single pinned clone.** A working clone would have to change with `git fetch` plus a checkout or reset, and readers would see a partially updated tree in that window. A release is built and verified in a staging directory inside `<dist-root>`, published with one `rename(2)`, and the `current` symlink is replaced with one `rename(2)` as well, so a reader resolves either the old tree or the new one. Retention is trivial: the measured tree was 4 MB and 196 files, a rollback source stays available offline, and pruning is manual.
+- **Bare mirror, no working tree.** `releases/` never contains `.git`, and uncommitted work in a development checkout cannot reach the serving path because nothing reads a working tree. Rollback reuses an exported release without network access; a revision that is not on disk is fetched and passes the gate first.
+- **Neutral manifest.** `skills.json` at the repository root is the authoritative definition of the skill set: `{"schema_version": 1, "skills": [...]}`, sorted and unique. `package.json#pi.skills` is a derived mirror kept for the legacy pi package path; `scripts/check-skill-manifest.sh` compares the two in both directions, requires a `SKILL.md` for every listed skill, and fails on any `SKILL.md` that is not exactly one directory below the root. The one-level rule is enforced because Claude Code cannot see a nested skill while the other harnesses can.
+- **One update command, owned by this repository.** `scripts/skill-distribution/dist.sh` implements rollout, rollback, status, and verification, and it ships in the release tree together with every skill, so `_docs/` and `scripts/` references inside a skill resolve at the served revision. Workstation repositories call it; they do not reimplement the fetch, gate, staging, switch, or link logic.
+- **The gate lives in the command.** Every rollout and rollback checks `git merge-base --is-ancestor <sha> origin/main` against the mirror's `origin/main` ref before publishing, so a SHA that is not on `main` never becomes the served revision. A rollback checks against the last fetched `origin/main`, which is why the gate can still run offline.
+- **Links, not copies.** For each skill in the release manifest, the command creates `<link-dir>/<skill>` pointing at `<dist-root>/current/<skill>`. The link target does not change across releases, so a switch needs no link work, and only the harness directories that exist are touched. At least one link directory must exist for `update` and `verify`; the command never creates the parent directory, so a machine with no harness skill directory is prepared with `--no-link` and linked later. The command owns the links it created (its targets are under `<dist-root>`) and removes links for skills that the release no longer serves. A real directory in a link position is never replaced, and a foreign symlink is refused unless `--replace-links` is given for a migration.
+- **Link layout is checked before the switch.** Every link directory is inspected against the target release's manifest before anything is published or served: a real path, or a symlink this command does not own, stops the run with the served revision and the links untouched. If the post-switch reconcile or verification still fails, the previous release is served again, the links are reconciled against its manifest, and no record line is written; a failed first install removes the links it created and serves nothing.
+- **Link ownership.** `~/.agents/skills` and the other harness directories are owned by each workstation's configuration; this repository creates and removes only the per-skill links inside them. It never creates the parent directory and never removes it. `~/.claude/skills` may be a symlink to `~/.agents/skills`; the two paths are then the same directory and the command treats them as such.
+- **The linked directories are recorded.** `update` writes the set it linked to `<dist-root>/link-dirs`. `status` and `verify` read that set, so their default view matches the install even when it was linked into a non-default directory; an explicit `--link-dir` still overrides it, and `--no-link` records nothing.
 
 Rejected alternatives:
 
-- Local-path package install (`pi install /path/to/checkout`): pi loads local paths without copying and keeps identity by resolved absolute path, so the working tree remains the served content and the leak stays.
-- Symlink to an exported snapshot directory: requires a custom export and repoint runtime; the package mechanism already provides pinned clones and reconcile semantics.
-- Project-level install (`.pi/settings.json` per workspace): revisions would vary per workspace and break invariant 3 (single source of truth).
+- Local-path pi package install (`pi install /path/to/checkout`): pi loads local paths without copying and keeps identity by resolved absolute path, so the working tree remains the served content and the leak stays.
+- The pinned pi git package that this design replaces: it made the pi CLI the distribution mechanism, so a machine without pi could not update the skills, two machines could not run the same update step, and one update path had to call `pi install` while the other had none.
+- A single pinned clone updated with `git fetch` and `git reset --hard`: readers observe a partially reset tree, rollback needs network access when the old revision is not local, and the checkout semantics invite in-place edits of the operational set.
+- Symlinking the whole distribution root into a harness skill directory: Claude Code discovers only one level, so the harness that most needs a shared copy would see nothing.
+- A per-harness manifest or per-harness release: it duplicates the skill list and breaks invariant 6.
 - Re-symlinking the checkout: reintroduces the original leak.
 
 ## Procedures
 
 ### Development
 
-Work in the checkout or a linked worktree on a branch. Nothing under development may be added to a global or project skill location.
+Work in `<checkout>` or a linked worktree on a branch. Nothing under development may be added to a global or project skill location.
 
 Verifying unmerged skills is session-scoped; the canonical procedure lives in [skill-testing.md](skill-testing.md) (Japanese), and this document does not duplicate it. Do not load an unmerged skill for verification with `pi --skill <checkout>/<skill>/SKILL.md`: with a pinned install in place, the same-named installed skill wins (pi keeps the first skill found) and the explicit path is skipped - observed 2026-09-02 as `✗ <path> (skipped)` - so the session can exercise the installed revision while appearing to verify the development copy. The canonical procedure reads the target files by absolute path and includes a read-path and revision check as evidence.
 
@@ -119,122 +148,145 @@ Require one match and a zero exit. Do not shorten the scan with `grep -m1`, `hea
 
 #### Rollout
 
-Rollout applies only when the PR changes a skill. `AGENTS.md` makes the PR body state which case applies (`Rollout: 必要` for a skill change, `Rollout: 不要` otherwise), so read that line instead of guessing from the diff. For a PR that changes no skill, the merge and its checks above complete the work: do not install a revision, reload sessions, or append to the record.
+Rollout applies when the PR changes a skill, or when it changes the distribution layout, command, or manifest: in the second case the merged revision is what introduces the new procedure, so nothing else can deliver it. `AGENTS.md` makes the PR body state which case applies (`Rollout: 必要` or `Rollout: 不要`), so read that line instead of guessing from the diff. For a PR that changes neither, the merge and its checks above complete the work: do not install a revision, reload sessions, or append to the record.
 
 Take the merged SHA as `<commit-sha>`.
 
-1. When [the rollout record](#rollout-record) is absent, first record the revision that is installed now ([Initial baseline](#initial-baseline)). Installing first would make the new revision the first line and lose the revision to roll back to.
-2. Apply the rollout gate from any local clone of this repository that carries an `origin` remote (`<checkout>` or `<clone>` both do):
+1. Record the baseline. When `<rollout-record>` is absent and a revision is already served, the update command appends that revision with `"previous": null` before switching ([Initial baseline](#initial-baseline)); nothing else needs to be prepared by hand. A corrupt or unreadable record is not reset: the command stops and reports it.
+2. Apply between tasks. When rolling out the shared development-profile namespace for the first time, perform [the backed-up profile migration](pi-development-migration.md) after the switch and before reloading or starting another workflow. Profile assets are not part of a release tree and do not migrate with it.
+3. Run the update from `<checkout>`:
+
+   ```bash
+   scripts/skill-distribution/dist.sh update --sha <commit-sha> --pr <PR URL>
+   ```
+
+   The command fetches `origin/main` into `<dist-root>/git`, gates the requested SHA, checks the link layout of every link directory against the target release, exports and verifies the release, switches `current`, reconciles the per-skill links, verifies them, records the linked directories, and appends `<rollout-record>`. A layout conflict stops before a release is published; any later failure restores the previous revision and its links. Omitting `--sha` serves the current `origin/main` head, which is only what you want when no later merge should be skipped. On the first cutover from the pi package install, add `--replace-links` as described in [Compatibility and migration](#compatibility-and-migration).
+4. Unregister the legacy pi package when it is still registered: after the switch and before the reload, run `pi list` once and, if it names `git:github.com/u7chan/agent-harness`, `pi remove git:github.com/u7chan/agent-harness`. Skipping this leaves two different real paths for the same skill names, which Pi reports as a collision. A machine without pi skips this step; nothing in the distribution path depends on pi.
+5. `/reload` (or restart) every running session. A session reloaded after this step serves the new revision; one that skips it keeps its pre-switch listing until it reloads.
+6. Run the [smoke test](#smoke-test) with the installed SHA, then the session-level listing check.
+7. Report the served revision, the record line, the session check, and the PR. If the session listing disagrees with the verified revision, roll back with the same command and report both revisions instead of leaving the machine in a mixed state.
+
+Rollout and rollback are the same operation on different SHAs; there is no separate "update" command to remember per harness.
+
+#### Rollout record
+
+The record is the state that [Revision confirmation](#revision-confirmation), [Rollback](#rollback), and the smoke test read. It lives inside `<dist-root>` so that the distribution's own directory describes the account's install, and the update command appends to it.
 
 ```bash
-git fetch origin main
-git merge-base --is-ancestor <commit-sha> origin/main && echo gate-ok
+record="${AGENT_HARNESS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-harness}/rollout.jsonl"
 ```
 
-3. Install the pinned revision (this creates or reconciles `<clone>`):
-
-```bash
-pi install git:github.com/u7chan/agent-harness@<commit-sha>
-```
-
-4. Apply between tasks. When rolling out the shared development-profile namespace for the first
-   time, perform [the backed-up profile migration](pi-development-migration.md)
-   after installation and before reloading or starting another workflow.
-   Profile assets are not part of the pinned clone and do not migrate with it.
-   Then `/reload` (or restart) every running session. A session reloaded after
-   this step serves the new revision; one that skips it keeps its pre-install
-   listing until it reloads.
-5. Run the smoke test with `EXPECTED=<commit-sha>`.
-6. Append the rolled-out revision to [the rollout record](#rollout-record).
-
-### Rollout record
-
-The record is the state that [Revision confirmation](#revision-confirmation) and [Rollback](#rollback) read. It lives outside the repository, per account, because a rollout applies to the account and a tracked file would need a PR of its own before it could describe the install.
-
-```bash
-record="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skill-distribution/rollout.jsonl"
-mkdir -p "$(dirname "$record")"  # then create it with mode 0600
-```
-
-Append one JSON object per rollout or rollback, after it succeeds:
+The command creates the file with mode 0600 if it is absent. Append one JSON object per rollout or rollback, after the switch and link verification succeed:
 
 ```json
-{"at":"<ISO8601>","sha":"<installed-or-rolled-back-sha>","previous":"<last-record-sha|null>","pr":"<PR URL>"}
+{"at":"<ISO8601>","sha":"<installed-or-rolled-back-sha>","previous":"<last-record-sha|null>","pr":"<PR URL|null>"}
 ```
 
-- `sha` is the verified installed or rolled-back revision, and `previous` is the `sha` of the line before the append (`null` on the first line). The last line therefore always describes what is installed now.
-- A rollback appends the revision it restored. Never rewrite or drop a line, so A → B → A leaves A last and the Revision confirmation keeps working.
-- Do not append before the smoke test passes. A merge alone appends nothing, because the installed revision has not changed yet.
-- A corrupt or unreadable record is not reset. Stop and report it.
-- Read the current revision with `tail -1 "$record"`.
+- `sha` is the verified installed or rolled-back revision, and `previous` is the revision that was served before the switch (`null` on the first line, and on a baseline line). The last line therefore always describes what is installed now.
+- A rollback appends the revision it restored. Never rewrite or drop a line, so A → B → A leaves A last and revision confirmation keeps working.
+- `pr` is the PR URL passed with `--pr`, or `null` when the step was run without one.
+- Do not append before the smoke test passes. The command appends only after the release and the links verify; a merge alone appends nothing, because the served revision has not changed yet.
+- The whole file is validated before a switch, not just its last line: an unparseable or malformed line stops the run while the served revision and the links stay unchanged, and nothing is appended or rewritten.
+- A corrupt or unreadable record is not reset. Stop and report it. Restoring an older record is a manual decision.
+- Read the current revision with `tail -1 "$record" | jq -r .sha` or, preferably, with `status`, which compares it to `current` for you.
 
 #### Initial baseline
 
-When the record is absent and a revision is already installed, append that revision before installing the new one:
+When the record is absent and a revision is already being served, the update command records that revision before switching:
 
-1. Read the installed revision with `pi list` and `git -C <clone> rev-parse HEAD`, and verify it with `git merge-base --is-ancestor <sha> origin/main`, a reloaded session, and the smoke test with `EXPECTED=<sha>`.
-2. Append it with `"previous":null`.
-3. Roll out the new revision, then append it with `previous` set to the baseline.
+1. It reads the revision from `current`, verifies that release tree, and appends it with `"previous": null`.
+2. It then switches to the new revision and appends that line with `previous` set to the baseline.
 
-With nothing installed yet, the first rollout creates the first line with `"previous":null`.
+With nothing served yet, the first rollout creates the first line with `"previous": null`. Do not create the record by hand.
 
-### Revision confirmation
+#### Revision confirmation
 
-All workspaces of one account share the same `<clone>`, so one command confirms the installed revision:
+All workspaces of one account share the same `<dist-root>`, so one command confirms the served revision and its consistency:
 
 ```bash
-git -C <clone> rev-parse HEAD
-pi list
+scripts/skill-distribution/dist.sh status
 ```
 
-This proves the clone's revision, not what a long-running session loaded: a session's listing is from its startup or last `/reload`, while its on-demand reads follow the clone. An agent confirms its skill revision as follows:
+The command prints `revision=<sha>`, `release=ok|invalid|absent`, `record=<sha|none>`, `record-match=yes|no`, and `links=ok|drift|absent`, and exits non-zero unless a valid release is served, the last record line names it, and no link has drifted. `links=absent` means no link directory exists, which is a prepared-but-unlinked state rather than drift. Without `--link-dir`, the command inspects the directories recorded by the last `update`.
+
+```bash
+readlink -f "${AGENT_HARNESS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-harness}/current"
+```
+
+This proves the served tree, not what a long-running session loaded: a session's listing is from its startup or last `/reload`, while its on-demand reads follow `current`. An agent confirms its skill revision as follows:
 
 1. Run the command above at the start of a skill-dependent task.
-2. If the session has not been started or reloaded since the serving path last changed to that revision (the install; during migration, the symlink removal), run `/reload` (or restart the session) before relying on skill content; after the reload the loaded set matches the installed revision.
-3. Compare the revision against the `sha` of the last line of [the rollout record](#rollout-record) (`tail -1`).
+2. If the session has not been started or reloaded since the serving path last changed to that revision (the switch), run `/reload` (or restart the session) before relying on skill content; after the reload the loaded set matches the served revision.
+3. Compare the revision against the `sha` of the last line of [the rollout record](#rollout-record) (`tail -1 "<rollout-record>" | jq -r .sha`).
 
 Rollout and rollback make step 2 the normal state by reloading every running session as part of the procedure.
 
-### Rollback
+#### Rollback
 
 ```bash
-pi install git:github.com/u7chan/agent-harness@<previous-verified-sha>
-git -C <clone> rev-parse HEAD
+scripts/skill-distribution/dist.sh rollback <previous-verified-sha> --pr <PR URL>
 ```
 
-Apply between tasks and `/reload` (or restart) every running session, as in rollout. Because the install is account-global, running the confirmation from any workspace verifies the state for all of them.
+The command reuses the exported release and needs no network access; it gates the SHA against the mirror's last fetched `origin/main`, switches `current`, reconciles the links, verifies, and appends the record. Apply between tasks and `/reload` (or restart) every running session, as in rollout. Because the distribution is account-global, running the confirmation from any workspace verifies the state for all of them.
 
-### Smoke test
+A SHA that is no longer on disk is fetched and gated first, so a rollback target must still be reachable from `origin/main`; a release that was pruned and whose commit left `main` cannot be restored. A revision older than `skills.json` cannot be served either, so the first rollout of this design also defines the oldest rollback target.
+
+#### Smoke test
 
 After every rollout and rollback:
 
 ```bash
 set -e
-CLONE=<clone>   # your pi-managed clone path (Notation)
+export AGENT_HARNESS_HOME=<dist-root>
 EXPECTED=<installed-or-rolled-back-sha>
-test "$(git -C "$CLONE" rev-parse HEAD)" = "$EXPECTED"
-jq -r '.pi.skills[]' "$CLONE/package.json" | while read -r s; do
-  test -f "$CLONE/$s/SKILL.md"
-done
-pi list | grep -q "git:github.com/u7chan/agent-harness"
-echo smoke-ok
+scripts/skill-distribution/dist.sh verify --expect "$EXPECTED"
+test -f <link-dir>/<any-served-skill>/SKILL.md
+test -f <link-dir>/<any-served-skill>/../_docs/skill-distribution.md
 ```
 
-The skill list is read from the pinned clone's own `package.json`, so the test runs entirely against the HEAD-verified revision. Reading the manifest from the development checkout instead would validate a rollback against another revision's skill set and could fail a correct rollback or pass an incomplete one. As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills; a session started or reloaded after the serving path last changed is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
+`verify` re-reads the release's own `skills.json`, checks that every listed skill has a `SKILL.md`, that `current` names the expected SHA, that the record's last line names the same SHA, and that every per-skill link in the linked directories resolves. Without `--link-dir` it uses the directories recorded by the last `update`. It fails when no link directory exists; `--no-link` is the explicit way to verify a release that is not linked yet. Reading the manifest from the served tree rather than from `<checkout>` keeps a rollback validated against the revision being served.
+
+As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills and no collision warning; a session started or reloaded after the switch is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
 
 ## Compatibility and migration
 
-Order matters: the symlink shadows the package, so it must be removed before any session reloads.
+### Harness scan paths
 
-1. Merge the change that adds the manifest. Nothing is installed yet.
-2. `pi install git:github.com/u7chan/agent-harness@<merged-sha>`. The clone is ready but not yet serving: while the symlink exists, global locations shadow the package.
-3. Remove the symlink: `unlink ~/.agents/skills/agent-harness`.
-4. `/reload` (or restart) every running session. A reload before this step would re-read the old symlink path, not the package.
-5. Run the smoke test.
-6. Other harnesses that read `~/.agents/skills` can link the pinned clone read-only instead, for example `ln -s <clone> ~/.claude/skills/agent-harness`; they then follow the same pin without a second distribution path. These `agent-harness` links are per-harness additions, not part of the pi install: uninstalling removes only those links and keeps the shared skill directories and their parent symlinks (see the Uninstall section of the README).
+| Harness | Scan paths | Depth | How it sees `<dist-root>` | Status |
+| --- | --- | --- | --- | --- |
+| Pi | `~/.pi/agent/skills/`, `~/.agents/skills/`, project `.pi/skills/`, `.agents/skills/`, packages, the settings `skills` array, `--skill` | 2 | per-skill link in `~/.agents/skills` | measured 2026-11-18: one listing, no collision warning |
+| Claude Code | `~/.claude/skills/` | 1 | per-skill link; a link to the distribution root is not discovered | measured 2026-11-18 |
+| Codex CLI | unverified | unverified | add `--link-dir <codex skill directory>` once the discovery path is measured | unverified |
+
+`~/.claude/skills` may be a symlink to `~/.agents/skills`; both paths then name one directory, and a single set of links serves both harnesses. Directory-level links and the pi package registration are the two mechanisms this design removes.
+
+### Cutover from the pi package install
+
+Order matters: the legacy package and the new links must not serve the same skill names at the same time, and a reload before the links resolve would load the old set. Stop on any failed step.
+
+1. Merge the change that introduces this procedure, and apply the [rollout gate](#rollout) to the merged SHA.
+2. Run the update with `--replace-links`, because the machine's existing per-skill links point at the pi-managed clone:
+
+   ```bash
+   scripts/skill-distribution/dist.sh update --sha <merged-sha> --replace-links --pr <PR URL>
+   ```
+
+   The command verifies the new release and links before reporting success, and it refuses to replace anything that is not a symlink.
+3. Remove the legacy `agent-harness` leaf link if it exists (`unlink ~/.agents/skills/agent-harness`). It points at the pi clone and would expose a second, differently-resolved copy of every skill to Pi at two levels deep — a collision even when the per-skill links are correct.
+4. Unregister the legacy pi package if `pi list` names it: `pi remove git:github.com/u7chan/agent-harness`. The pi-managed clone may be left in place; nothing serves from it once the registration is gone, and removing its files is optional.
+5. `/reload` (or restart) every running session.
+6. Run the [smoke test](#smoke-test) with `<merged-sha>`, then check one session's skill listing for the expected names and for the absence of a collision warning.
+7. The command already appended the record line for `<merged-sha>`; verify it with `status` instead of appending another line.
+8. Moved assets: the old record at `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skill-distribution/rollout.jsonl` is history under the previous layout. Keep it as a record and start the new one under `<dist-root>`; do not append to both.
+
+Emergency rollback inside the cutover window, before the pi registration is removed: re-register the previous pinned package (`pi install git:github.com/u7chan/agent-harness@<previous-served-sha>`) and remove the per-skill links with the Uninstall snippet in the README. After step 4, the previous pi-managed revision is no longer a valid rollback target because it predates `skills.json`; the oldest target is the revision this cutover serves.
 
 ## Non-goals
 
+- Calling pi, claude, codex, or another harness CLI from the distribution command.
 - Moving #130's delegation resolution rules into this boundary.
 - Per-workspace or per-agent revision pinning as a supported mode.
+- A per-harness manifest, a per-harness release, or per-harness copies of the skills.
+- Reimplementing the pi package features (resource filters, enable/disable, per-package management).
+- Automatic pruning of old releases; retention is a manual decision.
 - Changes to the content or behavior of individual skills.

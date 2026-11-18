@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "skills": [
+    "explain-video",
+    "gh",
+    "herdr",
+    "herdr-issue-review",
+    "herdr-pi-issue-pr-workflow",
+    "herdr-pi-pr-review-workflow",
+    "kabeuchi",
+    "playwright",
+    "refine-docs-ja",
+    "review"
+  ]
+}

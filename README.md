@@ -48,14 +48,14 @@ Commands used by the harnesses and by this repository's documented procedures:
 | Command | Used for | Required by |
 | --- | --- | --- |
 | GNU Bash | running every harness script (`#!/usr/bin/env bash` with `set -euo pipefail`); the gh attachment path handles Bash 3.2 empty arrays without requiring Bash 5; developer checks may need newer Bash | every scripted harness (gh, herdr, review) |
-| git | the rollout gate, revision confirmation, rollback, and smoke procedures; pi clones git packages with it | the distribution procedures in `_docs/skill-distribution.md` |
-| jq | JSON parsing and validation | the gh and review harness scripts and the smoke test's manifest check |
+| git | fetching, gating, exporting, and switching the served revision; the merge checks | the distribution command in `scripts/skill-distribution/` and the procedures in `_docs/skill-distribution.md` |
+| jq | JSON parsing and validation | the gh and review harness scripts, the skill manifest check, and the distribution command |
 | gh CLI | GitHub API access (`gh api`, `gh auth status`) | the gh skill dispatcher; version 2.99.0 or later for attachments |
-| pi | agent runtime and package management (`pi install`, `pi remove`, `pi list`) | every skill and procedure in this repository |
+| pi | agent runtime (`pi remove`, `pi list`) | the Pi runtime and the Pi-only workflows; the distribution command never calls it |
 | herdr | delegating prompts to other panes (`herdr agent prompt`) | the herdr skill scripts |
 | python3 | the review skill's recheck harness (`review/scripts/recheck-state.sh`); optional for the herdr delegation scripts, which use it only for a cosmetic pane label and fall back gracefully without it | the review skill; optional for the herdr skill |
 | playwright-cli | browser automation for the playwright skill through its `scripts/pw.sh` wrapper (installed separately, e.g. `npm install -g @playwright/cli`; `PW_BIN` can point at an equivalent binary such as `npx @playwright/cli`) | the playwright skill |
-| GNU coreutils and text tools (`stat -c%s`, `sort -V`, `mktemp -p`, GNU `grep -P`, `sed`, `head`, `cat`, `sleep`, `unlink`, `ln`, ...) | shared plumbing across scripts; GNU tools must be available under the unprefixed command names within the harness process; the Uninstall block below removes links with `unlink`, and Migration step 6 in `_docs/skill-distribution.md` creates them with `ln -s` | every scripted harness |
+| GNU coreutils and text tools (`stat -c%s`, `sort -V`, `mktemp -p`, GNU `grep -P`, `sed`, `head`, `cat`, `sleep`, `unlink`, `ln`, ...) | shared plumbing across scripts; GNU tools must be available under the unprefixed command names within the harness process; the distribution command creates and removes the per-skill links with `ln -s` and `unlink`, and the Uninstall block below removes them with `unlink` | every scripted harness |
 
 `curl` is not a dependency: no script in this repository invokes it. The gh dispatcher talks to the GitHub API through the gh CLI, and the only `curl` occurrence in harness code is a retry-classification pattern in `gh/scripts/common/http.sh` that matches gh CLI error text.
 
@@ -67,31 +67,34 @@ repository-wide prerequisite.
 
 ## Install
 
-Install as a pi package pinned to a merged revision:
+The skills are distributed from a pinned git tree by `scripts/skill-distribution/dist.sh`. No harness CLI is required, and the command refuses a revision that is not reachable from `origin/main`. On a new machine, clone this repository at a merged revision once and run the command from that clone:
 
 ```bash
-pi install git:github.com/u7chan/agent-harness@<commit-sha>
+scripts/skill-distribution/dist.sh update --sha <commit-sha> --pr <PR URL>
 ```
 
-Pi clones the repository and loads the skills declared in `package.json`. Revision confirmation, rollout, rollback, and migration from a symlink install are documented in [_docs/skill-distribution.md](_docs/skill-distribution.md).
+The command fetches the revision into the account's distribution root (`${AGENT_HARNESS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-harness}`), exports and verifies an immutable release, switches the `current` symlink atomically, links every skill in [skills.json](skills.json) into `~/.agents/skills`, and appends the rollout record. Repeat `--link-dir` for other harness skill directories. Without `--sha`, the command serves the current `origin/main`. Revision confirmation, rollout, rollback, and migration from the pi package install are documented in [_docs/skill-distribution.md](_docs/skill-distribution.md).
 
 ## Uninstall
 
-Remove the pi package:
+Remove only the per-skill links this package created, then the legacy `agent-harness` leaf link if one remains; the release trees and the rollout record under the distribution root are kept.
 
 ```bash
-pi remove git:github.com/u7chan/agent-harness
-```
-
-If you linked this repository into other harnesses' skill directories (see the per-harness links in [_docs/skill-distribution.md](_docs/skill-distribution.md)), remove only those `agent-harness` links. Keep `~/.agents/skills`, `~/.codex/skills`, and `~/.claude/skills` themselves and every other entry in them: these are the harnesses' standard per-user skill directories (conventions that read the same on every machine, not machine-specific paths), and the parent skill directories and parent symlinks may serve other skills and are not owned by this package.
-
-```bash
-# Remove only this package's own links; links that are already absent are skipped.
-for link in ~/.agents/skills/agent-harness ~/.claude/skills/agent-harness; do
-  if [ -L "$link" ]; then
-    unlink "$link"
+# Remove only the links that point into this package's distribution root.
+ROOT="${AGENT_HARNESS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-harness}"
+for dir in ~/.agents/skills ~/.claude/skills ~/.codex/skills; do
+  for link in "$dir"/*; do
+    [ -L "$link" ] || continue
+    case "$(readlink "$link")" in
+      "$ROOT/current/"*) unlink "$link" ;;
+    esac
+  done
+  if [ -L "$dir/agent-harness" ]; then
+    unlink "$dir/agent-harness"
   fi
 done
 ```
 
-The `-L` guard limits removal to symlinks: a real skill directory is never unlinked. If one of the paths exists as a real directory instead (for example a plain clone from before the pi-package install), inspect it and remove it by hand. Extend the link list if you created links in other harness skill directories.
+The `-L` guard limits removal to symlinks: a real skill directory is never unlinked. Keep `~/.agents/skills`, `~/.codex/skills`, and `~/.claude/skills` themselves and every other entry in them: these are the harnesses' standard per-user skill directories (conventions that read the same on every machine, not machine-specific paths), and the parent skill directories and parent symlinks may serve other skills and are not owned by this package. If a link position holds a real directory instead (for example a plain clone from before this layout), inspect it and remove it by hand. Extend the link list if you created links in other harness skill directories.
+
+If a legacy pi package registration is still present, remove it in a separate step so the two links above stay independent of Pi: `pi remove git:github.com/u7chan/agent-harness`. Delete the distribution root by hand when its release trees and record are no longer needed.

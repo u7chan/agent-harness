@@ -88,7 +88,8 @@ pass_count=$((pass_count + 1))
 # Run the extracted README snippet against an isolated HOME.
 run_documented_uninstall() {
   local home="$1"
-  (cd "$TEST_TMP" && env HOME="$home" bash "$UNLINK_BLOCK")
+  (cd "$TEST_TMP" && env -u XDG_DATA_HOME -u AGENT_HARNESS_HOME HOME="$home" \
+    bash "$UNLINK_BLOCK")
 }
 
 # --- Fixture: shared skill layout modeled on the reference machine.
@@ -202,5 +203,47 @@ fi
 pass_count=$((pass_count + 1))
 expect_dir "real agent-harness directory kept" "$HOME5/.agents/skills/agent-harness"
 expect_ok "real directory content untouched" test -f "$HOME5/.agents/skills/agent-harness/SKILL.md"
+
+# Scenario 6: the current per-skill links created by the distribution command.
+# Only links that point into the package's own distribution root are removed;
+# a same-named link to another target and a real skill directory stay.
+HOME6="$TEST_TMP/home-per-skill"
+DIST6="$HOME6/.local/share/agent-harness"
+mkdir -p "$HOME6/.agents/skills" "$HOME6/.claude" "$DIST6/current/gh" "$DIST6/current/review"
+echo x >"$DIST6/current/gh/SKILL.md"
+echo x >"$DIST6/current/review/SKILL.md"
+ln -s "$DIST6/current/gh" "$HOME6/.agents/skills/gh"
+ln -s "$DIST6/current/review" "$HOME6/.agents/skills/review"
+ln -s "../.agents/skills" "$HOME6/.claude/skills"
+ln -s "$HOME6/other-review" "$HOME6/.agents/skills/other-review"
+mkdir -p "$HOME6/.agents/skills/local-skill"
+echo x >"$HOME6/.agents/skills/local-skill/SKILL.md"
+out="$(run_documented_uninstall "$HOME6" 2>&1)" || fail "per-skill run failed: $out"
+if [ -n "$out" ]; then
+  fail "per-skill run produced unexpected output: $out"
+fi
+pass_count=$((pass_count + 1))
+expect_absent "per-skill link removed" "$HOME6/.agents/skills/gh"
+expect_absent "per-skill link removed (second skill)" "$HOME6/.agents/skills/review"
+expect_symlink "link to a foreign target with our name stays" "$HOME6/.agents/skills/other-review"
+expect_dir "real skill directory stays" "$HOME6/.agents/skills/local-skill"
+expect_dir "distribution root stays" "$DIST6/current/gh"
+expect_symlink "claude parent symlink stays" "$HOME6/.claude/skills"
+
+# Scenario 7: the environment override selects a different distribution root.
+HOME7="$TEST_TMP/home-override"
+mkdir -p "$HOME7/.agents/skills" "$TEST_TMP/alt-root/current/gh"
+echo x >"$TEST_TMP/alt-root/current/gh/SKILL.md"
+ln -s "$TEST_TMP/alt-root/current/gh" "$HOME7/.agents/skills/gh"
+ln -s "$HOME7/.local/share/agent-harness/current/gh" "$HOME7/.agents/skills/review"
+out="$(cd "$TEST_TMP" && env -u XDG_DATA_HOME AGENT_HARNESS_HOME="$TEST_TMP/alt-root" \
+  HOME="$HOME7" bash "$UNLINK_BLOCK" 2>&1)" || fail "override run failed: $out"
+if [ -n "$out" ]; then
+  fail "override run produced unexpected output: $out"
+fi
+pass_count=$((pass_count + 1))
+expect_absent "override root link removed" "$HOME7/.agents/skills/gh"
+expect_symlink "link into the default root is left alone under an override" \
+  "$HOME7/.agents/skills/review"
 
 echo "PASS: $pass_count uninstall-link safety cases"
