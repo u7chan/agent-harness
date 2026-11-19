@@ -6,8 +6,9 @@ name: contract-tests
 # tests, the repository's own skill manifest check and the distribution tests,
 # both PR workflow
 # documentation contracts, the herdr-issue-review start-gate documentation
-# contract, and the markdown link and anchor check over every
-# skill's SKILL.md and references on every push and pull request. All checks are
+# contract, the markdown link and anchor check over every
+# skill's SKILL.md and references, and the media artifact check that keeps UI
+# evidence out of the repository, on every push and pull request. All checks are
 # hermetic: they run unauthenticated with no credentials, no network access, no
 # real gh CLI (the suite supplies a fixture gh.sh and a fake gh CLI where
 # needed), no real browser (the playwright suite
@@ -17,9 +18,10 @@ name: contract-tests
 # model-spec resolver with a stub through --resolver), and no harness CLI in the
 # distribution suite (it drives dist.sh against throwaway file:// repositories).
 # The markdown check reads only local files and resolves nothing over the
-# network. A separate macOS job exercises the shared attachment path with the
-# system Bash 3.2 and GNU coreutils; it also uses only the mock gh CLI (no
-# uploads or credentials).
+# network. The media artifact check reads the working tree, which a checkout
+# supplies from the index. A separate macOS job exercises the shared attachment
+# path with the system Bash 3.2 and GNU coreutils; it also uses only the mock
+# gh CLI (no uploads or credentials).
 
 on:
   push:
@@ -78,6 +80,9 @@ jobs:
 
       - name: Run skill manifest and distribution tests
         run: scripts/tests/run.sh
+
+      - name: Check that no screenshot or recording is committed
+        run: scripts/check-media-artifacts.sh
 
       - name: Run markdown link and anchor check
         run: scripts/check-markdown-links.sh $(jq -r '.skills[]' skills.json)
