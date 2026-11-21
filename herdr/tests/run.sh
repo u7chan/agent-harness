@@ -65,8 +65,24 @@ case "${1:-}" in
   pane)
     case "${2:-}" in
       get)
-        [ "${3:-}" = "$HERDR_PANE_ID" ] || exit 95
-        cat "$HERDR_TEST_PANE_JSON"
+        # The parent pane keeps its own fixture, so the display-name tests can
+        # vary its label. Any other pane is described from HERDR_TEST_PANE_CWD,
+        # which is the working directory the launcher's Claude preflight reads.
+        if [ "${3:-}" = "$HERDR_PANE_ID" ]; then
+          cat "$HERDR_TEST_PANE_JSON"
+          exit 0
+        fi
+        [ -n "${HERDR_TEST_PANE_CWD:-}" ] || exit 95
+        if [ "${HERDR_TEST_PANE_NO_FOREGROUND:-0}" = 1 ]; then
+          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s"}},"type":"pane_info"}\n' \
+            "${3:-}" "$HERDR_TEST_PANE_CWD"
+        elif [ "${HERDR_TEST_PANE_EMPTY_FOREGROUND:-0}" = 1 ]; then
+          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s","foreground_cwd":""}},"type":"pane_info"}\n' \
+            "${3:-}" "$HERDR_TEST_PANE_CWD"
+        else
+          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s","foreground_cwd":"%s"}},"type":"pane_info"}\n' \
+            "${3:-}" "$HERDR_TEST_PANE_CWD" "$HERDR_TEST_PANE_CWD"
+        fi
         ;;
       layout)
         [ "${3:-}" = --pane ] || exit 95
@@ -175,10 +191,59 @@ case "${1:-}" in
     case "${2:-}" in
       start)
         printf '%s\n' "$*" >> "$HERDR_TEST_STARTS"
+        # Written to the caller's stderr so an ordering test can prove the
+        # launcher printed its probe and launch lines before it started.
+        if [ -n "${HERDR_TEST_START_MARKER:-}" ]; then
+          printf '%s\n' "$HERDR_TEST_START_MARKER" >&2
+        fi
+        # Simulate the launched session's statusline: the launcher installs a
+        # statusLine command in its settings file, and this fake runs that
+        # command with a fabricated statusline document. Without it nothing
+        # would ever write the probe the launcher waits for, and no real Claude
+        # CLI is started by this test suite.
+        settings=''
+        model=''
+        effort=''
+        shift 2
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --settings) settings="${2:-}"; shift 2 || shift ;;
+            --model) model="${2:-}"; shift 2 || shift ;;
+            --effort) effort="${2:-}"; shift 2 || shift ;;
+            *) shift ;;
+          esac
+        done
+        statusline="${HERDR_TEST_STATUSLINE:-}"
+        if [ -n "$settings" ] && [ -s "$settings" ] && [ -n "$statusline" ] && [ "$statusline" != none ]; then
+          command="$(jq -r '.statusLine.command // ""' "$settings" 2>/dev/null)" || command=''
+          case "$statusline" in
+            match) document="{\"model\":{\"id\":\"$model\"},\"effort\":{\"level\":\"$effort\"}}" ;;
+            alias) document="{\"model\":{\"id\":\"claude-haiku-5-5\"},\"effort\":{\"level\":\"$effort\"}}" ;;
+            bad-model) document="{\"model\":{\"id\":\"claude-other-9\"},\"effort\":{\"level\":\"$effort\"}}" ;;
+            bad-effort) document="{\"model\":{\"id\":\"$model\"},\"effort\":{\"level\":\"low\"}}" ;;
+            no-effort) document="{\"model\":{\"id\":\"$model\"}}" ;;
+            no-model) document="{\"effort\":{\"level\":\"$effort\"}}" ;;
+            *) document='{}' ;;
+          esac
+          if [ -n "$command" ]; then
+            printf '%s' "$document" | bash -c "$command" >/dev/null 2>&1 || true
+          fi
+          if [ "$statusline" = stale-nonce ]; then
+            # A record from another launch in the same pane: the launcher must
+            # reject it instead of reporting those values as its own.
+            for probe in "${TMPDIR:-/tmp}"/agent-harness/claude-spec/*.json; do
+              [ -s "$probe" ] || continue
+              case "$probe" in *.settings.json) continue ;; esac
+              jq -c '.nonce = "forged"' "$probe" > "$probe.tmp" 2>/dev/null && mv "$probe.tmp" "$probe"
+            done
+          fi
+        fi
         exit "${HERDR_TEST_START_RC:-0}"
         ;;
       wait)
         printf '%s\n' "$*" >> "$HERDR_TEST_WAITS"
+        printf '{"id":"cli:agent:wait","result":{"agent":{"agent":"claude","agent_status":"%s","pane_id":"%s"},"type":"agent_info"}}\n' \
+          "${HERDR_TEST_AGENT_STATUS:-idle}" "${3:-}"
         exit "${HERDR_TEST_WAIT_RC:-0}"
         ;;
       prompt)
@@ -202,6 +267,33 @@ esac
 MOCK
 chmod +x "$MOCK_BIN/herdr"
 
+# Fake Claude CLI. The launcher's preflight runs
+# scripts/pi-development/claude-auth-status.sh, which calls `claude auth
+# status`; the helper is real, the CLI is not. Every other subcommand fails, so
+# a launcher that started a real session would be caught here.
+cat > "$MOCK_BIN/claude" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$HERDR_TEST_CLAUDE_CALLS"
+case "${1:-} ${2:-}" in
+  'auth status')
+    # Mirrors 2.1.328: an explicit CLAUDE_CONFIG_DIR is reported as is, and the
+    # default is <home>/.claude, while the state file stays at <home>/.claude.json.
+    config_directory="${HERDR_TEST_CLAUDE_CONFIG_DIR:-${HERDR_TEST_CLAUDE_HOME}/.claude}"
+    if [ "${HERDR_TEST_CLAUDE_LOGGED_IN:-true}" = true ]; then
+      printf '{"loggedIn":true,"configDirectory":"%s","authMethod":"oauth","email":"never-printed@example.invalid"}\n' \
+        "$config_directory"
+      exit 0
+    fi
+    printf '{"loggedIn":false,"configDirectory":"%s","authMethod":"none"}\n' \
+      "$config_directory"
+    exit 1
+    ;;
+  *) exit 1 ;;
+esac
+MOCK
+chmod +x "$MOCK_BIN/claude"
+
 export PATH="$MOCK_BIN:$PATH"
 export HERDR_ENV=1
 export HERDR_WORKSPACE_ID=wG
@@ -213,6 +305,15 @@ export HERDR_TEST_CALLS="$MOCK_LOG/calls"
 export HERDR_TEST_STARTS="$MOCK_LOG/starts"
 export HERDR_TEST_WAITS="$MOCK_LOG/waits"
 export HERDR_TEST_RENAMES="$MOCK_LOG/renames"
+export HERDR_TEST_CLAUDE_CALLS="$MOCK_LOG/claude-calls"
+# The fake `claude auth status` reports $HERDR_TEST_CLAUDE_HOME/.claude unless
+# HERDR_TEST_CLAUDE_CONFIG_DIR names an explicit config directory.
+export HERDR_TEST_CLAUDE_HOME="$TEST_TMP/claude-home"
+mkdir -p "$HERDR_TEST_CLAUDE_HOME"
+# The launcher derives its probe directory from TMPDIR, so the suite keeps it
+# inside the temporary tree instead of the shared /tmp.
+export TMPDIR="$TEST_TMP/tmp"
+mkdir -p "$TMPDIR"
 export HERDR_TEST_WORKSPACES="$TEST_TMP/workspaces.json"
 export HERDR_SCOPE_FILE="$TEST_TMP/scope.json"
 # State behind the fake `herdr pane layout`, `pane split`, and `tab create`.
@@ -223,6 +324,7 @@ export HERDR_TEST_TAB_AREA='247x47'
 : > "$HERDR_TEST_STARTS"
 : > "$HERDR_TEST_WAITS"
 : > "$HERDR_TEST_RENAMES"
+: > "$HERDR_TEST_CLAUDE_CALLS"
 rm -f "$HERDR_SCOPE_FILE"
 printf '%s\n' \
   '{"id":"cli:pane:get","result":{"pane":{"agent":"pi","label":"bob","pane_id":"wG:p1","workspace_id":"wG"}},"type":"pane_info"}' \
@@ -279,6 +381,7 @@ reset_logs() {
   : > "$HERDR_TEST_STARTS"
   : > "$HERDR_TEST_WAITS"
   : > "$HERDR_TEST_RENAMES"
+  : > "$HERDR_TEST_CLAUDE_CALLS"
   rm -f "$HERDR_TEST_TARGET" "$HERDR_TEST_MESSAGE"
 }
 
@@ -854,6 +957,40 @@ STUB
   chmod +x "$TEST_TMP/resolver-ok.sh" "$TEST_TMP/resolver-marker.sh"
 }
 
+# Fixtures for the Claude paths of the shared launcher. The trusted directory is
+# the only one a state file approves; the fake `claude auth status` answers with
+# $HERDR_TEST_CLAUDE_CONFIG_DIR when it is set and with
+# $HERDR_TEST_CLAUDE_HOME/.claude otherwise, so both state-file locations are
+# exercised without a real CLI or a real user profile.
+LAUNCHER="$HERDR_DIR/scripts/start-agent.sh"
+CLAUDE_TRUSTED_DIR="$TEST_TMP/claude-worktree"
+CLAUDE_UNTRUSTED_DIR="$TEST_TMP/claude-worktree-untrusted"
+mkdir -p "$CLAUDE_TRUSTED_DIR" "$CLAUDE_UNTRUSTED_DIR"
+
+write_claude_trust() { # <config-dir> <approved-path>
+  mkdir -p "$1"
+  printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}}}\n' "$(realpath -m -- "$2")" > "$1/.claude.json"
+}
+
+# An explicit CLAUDE_CONFIG_DIR fixture and a default config-home fixture. Both
+# approve only $CLAUDE_TRUSTED_DIR, so the two state-file locations can be
+# exercised independently.
+CLAUDE_EXPLICIT_CONFIG_DIR="$TEST_TMP/claude-config"
+write_claude_trust "$CLAUDE_EXPLICIT_CONFIG_DIR" "$CLAUDE_TRUSTED_DIR"
+write_claude_trust "$HERDR_TEST_CLAUDE_HOME" "$CLAUDE_TRUSTED_DIR"
+
+claude_config_dir() { # <tag> -> prints a fresh, unapproved config directory
+  local dir="$TEST_TMP/claude-config-$1"
+  mkdir -p "$dir"
+  rm -f "$dir/.claude.json"
+  printf '%s' "$dir"
+}
+
+# Line number of the first match, or nothing.
+line_of() { # <text> <pattern>
+  printf '%s\n' "$1" | grep -n "$2" | head -n 1 | cut -d: -f1
+}
+
 worktree_team_start_profile_mode() {
   local task_file="$TEST_TMP/profile-task.md" home launch err
   printf '%s\n' 'Goal: coordinate the worktree team' 'Acceptance: the team reports back' > "$task_file"
@@ -888,7 +1025,7 @@ worktree_team_start_profile_mode() {
   grep -Fqx 'agent start orchestrator --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
   [ "$(wc -l < "$HERDR_TEST_WAITS")" -eq 1 ]
   grep -Fqx 'wB:p2 orchestrator' "$HERDR_TEST_RENAMES"
-  launch='launch: profile=default role=orchestrator spec=openrouter/anthropic/claude-x/max spec_source=profile origin=default'
+  launch='launch: profile=default role=orchestrator harness=pi spec=pi:openrouter/anthropic/claude-x/max spec_source=profile origin=default'
   grep -Fqx "$launch" <<< "$err"
   assert_file_eq wB:p2 "$HERDR_TEST_TARGET"
   grep -Fq 'Goal: coordinate the worktree team' "$HERDR_TEST_MESSAGE"
@@ -901,14 +1038,14 @@ worktree_team_start_profile_mode() {
   err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 orchestrator \
     --role orchestrator --profile crew --resolver "$TEST_TMP/resolver-ok.sh" "$task_file" 2>&1 >/dev/null)"
   grep -Fqx 'agent start orchestrator --kind pi --pane wB:p2 --timeout 60000 -- --provider openai-codex --model gpt-6.1-sol --thinking high' "$HERDR_TEST_STARTS"
-  grep -Fqx 'launch: profile=crew role=orchestrator spec=openai-codex/gpt-6.1-sol/high spec_source=profile origin=explicit' <<< "$err"
+  grep -Fqx 'launch: profile=crew role=orchestrator harness=pi spec=pi:openai-codex/gpt-6.1-sol/high spec_source=profile origin=explicit' <<< "$err"
 
   # active selects the profile when --profile is absent.
   printf 'crew\n' > "$home/pi-development/active"
   reset_logs
   err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 orchestrator \
     --role orchestrator --resolver "$TEST_TMP/resolver-ok.sh" "$task_file" 2>&1 >/dev/null)"
-  grep -Fqx 'launch: profile=crew role=orchestrator spec=openai-codex/gpt-6.1-sol/high spec_source=profile origin=active' <<< "$err"
+  grep -Fqx 'launch: profile=crew role=orchestrator harness=pi spec=pi:openai-codex/gpt-6.1-sol/high spec_source=profile origin=active' <<< "$err"
   rm -f "$home/pi-development/active"
 
   # The explicit mode reads no profile at all, even when none exists.
@@ -916,7 +1053,7 @@ worktree_team_start_profile_mode() {
   err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$TEST_TMP/no-such-pi-agent" "$START_SCRIPT" wB:p2 impl \
     --provider anthropic --model claude-sonnet-4-5 --thinking high "$task_file" 2>&1 >/dev/null)"
   grep -Fqx 'agent start impl --kind pi --pane wB:p2 --timeout 60000 -- --provider anthropic --model claude-sonnet-4-5 --thinking high' "$HERDR_TEST_STARTS"
-  launch='launch: profile=- role=- spec=anthropic/claude-sonnet-4-5/high spec_source=explicit origin=explicit'
+  launch='launch: profile=- role=- harness=pi spec=pi:anthropic/claude-sonnet-4-5/high spec_source=explicit origin=explicit'
   grep -Fqx "$launch" <<< "$err"
   grep -Fqx "$launch" "$HERDR_TEST_MESSAGE"
 }
@@ -1014,6 +1151,9 @@ worktree_team_start_profile_failures() {
   rm -rf "$fake_root"
   mkdir -p "$fake_root/herdr" "$fake_root/scripts/pi-development"
   cp -R "$HERDR_DIR/scripts" "$fake_root/herdr/scripts"
+  # lib/role-spec.mjs imports the shared grammar, so the fake package needs the
+  # same library tree as the real one.
+  cp -R "$HERDR_DIR/../scripts/pi-development/lib" "$fake_root/scripts/pi-development/lib"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fake_root/scripts/pi-development/team-record.sh"
   chmod +x "$fake_root/scripts/pi-development/team-record.sh"
   reset_logs
@@ -1034,10 +1174,10 @@ FAKE
     "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file")
   [ ! -s "$HERDR_TEST_STARTS" ]
 
-  # A `claude:` role spec stops before any herdr call and says why: Claude
-  # starts arrive with the shared launcher, so this revision never launches a
-  # harness it cannot verify. team-record.sh now always prints the prefix, so a
-  # stored Claude role reaches this branch unmodified.
+  # A stored Claude role resolves to a `claude:` specification and stops before
+  # any herdr call while the workspace is untrusted, so the profile path can
+  # never start a harness it cannot verify. The successful profile start is
+  # covered by worktree_team_start_claude_mode.
   local claude_home claude_task claude_err
   claude_home="$(profile_home claude)"
   claude_task="$TEST_TMP/claude-task.md"
@@ -1053,12 +1193,13 @@ FAKE
 }'
   reset_logs
   set +e
-  claude_err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$claude_home" "$START_SCRIPT" wB:p2 orchestrator \
+  claude_err="$(HERDR_TEST_RC=0 HERDR_TEST_PANE_CWD="$CLAUDE_UNTRUSTED_DIR" \
+    PI_CODING_AGENT_DIR="$claude_home" "$START_SCRIPT" wB:p2 orchestrator \
     --role orchestrator --resolver "$TEST_TMP/resolver-ok.sh" "$claude_task" 2>&1 >/dev/null)"
   rc_claude=$?
   set -e
   [ "$rc_claude" -eq 1 ]
-  grep -Fq 'claude: role specs are not supported yet' <<< "$claude_err"
+  grep -Fq "claude-trust: $CLAUDE_UNTRUSTED_DIR が未承認です" <<< "$claude_err"
   [ ! -s "$HERDR_TEST_STARTS" ]
   [ ! -s "$HERDR_TEST_WAITS" ]
   [ ! -e "$HERDR_TEST_TARGET" ]
@@ -1077,12 +1218,11 @@ FAKE
   rc_unknown=$?
   set -e
   [ "$rc_unknown" -eq 1 ]
-  grep -Fq 'unknown harness prefix' <<< "$unknown_err"
+  grep -Fq 'not a usable role specification: codex:model/high' <<< "$unknown_err"
   [ ! -s "$HERDR_TEST_STARTS" ]
 
-  # A legacy unprefixed spec from an older producer still launches, and its
-  # launch line stays in the previous `spec=<provider>/<model>/<thinking>` form
-  # until the shared launcher owns that line.
+  # A legacy unprefixed spec from an older producer still launches, and the
+  # shared launcher prints it as the canonical prefixed specification.
   cat > "$fake_root/scripts/pi-development/team-record.sh" <<'FAKE'
 #!/usr/bin/env bash
 printf 'command=resolve profile=default source=default present=true result=ok orchestrator=openrouter/anthropic/claude-x/max\n'
@@ -1093,7 +1233,7 @@ FAKE
   legacy_err="$( (cd "$TEST_TMP" && HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" \
     "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file") 2>&1 >/dev/null)"
   grep -Fqx 'agent start orchestrator --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
-  grep -Fqx 'launch: profile=default role=orchestrator spec=openrouter/anthropic/claude-x/max spec_source=profile origin=default' <<< "$legacy_err"
+  grep -Fqx 'launch: profile=default role=orchestrator harness=pi spec=pi:openrouter/anthropic/claude-x/max spec_source=profile origin=default' <<< "$legacy_err"
 
   # A `pi:` prefixed spec from the current producer launches the same way.
   cat > "$fake_root/scripts/pi-development/team-record.sh" <<'FAKE'
@@ -1106,8 +1246,381 @@ FAKE
   pi_err="$( (cd "$TEST_TMP" && HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" \
     "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file") 2>&1 >/dev/null)"
   grep -Fqx 'agent start orchestrator --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
-  grep -Fqx 'launch: profile=default role=orchestrator spec=openrouter/anthropic/claude-x/max spec_source=profile origin=default' <<< "$pi_err"
+  grep -Fqx 'launch: profile=default role=orchestrator harness=pi spec=pi:openrouter/anthropic/claude-x/max spec_source=profile origin=default' <<< "$pi_err"
   [ "$(wc -l < "$HERDR_TEST_STARTS")" -eq 1 ]
+}
+
+shared_launcher_pi_arguments() {
+  local err marker
+
+  # Explicit mode: the flags become the canonical specification, the launch line
+  # precedes the start, and Pi reports no effective values here because its own
+  # agent prints them from $PI_*.
+  reset_logs
+  marker='agent-start-marker'
+  err="$(HERDR_TEST_START_MARKER="$marker" "$LAUNCHER" wB:p2 impl \
+    --harness pi --provider openrouter --model anthropic/claude-x --thinking max 2>&1 >/dev/null)"
+  grep -Fqx 'agent start impl --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
+  grep -Fqx 'agent wait wB:p2 --until idle --until done --until blocked --timeout 60000' "$HERDR_TEST_WAITS"
+  grep -Fqx 'launch: profile=- role=- harness=pi spec=pi:openrouter/anthropic/claude-x/max spec_source=explicit origin=explicit' <<< "$err"
+  [ "$(line_of "$err" '^launch: ')" -lt "$(line_of "$err" '^agent-start-marker$')" ]
+  ! grep -q '^effective: ' <<< "$err"
+  ! grep -q '^probe: ' <<< "$err"
+
+  # A canonical specification from a profile and a legacy unprefixed value are
+  # parsed by the shared grammar and launched with the same three flags.
+  reset_logs
+  err="$("$LAUNCHER" wB:p2 impl --spec 'pi:opencode-go/deepseek-v4.1-flash/max' \
+    --profile crew --role impl --spec-source profile --origin active 2>&1 >/dev/null)"
+  grep -Fqx 'agent start impl --kind pi --pane wB:p2 --timeout 60000 -- --provider opencode-go --model deepseek-v4.1-flash --thinking max' "$HERDR_TEST_STARTS"
+  grep -Fqx 'launch: profile=crew role=impl harness=pi spec=pi:opencode-go/deepseek-v4.1-flash/max spec_source=profile origin=active' <<< "$err"
+
+  reset_logs
+  err="$("$LAUNCHER" wB:p2 impl --spec 'openrouter/anthropic/claude-x/max' 2>&1 >/dev/null)"
+  grep -Fqx 'agent start impl --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
+  grep -Fqx 'launch: profile=- role=- harness=pi spec=pi:openrouter/anthropic/claude-x/max spec_source=explicit origin=explicit' <<< "$err"
+
+  # A model ID may contain `/`: the provider is the first segment and the
+  # thinking level the last one.
+  reset_logs
+  err="$("$LAUNCHER" wB:p2 impl --harness pi --provider openrouter --model 'anthropic/claude-x' --thinking high 2>&1 >/dev/null)"
+  grep -Fqx 'launch: profile=- role=- harness=pi spec=pi:openrouter/anthropic/claude-x/high spec_source=explicit origin=explicit' <<< "$err"
+
+  # Mixed, partial, and other-harness flags are usage errors that start nothing.
+  reset_logs
+  expect_rc 2 "$LAUNCHER" wB:p2 impl --harness pi --model m --effort high --permission-mode auto
+  expect_rc 2 "$LAUNCHER" wB:p2 impl --provider p --model m
+  expect_rc 2 "$LAUNCHER" wB:p2 impl --harness claude --model m --thinking high
+  expect_rc 2 "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high' --provider p
+  expect_rc 2 "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high' --model m
+  expect_rc 2 "$LAUNCHER" wB:p2 impl --spec ''
+  expect_rc 2 "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high' --harness codex
+  expect_rc 2 "$LAUNCHER" wB:p2 impl
+  expect_rc 2 "$LAUNCHER" wB:p2
+  [ ! -s "$HERDR_TEST_STARTS" ]
+
+  # A usable argument shape with an unusable value is exit 1, not usage.
+  expect_rc 1 "$LAUNCHER" wB:p2 impl --provider p --model m --thinking extreme
+  expect_rc 1 "$LAUNCHER" wB:p2 impl --spec 'codex:model/high'
+  expect_rc 1 "$LAUNCHER" wB:p2 impl --spec 'claude:claude-haiku-5-5/minimal/auto'
+  expect_rc 1 "$LAUNCHER" wB:p2 impl --spec 'claude:claude-haiku-5-5/high/bypassPermissions'
+  expect_rc 1 "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high' --harness claude
+  expect_rc 1 "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high' --timeout 0
+  expect_rc 1 "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high' --probe-timeout 400000
+  expect_rc 1 "$LAUNCHER" bad-pane impl --spec 'pi:p/m/high'
+  expect_rc 1 "$LAUNCHER" wB:p2 'bad name' --spec 'pi:p/m/high'
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  [ ! -s "$HERDR_TEST_WAITS" ]
+
+  # A blocked readiness state stops before anything else happens.
+  reset_logs
+  expect_rc 1 env HERDR_TEST_AGENT_STATUS=blocked \
+    "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high'
+  [ -s "$HERDR_TEST_STARTS" ]
+}
+
+shared_launcher_claude_preflight() {
+  local case_name config err rc probe settings command_line empty_home
+  probe="$TMPDIR/agent-harness/claude-spec/wB_p2.json"
+  settings="$TMPDIR/agent-harness/claude-spec/wB_p2.settings.json"
+
+  # A logged-out CLI stops before the pane is even inspected, and the helper's
+  # record never carries the account email.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_CLAUDE_LOGGED_IN=false HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'Claude is not ready to start: command=auth-status result=unauthenticated' <<< "$err"
+  ! grep -q 'never-printed@example.invalid' <<< "$err"
+  ! grep -q 'email' <<< "$err"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  ! grep -q '^pane get ' "$HERDR_TEST_CALLS"
+
+  # The trust file is read-only and fail closed: a missing file, `false`,
+  # invalid JSON, and a project without the key are all unapproved, and the
+  # file is byte-identical afterwards.
+  for case_name in missing false invalid no-key; do
+    config="$(claude_config_dir "$case_name")"
+    rm -f "$config/before"
+    case "$case_name" in
+      missing) ;;
+      false)
+        printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}}}\n' \
+          "$(realpath -m -- "$CLAUDE_TRUSTED_DIR")" > "$config/.claude.json"
+        ;;
+      invalid) printf 'not json\n' > "$config/.claude.json" ;;
+      no-key)
+        printf '{"projects":{"%s":{"hasCompletedProjectOnboarding":true}}}\n' \
+          "$(realpath -m -- "$CLAUDE_TRUSTED_DIR")" > "$config/.claude.json"
+        ;;
+    esac
+    [ ! -e "$config/.claude.json" ] || cp "$config/.claude.json" "$config/before"
+    reset_logs
+    set +e
+    err="$(CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+      "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+      --permission-mode auto 2>&1 >/dev/null)"
+    rc=$?
+    set -e
+    [ "$rc" -eq 1 ]
+    grep -Fqx "claude-trust: $(realpath -m -- "$CLAUDE_TRUSTED_DIR") が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。" <<< "$err"
+    [ ! -s "$HERDR_TEST_STARTS" ]
+    ! grep -q '^launch: ' <<< "$err"
+    ! grep -q '^probe: ' <<< "$err"
+    if [ -e "$config/before" ]; then
+      cmp -s "$config/.claude.json" "$config/before"
+    else
+      [ ! -e "$config/.claude.json" ]
+    fi
+  done
+
+  # An explicit CLAUDE_CONFIG_DIR wins over the config directory the auth
+  # record reports, so an approved directory in the other config cannot stand
+  # in for this launch.
+  config="$(claude_config_dir override)"
+  reset_logs
+  expect_rc 1 env CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=match "$LAUNCHER" wB:p2 review --harness claude \
+    --model claude-haiku-5-5 --effort high --permission-mode auto
+  [ ! -s "$HERDR_TEST_STARTS" ]
+
+  # Trusted: the start carries the harness flags and a settings file path (never
+  # an inline JSON argument), the probe record is private, and the effective
+  # line follows the start.
+  reset_logs
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=match HERDR_TEST_START_MARKER='agent-start-marker' \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto 2>&1 >/dev/null)"
+  grep -Fqx "agent start review --kind claude --pane wB:p2 --timeout 60000 -- --model claude-haiku-5-5 --effort high --permission-mode auto --settings $settings" "$HERDR_TEST_STARTS"
+  ! grep -q 'dangerously-skip-permissions' <<< "$(<"$HERDR_TEST_STARTS")"
+  grep -Fqx "probe: $probe" <<< "$err"
+  grep -Fqx 'effective: harness=claude provider=- model=claude-haiku-5-5 effort=high thinking=- permission_requested=auto requested=claude:claude-haiku-5-5/high/auto' <<< "$err"
+  [ "$(line_of "$err" '^probe: ')" -lt "$(line_of "$err" '^launch: ')" ]
+  [ "$(line_of "$err" '^launch: ')" -lt "$(line_of "$err" '^agent-start-marker$')" ]
+  [ "$(line_of "$err" '^agent-start-marker$')" -lt "$(line_of "$err" '^effective: ')" ]
+  [ "$(stat -c '%a' "$TMPDIR/agent-harness/claude-spec")" = 700 ]
+  [ "$(stat -c '%a' "$probe")" = 600 ]
+  [ "$(stat -c '%a' "$settings")" = 600 ]
+  [ "$(jq -r '.statusLine.type' "$settings")" = command ]
+  [ "$(jq -r '.statusLine.refreshInterval' "$settings")" = 1 ]
+  command_line="$(jq -r '.statusLine.command' "$settings")"
+  grep -Fq 'claude-statusline-probe.sh' <<< "$command_line"
+  grep -Fq "$probe" <<< "$command_line"
+  grep -Eq '[0-9a-f]{32}' <<< "$command_line"
+  grep -Fqx 'pane get wB:p2' "$HERDR_TEST_CALLS"
+
+  # Without CLAUDE_CONFIG_DIR the state file is <home>/.claude.json, one level
+  # above the `<home>/.claude` directory the auth record reports.
+  empty_home="$TEST_TMP/claude-home-empty"
+  mkdir -p "$empty_home"
+  reset_logs
+  expect_rc 1 env -u CLAUDE_CONFIG_DIR HERDR_TEST_CLAUDE_HOME="$empty_home" \
+    HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" "$LAUNCHER" wB:p2 review \
+    --harness claude --model claude-haiku-5-5 --effort high --permission-mode auto
+  [ ! -s "$HERDR_TEST_STARTS" ]
+
+  # With the default state file in place it starts, and a missing
+  # foreground_cwd falls back to cwd.
+  reset_logs
+  err="$(env -u CLAUDE_CONFIG_DIR HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_PANE_NO_FOREGROUND=1 HERDR_TEST_STATUSLINE=match \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto 2>&1 >/dev/null)"
+  grep -q '^effective: ' <<< "$err"
+  [ -s "$HERDR_TEST_STARTS" ]
+
+  # An empty foreground_cwd falls back to cwd as well.
+  reset_logs
+  err="$(env -u CLAUDE_CONFIG_DIR HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_PANE_EMPTY_FOREGROUND=1 HERDR_TEST_STATUSLINE=match \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto 2>&1 >/dev/null)"
+  grep -q '^effective: ' <<< "$err"
+  [ -s "$HERDR_TEST_STARTS" ]
+
+  # A pane without any working directory cannot be checked for trust.
+  reset_logs
+  expect_rc 1 env CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD= \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto
+  [ ! -s "$HERDR_TEST_STARTS" ]
+}
+
+shared_launcher_claude_verification() {
+  local err rc spec='claude:claude-haiku-5-5/high/auto'
+
+  # A stored canonical model ID must match the launched session exactly.
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=bad-model "$LAUNCHER" wB:p2 review --spec "$spec" \
+    --spec-source profile --profile crew --role review 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'the launched Claude model does not match the requested specification: launched=claude-other-9' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+  grep -q '^launch: ' <<< "$err"
+
+  # An explicit alias is a one-off: the reported canonical model is the result,
+  # even though it differs from the requested token.
+  reset_logs
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=alias "$LAUNCHER" wB:p2 review --harness claude --model haiku \
+    --effort high --permission-mode auto 2>&1 >/dev/null)"
+  grep -Fqx 'effective: harness=claude provider=- model=claude-haiku-5-5 effort=high thinking=- permission_requested=auto requested=claude:haiku/high/auto' <<< "$err"
+
+  # A different effort than the one requested stops the start.
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=bad-effort "$LAUNCHER" wB:p2 review --harness claude \
+    --model claude-haiku-5-5 --effort high --permission-mode auto 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'the launched Claude effort does not match the requested specification: launched=low' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A statusline without .effort.level is "not available", not a value.
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=no-effort "$LAUNCHER" wB:p2 review --harness claude \
+    --model claude-haiku-5-5 --effort high --permission-mode auto 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'did not report an effort level' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A statusline without .model.id is unusable too.
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=no-model "$LAUNCHER" wB:p2 review --harness claude \
+    --model claude-haiku-5-5 --effort high --permission-mode auto 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'reported no usable model' <<< "$err"
+
+  # No write within the bounded wait stops the start and keeps the pane.
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=none "$LAUNCHER" wB:p2 review --harness claude \
+    --model claude-haiku-5-5 --effort high --permission-mode auto --probe-timeout 300 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'did not report wB:p2 within 300ms' <<< "$err"
+  grep -q '^launch: ' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+  ! grep -q '^pane close' "$HERDR_TEST_CALLS"
+
+  # A record from another launch in the same pane is never read as this one's.
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=stale-nonce "$LAUNCHER" wB:p2 review --harness claude \
+    --model claude-haiku-5-5 --effort high --permission-mode auto --probe-timeout 300 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq "another launch's record" <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A blocked agent receives no work: the launcher stops and leaves the pane.
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=match HERDR_TEST_AGENT_STATUS=blocked "$LAUNCHER" wB:p2 review \
+    --harness claude --model claude-haiku-5-5 --effort high --permission-mode auto 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'is blocked; resolve the prompt in the pane' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+  ! grep -q '^pane close' "$HERDR_TEST_CALLS"
+}
+
+worktree_team_start_claude_mode() {
+  local task_file="$TEST_TMP/claude-team-task.md" home err rc
+  printf '%s\n' 'Goal: review with Claude' 'Acceptance: the review reports back' > "$task_file"
+  write_profile_resolvers
+  export HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR"
+
+  # Explicit mode: the launcher's launch and effective lines reach the body in
+  # that order, and the pane is renamed before the delegation.
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_STATUSLINE=match \
+    HERDR_TEST_RC=0 "$START_SCRIPT" wB:p2 review --harness claude \
+    --model claude-haiku-5-5 --effort high --permission-mode auto "$task_file" 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ]
+  grep -Fqx "agent start review --kind claude --pane wB:p2 --timeout 60000 -- --model claude-haiku-5-5 --effort high --permission-mode auto --settings $TMPDIR/agent-harness/claude-spec/wB_p2.settings.json" "$HERDR_TEST_STARTS"
+  grep -Fqx 'launch: profile=- role=- harness=claude spec=claude:claude-haiku-5-5/high/auto spec_source=explicit origin=explicit' <<< "$err"
+  grep -Fqx 'effective: harness=claude provider=- model=claude-haiku-5-5 effort=high thinking=- permission_requested=auto requested=claude:claude-haiku-5-5/high/auto' <<< "$err"
+  grep -Fqx 'wB:p2 review' "$HERDR_TEST_RENAMES"
+  assert_file_eq wB:p2 "$HERDR_TEST_TARGET"
+  grep -Fq 'Goal: review with Claude' "$HERDR_TEST_MESSAGE"
+  [ "$(grep -c '^launch: ' "$HERDR_TEST_MESSAGE")" -eq 1 ]
+  [ "$(grep -c '^effective: ' "$HERDR_TEST_MESSAGE")" -eq 1 ]
+  awk '/^launch: /{ l=NR } /^effective: /{ e=NR } /Direct parent pane for result return/{ r=NR } END { exit !(l && e && r && l < e && e < r) }' "$HERDR_TEST_MESSAGE"
+
+  # Pi keeps the launch line only: its effective line belongs to the agent.
+  reset_logs
+  err="$(HERDR_TEST_RC=0 "$START_SCRIPT" wB:p2 impl \
+    --provider anthropic --model claude-sonnet-4-5 --thinking high "$task_file" 2>&1 >/dev/null)"
+  grep -Fqx 'launch: profile=- role=- harness=pi spec=pi:anthropic/claude-sonnet-4-5/high spec_source=explicit origin=explicit' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+  ! grep -q '^effective: ' "$HERDR_TEST_MESSAGE"
+  [ "$(grep -c '^launch: ' "$HERDR_TEST_MESSAGE")" -eq 1 ]
+
+  # Profile mode resolves a stored Claude role into the same launcher.
+  home="$(profile_home claude-team)"
+  write_profile_fixture "$home" default '{
+  "pr_fix_shared_with_impl": true,
+  "roles": {
+    "impl": {"provider": "p", "model": "m", "thinking": "high"},
+    "review": {"provider": "p", "model": "m", "thinking": "high"},
+    "pr-fix": {"provider": "p", "model": "m", "thinking": "high"},
+    "orchestrator": {"harness": "claude", "model": "claude-haiku-5-5", "effort": "high", "permission_mode": "auto"}
+  }
+}'
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_STATUSLINE=match HERDR_TEST_RC=0 \
+    PI_CODING_AGENT_DIR="$home" "$START_SCRIPT" wB:p2 orchestrator --role orchestrator \
+    --resolver "$TEST_TMP/resolver-ok.sh" "$task_file" 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ]
+  grep -Fqx 'launch: profile=default role=orchestrator harness=claude spec=claude:claude-haiku-5-5/high/auto spec_source=profile origin=default' <<< "$err"
+  grep -Fqx 'effective: harness=claude provider=- model=claude-haiku-5-5 effort=high thinking=- permission_requested=auto requested=claude:claude-haiku-5-5/high/auto' <<< "$err"
+  grep -Fqx "$(grep '^launch: ' <<< "$err" | tail -n 1)" "$HERDR_TEST_MESSAGE"
+  grep -Fqx "$(grep '^effective: ' <<< "$err" | tail -n 1)" "$HERDR_TEST_MESSAGE"
+
+  # A blocked start stops before the rename and the delegation, and the pane is
+  # left in place for a human to resolve the prompt.
+  reset_logs
+  expect_rc 1 env CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_STATUSLINE=match \
+    HERDR_TEST_AGENT_STATUS=blocked HERDR_TEST_RC=0 "$START_SCRIPT" wB:p2 review \
+    --harness claude --model claude-haiku-5-5 --effort high --permission-mode auto "$task_file"
+  [ -s "$HERDR_TEST_STARTS" ]
+  [ ! -s "$HERDR_TEST_RENAMES" ]
+  [ ! -e "$HERDR_TEST_TARGET" ]
+  ! grep -q '^pane close' "$HERDR_TEST_CALLS"
+
+  unset HERDR_TEST_PANE_CWD
 }
 
 cli_failure_is_propagated() {
@@ -1626,7 +2139,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=35
+expected_count=39
 
 run_test parent_success
 run_test child_success
@@ -1643,6 +2156,10 @@ run_test scope_grant_cli
 run_test worktree_team_start_flow
 run_test worktree_team_start_profile_mode
 run_test worktree_team_start_profile_failures
+run_test shared_launcher_pi_arguments
+run_test shared_launcher_claude_preflight
+run_test shared_launcher_claude_verification
+run_test worktree_team_start_claude_mode
 run_test cli_failure_is_propagated
 run_test parent_display_name_fallbacks
 run_test python3_isolation

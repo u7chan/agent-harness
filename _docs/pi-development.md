@@ -339,11 +339,11 @@ launch: profile=<name|-> role=<role|-> harness=<pi|claude> spec=<harness>:<...> 
 ```
 
 `harness` must equal the prefix of `spec`. A mismatch stops the start instead of
-launching an agent whose specification cannot be verified. The current
-`herdr/scripts/worktree-team-start.sh` still prints the previous form without
-`harness=` and with `spec=<provider>/<model>/<thinking>`: it strips the `pi:`
-prefix from a canonical value, accepts a legacy unprefixed value as Pi, and
-stops on a `claude:` value because Claude starts are not implemented yet.
+launching an agent whose specification cannot be verified. The shared launcher
+`herdr/scripts/start-agent.sh` prints the line and starts the agent;
+`herdr/scripts/worktree-team-start.sh` appends the lines the launcher reported.
+A canonical value keeps its prefix, and a legacy unprefixed value is read as Pi
+and printed with the `pi:` prefix.
 
 The effective values are reported once after launch:
 

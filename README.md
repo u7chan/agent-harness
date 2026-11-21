@@ -49,9 +49,10 @@ Commands used by the harnesses and by this repository's documented procedures:
 | --- | --- | --- |
 | GNU Bash | running every harness script (`#!/usr/bin/env bash` with `set -euo pipefail`); the gh attachment path handles Bash 3.2 empty arrays without requiring Bash 5; developer checks may need newer Bash | every scripted harness (gh, herdr, review) |
 | git | fetching, gating, exporting, and switching the served revision; the merge checks | the distribution command in `scripts/skill-distribution/` and the procedures in `_docs/skill-distribution.md` |
-| jq | JSON parsing and validation | the gh and review harness scripts, the skill manifest check, and the distribution command |
+| jq | JSON parsing and validation | the gh and review harness scripts, the herdr launcher and its Claude statusline probe, the skill manifest check, and the distribution command |
 | gh CLI | GitHub API access (`gh api`, `gh auth status`) | the gh skill dispatcher; version 2.99.0 or later for attachments |
 | pi | agent runtime (`pi remove`, `pi list`) | the Pi runtime and the Pi-only workflows; the distribution command never calls it |
+| claude | Claude Code CLI 2.1.328; `claude auth status` reports the login state and the config directory without a network call, and the CLI loads skills from `~/.claude/skills` | the Claude role agents that [the Herdr launcher](herdr/scripts/start-agent.sh) starts; the distribution command never calls it |
 | herdr | delegating prompts to other panes (`herdr agent prompt`) | the herdr skill scripts |
 | python3 | the review skill's recheck harness (`review/scripts/recheck-state.sh`); optional for the herdr delegation scripts, which use it only for a cosmetic pane label and fall back gracefully without it | the review skill; optional for the herdr skill |
 | playwright-cli | browser automation for the playwright skill through its `scripts/pw.sh` wrapper (installed separately, e.g. `npm install -g @playwright/cli`; `PW_BIN` can point at an equivalent binary such as `npx @playwright/cli`) | the playwright skill |
@@ -59,11 +60,20 @@ Commands used by the harnesses and by this repository's documented procedures:
 
 `curl` is not a dependency: no script in this repository invokes it. The gh dispatcher talks to the GitHub API through the gh CLI, and the only `curl` occurrence in harness code is a retry-classification pattern in `gh/scripts/common/http.sh` that matches gh CLI error text.
 
-The shared development profile/model helpers require Node.js.
+The shared development profile/model helpers require Node.js, and so does
+`herdr/scripts/start-agent.sh`, which parses one role specification through the
+same grammar before it starts an agent.
 [explain-video](explain-video/SKILL.md#prerequisites) additionally requires
 Node.js, FFmpeg/ffprobe, the Playwright/Chromium environment, and fonts covering
 the caption language. FFmpeg remains optional for other workflows; it is not a
 repository-wide prerequisite.
+
+Claude workspace trust is checked read-only: the launcher requires Claude's
+state file (`$CLAUDE_CONFIG_DIR/.claude.json`, or `~/.claude.json` when that
+variable is unset) to approve the pane's working directory before it starts a
+Claude agent, and it never writes that file and never passes
+`--dangerously-skip-permissions`. An unapproved directory stops the start with
+the approval instructions instead of launching the CLI.
 
 ## Install
 
