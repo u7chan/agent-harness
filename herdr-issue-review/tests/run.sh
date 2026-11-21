@@ -139,31 +139,122 @@ check_contains "the reviewer section names the effective profile" "$REVIEWER_TEX
   '実効プロファイル'
 check_contains "the reviewer section links the shared profiles contract" "$REVIEWER_TEXT" \
   '../_docs/pi-development.md'
-check_contains "the reviewer section resolves the profile" "$REVIEWER_TEXT" \
-  'scripts/pi-development/team-record.sh resolve'
+check_contains "the reviewer section resolves the review role" "$REVIEWER_TEXT" \
+  'scripts/pi-development/team-record.sh resolve --only-role review'
 check_contains "the reviewer section bases the spec on the profile review" "$REVIEWER_TEXT" \
-  'review=<provider>/<model>/<thinking>'
-check_contains "the reviewer section overlays only the user values" "$REVIEWER_TEXT" \
-  'ユーザーが指定した provider / model / thinking だけを上書きする'
-check_contains "the reviewer section re-validates the composed spec" "$REVIEWER_TEXT" \
-  'scripts/pi-development/resolve-model-spec.sh --provider <provider> --model <model> --thinking <thinking>'
-check_contains "the reviewer section starts only on result=ok" "$REVIEWER_TEXT" \
-  '`result=ok` のときだけ起動する'
+  'review=<harness>:<...>'
+check_contains "the reviewer section names the Pi canonical form" "$REVIEWER_TEXT" \
+  'pi:<provider>/<model>/<thinking>'
+check_contains "the reviewer section names the Claude canonical form" "$REVIEWER_TEXT" \
+  'claude:<model>/<effort>/<permission_mode>'
+check_contains "the reviewer section overlays only the user values per harness" "$REVIEWER_TEXT" \
+  'ユーザー指定はハーネス別にだけ上書きする'
+check_contains "the reviewer section refuses mixed harness values" "$REVIEWER_TEXT" \
+  'ハーネスをまたぐ指定'
+check_contains "the reviewer section allows a same-harness partial override" "$REVIEWER_TEXT" \
+  'プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う'
+check_contains "the reviewer section stops a partial override without a profile" "$REVIEWER_TEXT" \
+  'プロファイルが使えない場合の部分的に揃った指定は、プロファイルや推測で埋めずに停止する'
+check_contains "the reviewer section re-validates per harness" "$REVIEWER_TEXT" \
+  'scripts/pi-development/resolve-model-spec.sh --harness <pi|claude>'
+check_contains "the reviewer section passes the Pi specification flags" "$REVIEWER_TEXT" \
+  '--provider <provider> --model <model> --thinking <thinking>'
+check_contains "the reviewer section passes the Claude specification flags" "$REVIEWER_TEXT" \
+  '--model <model> --effort <effort> --permission-mode <permission_mode>'
+check_contains "the reviewer section requires the exact Pi verification" "$REVIEWER_TEXT" \
+  'verification=exact'
+check_contains "the reviewer section requires the Claude postlaunch verification" "$REVIEWER_TEXT" \
+  'verification=postlaunch'
+check_contains "the reviewer section starts only after both checks" "$REVIEWER_TEXT" \
+  '`result=ok` と `verification=exact`'
 check_contains "the reviewer section stops for a non-ok user specification" "$REVIEWER_TEXT" \
   '再検証が `result=ok` でなければ停止する'
 
-# A profile that cannot be used falls back to the runtime default only when the
-# user stated nothing; a partial specification stops instead of being guessed.
-check_contains "the reviewer section falls back to the environment default" "$REVIEWER_TEXT" \
+# A profile that cannot be used keeps a Pi-only fallback to the runtime values
+# the caller's own session publishes; a partial specification or a Claude
+# reviewer stops instead of being guessed.
+check_contains "the reviewer section keeps the Pi environment fallback" "$REVIEWER_TEXT" \
   '実行環境の既定'
+check_contains "the reviewer section derives the Pi fallback from the runtime" "$REVIEWER_TEXT" \
+  '$PI_PROVIDER'
+check_contains "the reviewer section reads all three Pi runtime values" "$REVIEWER_TEXT" \
+  '"$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"'
+check_contains "the reviewer section stops on an incomplete Pi fallback" "$REVIEWER_TEXT" \
+  '3 値が揃わない場合はフォールバックせず停止する'
+check_contains "the reviewer section never falls back for Claude" "$REVIEWER_TEXT" \
+  'Claude は既定へフォールバックしない'
 check_contains "the reviewer section stops on a partial specification" "$REVIEWER_TEXT" \
   '不足をプロファイルや推測で埋めずに停止して確認する'
 check_contains "the reviewer section validates a complete user specification" "$REVIEWER_TEXT" \
   'ユーザー指定が完全なら'
 check_contains "the reviewer section fixes the fallback line" "$REVIEWER_TEXT" \
   'review: 実効プロファイルを使わず実行環境の既定で起動（profile=<missing|invalid|unresolved>）'
-check_contains "the reviewer section starts with the provider and model flags" "$REVIEWER_TEXT" \
-  'herdr agent start herdr-issue-review --kind pi --pane <pane-id> -- --provider <provider> --model <model> --thinking <thinking>'
+check_contains "the reviewer section marks the fallback line as Pi-only" "$REVIEWER_TEXT" \
+  'この行は Pi 用であり、Claude では出さない'
+
+# The reviewer starts through the shared launcher: the pane, the agent name,
+# the canonical specification, and the launch context go to it as arguments,
+# and the caller renames the pane itself.
+check_contains "the reviewer section starts through the shared launcher" "$REVIEWER_TEXT" \
+  'herdr/scripts/start-agent.sh <pane-id> herdr-issue-review'
+check_contains "the reviewer section passes the canonical specification" "$REVIEWER_TEXT" \
+  '--spec <harness>:<...>'
+check_contains "the reviewer section passes the launch context" "$REVIEWER_TEXT" \
+  '--profile <name|-> --role review'
+check_contains "the reviewer section passes the source and origin" "$REVIEWER_TEXT" \
+  '--spec-source <profile|explicit> --origin <explicit|active|default>'
+check_contains "the reviewer section reserves spec-source profile for an unmodified spec" "$REVIEWER_TEXT" \
+  '`review` の spec をそのまま使う場合だけ `--spec-source profile` にする'
+check_contains "the reviewer section marks any override as explicit" "$REVIEWER_TEXT" \
+  '明示上書きを 1 つでも適用した場合'
+check_contains "the reviewer section separates spec_source from origin" "$REVIEWER_TEXT" \
+  '`spec_source` と `origin` は別物'
+check_contains "the reviewer section keeps the profile origin on an override" "$REVIEWER_TEXT" \
+  '--profile default --role review --spec-source explicit --origin default'
+check_contains "the reviewer section pins the partial-override precondition" "$REVIEWER_TEXT" \
+  '土台のプロファイル `default` の `review` が Claude で、model と permission_mode が揃っている場合に限り'
+check_contains "the reviewer section refuses a cross-harness example" "$REVIEWER_TEXT" \
+  'ハーネスをまたぐ指定はこの形にできないため停止する'
+check_contains "the reviewer section keeps the full-profile example" "$REVIEWER_TEXT" \
+  '--spec-source profile --origin default'
+check_contains "the reviewer section reuses the launch pane ID" "$REVIEWER_TEXT" \
+  '起動に使った pane ID をそのまま使い'
+check_contains "the reviewer section states the launcher does not return JSON" "$REVIEWER_TEXT" \
+  '共有ランチャーは JSON を返さず'
+check_contains "the reviewer section states the launcher stderr lines" "$REVIEWER_TEXT" \
+  '`launch:` 行（Claude は `probe:` と `effective:` も）を stderr に出す'
+check_not_contains "the reviewer section does not depend on a JSON response" "$REVIEWER_TEXT" \
+  'JSON 応答'
+check_contains "the reviewer section keeps the caller-side rename" "$REVIEWER_TEXT" \
+  'herdr pane rename <pane-id> herdr-issue-review'
+check_not_contains "the reviewer section does not start agents directly" "$REVIEWER_TEXT" \
+  '--kind pi'
+check_not_contains "the reviewer section does not name a raw agent start" "$REVIEWER_TEXT" \
+  'herdr agent start'
+
+# The harness preflight and the harness-specific effective check replace the
+# Pi-only launch check. The trust stop line is a fixed line shared with the
+# launcher.
+check_contains "the reviewer section requires the Pi CLI" "$REVIEWER_TEXT" \
+  'Pi は `pi` が使える'
+check_contains "the reviewer section checks the Claude login state" "$REVIEWER_TEXT" \
+  'claude auth status'
+check_contains "the reviewer section checks the Claude skills location" "$REVIEWER_TEXT" \
+  '~/.claude/skills'
+check_contains "the reviewer section fixes the trust stop line" "$REVIEWER_TEXT" \
+  'claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。'
+check_contains "the reviewer section makes Pi print the effective line" "$REVIEWER_TEXT" \
+  "printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s"
+check_contains "the reviewer section matches the Pi effective line to the launch" "$REVIEWER_TEXT" \
+  '`launch:` 行と照合'
+check_contains "the reviewer section treats the footer as auxiliary" "$REVIEWER_TEXT" \
+  'footer だけで一致とみなさない'
+check_contains "the reviewer section uses the launcher effective line for Claude" "$REVIEWER_TEXT" \
+  'stderr に出す最後の `effective:` 行'
+check_contains "the reviewer section refuses launch arguments as evidence" "$REVIEWER_TEXT" \
+  '起動引数だけを証拠にしない'
+check_contains "the reviewer section stops without an effective line" "$REVIEWER_TEXT" \
+  'レビュー結果を採用せずに停止する'
 
 # The user's explicit values outrank the profile.
 check_contains "the preconditions let the user override the profile" \

@@ -13,9 +13,9 @@ description: >
 
 ## 前提
 
-- 設計は合意済みであること。未決定が残るなら、先に 1 問ずつ確認して潰す（Pi なら [kabeuchi](../kabeuchi/SKILL.md)）
+- 設計は合意済みであること。未決定が残るなら、先に 1 問ずつ確認して潰す（[kabeuchi](../kabeuchi/SKILL.md)）
 - Herdr 管理下であること（`HERDR_ENV=1`）。ペインと委譲の操作は [herdr](../herdr/SKILL.md) を正とする
-- レビュアーの provider / model / thinking は、実効プロファイルの `review` を土台にする（[Pi Development Profiles](../_docs/pi-development.md)）。ユーザーが明示指定した値はプロファイルより優先する
+- レビュアーの起動 spec は、実効プロファイルの `review` を土台にする（[Pi Development Profiles](../_docs/pi-development.md)）。ユーザーが明示指定した値はプロファイルより優先する
 - GitHub の読み書きは [gh](../gh/SKILL.md) を正とする
 
 ## 開始前チェック
@@ -55,22 +55,55 @@ description: >
 
 - `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` で空きの対話シェルを探し、あれば使う。無ければ `herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus`（再利用するペインの cwd は親と同じとは限らないため、レビュアーへ渡すリポジトリのルートはプロンプト側で指定する）
 - 実効プロファイルの `review` を土台にして起動 spec を合成する（[Pi Development Profiles](../_docs/pi-development.md)）。スクリプトのパスは対象リポジトリではなく、このスキルの親（パッケージルート）から解決する。
-  1. `scripts/pi-development/team-record.sh resolve` で実効プロファイルを解決し、`result=ok` なら `review=<provider>/<model>/<thinking>` を土台にする。
-  2. ユーザーが指定した provider / model / thinking だけを上書きする。
-  3. 合成後の完全な spec を `scripts/pi-development/resolve-model-spec.sh --provider <provider> --model <model> --thinking <thinking>` で再検証し、`result=ok` のときだけ起動する。ユーザー指定が完全でも、再検証が `result=ok` でなければ停止する。
+  1. `scripts/pi-development/team-record.sh resolve --only-role review` で実効プロファイルを解決し、`result=ok` なら `review=<harness>:<...>` を土台にする。正本の文字列は Pi が `pi:<provider>/<model>/<thinking>`、Claude が `claude:<model>/<effort>/<permission_mode>` である。
+  2. ユーザー指定はハーネス別にだけ上書きする。Pi は provider / model / thinking、Claude は model / effort / permission_mode である。プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う。ハーネスをまたぐ指定（Pi の provider と Claude の effort など）は停止する。プロファイルが使えない場合の部分的に揃った指定は、プロファイルや推測で埋めずに停止する。上書きは今回の実行だけに使い、プロファイルを自動で書き換えない。
+  3. 合成後の完全な spec をハーネス別の形で `scripts/pi-development/resolve-model-spec.sh --harness <pi|claude> ...` に再検証する。Pi は `--provider <provider> --model <model> --thinking <thinking>` を渡し、`result=ok` と `verification=exact` の両方を確認する。Claude は `--model <model> --effort <effort> --permission-mode <permission_mode>` を渡し、`result=ok` と `verification=postlaunch` の両方を確認する。ユーザー指定が完全でも、再検証が `result=ok` でなければ停止する。
 - `reason=migration-required` の場合は既定へのフォールバックに進まず、[設定移行](../_docs/pi-development-migration.md)のため停止する。
 - プロファイルが `ok` でない場合（`result=missing` / `invalid` / `unresolved`）は、ユーザー指定の揃い方で決める。
-  - ユーザー指定が無ければ、実行環境の既定（`--provider` / `--model` / `--thinking` を付けない起動）にフォールバックし、その旨を 1 行で出す。
+  - Pi でユーザー指定が無ければ、実行環境の既定にフォールバックし、その旨を 1 行で出す。既定は、呼び出し元の Pi セッションが公開する `$PI_PROVIDER` / `$PI_MODEL` / `$PI_REASONING_LEVEL` を `pi:<provider>/<model>/<thinking>` として使う。3 値が揃わない場合はフォールバックせず停止する。
+  - Claude は既定へフォールバックしない。model / effort / permission_mode がすべて明示されていない場合は停止して確認する。
   - ユーザー指定が部分的なら、不足をプロファイルや推測で埋めずに停止して確認する。
   - ユーザー指定が完全なら、`resolve-model-spec.sh` で検証し、`result=ok` のときだけ使う。
-- フォールバックしたときの固定行は次の 1 行だけとする。
+- フォールバックしたときの固定行は次の 1 行だけとする。この行は Pi 用であり、Claude では出さない。
 
   ```text
   review: 実効プロファイルを使わず実行環境の既定で起動（profile=<missing|invalid|unresolved>）
   ```
 
-- 起動: `herdr agent start herdr-issue-review --kind pi --pane <pane-id> -- --provider <provider> --model <model> --thinking <thinking>`
-- 応答の `pane_id` を読み、`herdr pane rename <pane-id> herdr-issue-review` と `herdr pane get <pane-id>` で label を確認する
+- ハーネスの preflight: Pi は `pi` が使えることを確認する。Claude は `claude` と `claude auth status` の `loggedIn=true` を確認し、`~/.claude/skills` からこのリポジトリのスキルをロードできることを確かめる。trust は共有ランチャーが読み取り専用で確認する。未承認なら次の固定行で停止する。
+
+  ```text
+  claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。
+  ```
+
+- 起動は共有ランチャー `herdr/scripts/start-agent.sh` を使う。共有ランチャー以外の起動経路を使わない。ランチャーは引数検証、認証と trust の preflight、起動、実効値確認、`launch:` / `effective:` 行を所有する。
+
+  ```bash
+  herdr/scripts/start-agent.sh <pane-id> herdr-issue-review \
+    --spec <harness>:<...> \
+    --profile <name|-> --role review \
+    --spec-source <profile|explicit> --origin <explicit|active|default>
+  ```
+
+  プロファイルの `review` を土台にした場合は、`team-record.sh resolve` が返した profile と source を `--profile` と `--origin` に渡す。`--spec-source` は spec の由来を示し、`review` の spec をそのまま使う場合だけ `--spec-source profile` にする。
+
+  明示上書きを 1 つでも適用した場合と、完全な明示 spec（Pi の実行環境既定を含む）を使う場合は `--spec-source explicit` にする。
+
+  `--profile` は土台にしたプロファイル名（完全な明示 spec なら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。`spec_source` と `origin` は別物であり、上書きしても `origin` は土台の由来のままにする。
+
+  例: 土台のプロファイル `default` の `review` が Claude で、model と permission_mode が揃っている場合に限り、effort だけを上書きして `--profile default --role review --spec-source explicit --origin default` にできる。ハーネスをまたぐ指定はこの形にできないため停止する。spec 全体がプロファイル由来のままなら `--spec-source profile --origin default` にする。
+- 起動確認:
+  - Pi は、レビュアーへ渡すタスク文面に次のコマンドを含め、`effective:` 行を出させる。`launch:` 行と照合し、`requested=` が起動した `spec` と一致することを確認する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
+
+    ```bash
+    printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s\n' \
+      "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL" \
+      "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
+    ```
+
+  - Claude は共有ランチャーが stderr に出す最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。起動引数だけを証拠にしない。
+  - `effective:` 行が得られない、または `launch:` 行と一致しない場合は、レビュー結果を採用せずに停止する。
+- 起動に使った pane ID をそのまま使い、`herdr pane rename <pane-id> herdr-issue-review` と `herdr pane get <pane-id>` で label を確認する。共有ランチャーは JSON を返さず、`launch:` 行（Claude は `probe:` と `effective:` も）を stderr に出す。
 - 収束まで同じペインを使い回す（レビューのたびに増やさない）
 
 ### 2. 1 回目を委譲する
@@ -85,6 +118,7 @@ description: >
 - 観点: 実装時に詰まる抜け / スコープの過剰・不足 / docs の更新漏れ / テスト方針との整合
 - 形式: 指摘を 重大 / 中 / 軽 に分け、各指摘に根拠（ファイルパス + 該当箇所）を付ける。結論は OK / 条件付きOK / 要修正
 - 読み取り範囲: Issue 本文の `pi:human-brief` 範囲は読まない。範囲外の本文だけを設計としてレビューする
+- 起動確認: Pi の場合は「1. レビュアーのペインと起動 spec を用意する」の `effective:` 行のコマンドを最初に実行させ、その出力を返信に含めさせる
 - 制約: 読み取りのみ（ファイル変更・Issue 編集・コミットは禁止）。成果物本文にレビューの記録を足さない
 
 ### 3. 返信を反映する
