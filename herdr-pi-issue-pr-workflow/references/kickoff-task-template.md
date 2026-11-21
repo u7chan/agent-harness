@@ -17,8 +17,10 @@ role: orchestrator
 起動後、orchestrator は bash ツールで次を実行し、実効 spec を `launch:` 行と照合する。
 
 ```bash
-printf '%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
+printf 'pi:%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
 ```
+
+`launch:` 行は `harness=pi` と `spec=pi:<provider>/<model>/<thinking>` を出す。`spec` は `pi:` 接頭辞を含む正本の文字列であり、`harness` はその接頭辞と一致しなければならない。上の `printf` の結果は `spec` の値とそのまま一致する必要があり、接頭辞を落として比較してはいけない。
 
 `launch:` 行の形式と意味の正本は [Worktree workspace teams — Orchestrator-first](../../herdr/references/worktree-workspace-teams.md#orchestrator-first) である。本文に `launch:` 行が複数ある場合は最後の行を正本とする。実行結果が `spec` と一致しない、値が取得できない、または行が曖昧な場合は、作業を始めずに停止して起動元へ報告する。
 

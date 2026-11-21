@@ -77,8 +77,10 @@ starter には 2 つの経路がある。
    スクリプトは `team-record.sh resolve --only-role <role>` で仕様を解決し、起動引数に使い、解決結果を stderr と委譲本文の末尾（返却指示の前）へ `launch:` 行として出す。
 
    ```text
-   launch: profile=<name|-> role=<profile-role|-> spec=<provider>/<model>/<thinking> spec_source=<profile|explicit> origin=<explicit|active|default>
+   launch: profile=<name|-> role=<profile-role|-> harness=<pi|claude> spec=<harness>:<...> spec_source=<profile|explicit> origin=<explicit|active|default>
    ```
+
+   `spec` は接頭辞を含む正本の文字列（Pi なら `pi:<provider>/<model>/<thinking>`）であり、`harness` はその接頭辞と一致しなければならない。接頭辞のない旧形式の値はランチャーが `pi:` を付けて報告する。
 
    プロファイルモードでは `profile` が使用したプロファイル名、`role` が `--role`、`spec_source=profile`、`origin` が team-record の `source` になる。starter は stderr の `launch:` 行を応答に含める。タスクファイルや委譲本文に `launch:` 行が複数ある場合は最後の行を正本とし、内容が曖昧なら停止する。
 
@@ -101,7 +103,7 @@ starter には 2 つの経路がある。
    明示モードはプロファイルを読まない。「プロファイルに orchestrator が無い場合だけ」は規約であり、スクリプトで強制しない。starter は `launch: ... spec_source=explicit origin=explicit` を応答に含めて監査する。明示 3 値と `--role`、3 値の一部だけ、`--role` なしの `--profile` や `--resolver`、モード未指定はすべて usage error（終了コード 2）であり、何も起動しない。
 
    この起動が、starter による worktree ワークスペースへの唯一の `worktree-team-start.sh` 呼び出しである。経路 2 ではワークフローの親が同じ worktree へ別の orchestrator を追加しない。スクリプトのスコープ、起動、返却のルールはそのまま適用される。
-4. starter は orchestrator の起動 spec を確認する。判定の正本は orchestrator 側で読む `PI_*` であり、starter は補助として `herdr agent read <pane-id> --source visible` の footer を見てよいが、footer だけで一致とみなさない。orchestrator は起動後に `printf '%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"` を実行し、`launch:` の `spec` と照合する。一致しない、または取得できない場合は停止して報告する（[キックオフ用テンプレート](../../herdr-pi-issue-pr-workflow/references/kickoff-task-template.md)）。
+4. starter は orchestrator の起動 spec を確認する。判定の正本は orchestrator 側で読む `PI_*` であり、starter は補助として `herdr agent read <pane-id> --source visible` の footer を見てよいが、footer だけで一致とみなさない。orchestrator は起動後に `printf 'pi:%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"` を実行し、`launch:` の `spec` と照合する。`spec` は `pi:` 接頭辞を含み、`harness=pi` がその接頭辞と一致する。一致しない、または取得できない場合は停止して報告する（[キックオフ用テンプレート](../../herdr-pi-issue-pr-workflow/references/kickoff-task-template.md)）。
 5. orchestrator は worktree ワークスペース内のチームを所有する。ペインの作成（`herdr/scripts/pane-layout.sh apply`）、エージェントの起動（`herdr agent start`）、タスクの委譲（`herdr/scripts/parent-delegate-async.sh`）を行う。親は `impl`、`review`、`ui-tester` などのロールペインを事前に作ったり、それらのエージェントを起動したりしてはならない。チームごとに書き込み主体は 1 つである。
 
 #### Worktree environment block
