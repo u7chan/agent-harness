@@ -1,11 +1,12 @@
 /**
- * Pure thinking-level classification for the model-spec resolver.
+ * Pure specification vocabularies and thinking-level classification.
  *
  * This module must not import pi: `scripts/pi-development/tests/run.sh` loads it
  * on machines without an installed pi. It never computes supported levels or
  * clamp results itself; the caller passes the values that Pi's public API
  * (`getSupportedThinkingLevels`, `clampThinkingLevel`) produced, and this
- * module only classifies them.
+ * module only classifies them. It also holds the harness vocabularies that the
+ * role-spec grammar and the resolver share, so neither keeps a second copy.
  */
 
 /** Thinking levels accepted by Pi (`ModelThinkingLevel`). */
@@ -20,6 +21,34 @@ export const THINKING_LEVELS = Object.freeze([
 ]);
 
 const LEVELS = new Set(THINKING_LEVELS);
+
+/**
+ * Harnesses a role spec can name. The prefix itself is part of the grammar:
+ * only a leading `pi:` or `claude:` is a harness prefix.
+ */
+export const HARNESSES = Object.freeze(["pi", "claude"]);
+
+/**
+ * Effort levels accepted by Claude's `--effort`. `off` and `minimal` are not
+ * part of the vocabulary: the CLI ignores them with a warning and falls back
+ * to the model default, so accepting them would claim an effort nobody set.
+ */
+export const CLAUDE_EFFORT_LEVELS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+
+/**
+ * Claude permission modes accepted in a role spec. `bypassPermissions` is
+ * deliberately absent: a role spec never skips the permission system.
+ */
+export const CLAUDE_PERMISSION_MODES = Object.freeze(["acceptEdits", "auto", "manual", "dontAsk", "plan"]);
+
+/**
+ * True when a value can be a Claude model or alias: one command-line token that
+ * does not start with `-`, so a model ID may still contain `/`, `:` and `.`.
+ * The alias table itself is not owned here; an alias is confirmed after launch.
+ */
+export function isClaudeModelId(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:@+/-]*$/.test(value);
+}
 
 /**
  * Classify one requested thinking level.

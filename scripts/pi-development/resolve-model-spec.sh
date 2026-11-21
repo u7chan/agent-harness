@@ -4,7 +4,10 @@
 # This wrapper stays thin: it locates the pi package root (following the `pi`
 # command's symlink chain) and forwards every argument to the .mjs, which loads
 # the public pi API and prints the one-line key=value result. An unresolved pi
-# root is reported by the .mjs as result=unknown with a nonzero exit.
+# root is reported by the .mjs as result=unknown with a nonzero exit. A Claude
+# request needs no pi root at all: its model exists only after launch, so the
+# .mjs validates the shape and the enumerations and reports
+# verification=postlaunch.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,12 +15,24 @@ MJS="$SCRIPT_DIR/resolve-model-spec.mjs"
 
 usage() {
   cat <<'EOF'
-Usage: resolve-model-spec.sh --provider <id> --model <id> --thinking <level> [--pi-root <pi-package>] [--pi-ai-root <pi-ai-package>]
+Usage: resolve-model-spec.sh [--harness <pi|claude>] [options]
 
-Resolves the exact provider/model/thinking specification through the installed
-pi runtime and prints one key=value line with provider, model, requested,
-supported, effective, result, and thinking_level_map. Exit status is 0 only for
-result=ok; every other result is unresolved.
+Resolves one role specification and prints one key=value line with harness,
+provider, model, requested, supported, effective, result, verification, and the
+harness's own vocabulary field (thinking_level_map for pi, permission_mode for
+claude). Exit status is 0 only for result=ok.
+
+pi (default):
+  --provider <id> --model <id> --thinking <level>
+  [--pi-root <pi-package>] [--pi-ai-root <pi-ai-package>]
+  The model must match the installed catalog exactly; the result is
+  verification=exact.
+
+claude:
+  --model <id-or-alias> --effort <level> --permission-mode <mode>
+  Only the model shape and the effort/permission vocabularies are checked and
+  the result is verification=postlaunch. No alias table is kept and no
+  effective value is reported before launch.
 
 --pi-root overrides the pi package root. Without it, the root is derived from
 the `pi` command on PATH (symlink target plus the nearest package.json).
@@ -45,6 +60,7 @@ command -v node >/dev/null 2>&1 || {
 
 args=()
 have_pi_root=0
+harness=''
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -61,6 +77,17 @@ while [ "$#" -gt 0 ]; do
         shift
       fi
       ;;
+    --harness)
+      # Forwarded unchanged; only the pi-root lookup depends on it. A dangling
+      # --harness is forwarded so the .mjs reports the argument error.
+      args+=("$1")
+      shift
+      if [ "$#" -gt 0 ]; then
+        harness="$1"
+        args+=("$1")
+        shift
+      fi
+      ;;
     *)
       args+=("$1")
       shift
@@ -68,7 +95,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "$have_pi_root" -eq 0 ]; then
+if [ "$have_pi_root" -eq 0 ] && [ "$harness" != 'claude' ]; then
   pi_root="$(pi_root_from_command)" || pi_root=""
   if [ -n "$pi_root" ]; then
     args+=(--pi-root "$pi_root")

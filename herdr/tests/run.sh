@@ -827,14 +827,29 @@ write_profile_fixture() { # <agent-dir> <name> <json>
 }
 
 write_profile_resolvers() {
+  # Both stubs answer only a harness-aware call: team-record.sh must name the
+  # harness, so a producer that stopped doing so would fail here instead of
+  # silently resolving through the wrong grammar.
   cat > "$TEST_TMP/resolver-ok.sh" <<'STUB'
 #!/usr/bin/env bash
-printf 'provider=stub model=stub requested=high supported=high effective=high result=ok thinking_level_map={}\n'
+if [ "${1:-}" != --harness ]; then
+  printf 'result=unknown\n'
+  exit 1
+fi
+case "${2:-}" in
+  pi) printf 'harness=pi provider=stub model=stub requested=high supported=high effective=high result=ok verification=exact thinking_level_map={}\n' ;;
+  claude) printf 'harness=claude provider= model=stub requested=high supported= effective= result=ok verification=postlaunch permission_mode=auto\n' ;;
+  *) printf 'result=unknown\n'; exit 1 ;;
+esac
 STUB
   cat > "$TEST_TMP/resolver-marker.sh" <<STUB
 #!/usr/bin/env bash
 printf 'called\n' >> "$TEST_TMP/resolver-calls"
-printf 'provider=stub model=stub requested=high supported=high effective=high result=ok thinking_level_map={}\n'
+if [ "\${1:-}" != --harness ]; then
+  printf 'result=unknown\n'
+  exit 1
+fi
+printf 'harness=%s result=ok verification=postlaunch\n' "\${2:-}"
 STUB
   chmod +x "$TEST_TMP/resolver-ok.sh" "$TEST_TMP/resolver-marker.sh"
 }
@@ -908,6 +923,8 @@ worktree_team_start_profile_mode() {
 
 worktree_team_start_profile_failures() {
   local task_file="$TEST_TMP/profile-error-task.md" home empty_home fake_root
+  local claude_home claude_task claude_err rc_claude unknown_err rc_unknown
+  local legacy_err pi_err
   printf '%s\n' 'Goal: fail closed' > "$task_file"
   write_profile_resolvers
 
@@ -1016,6 +1033,81 @@ FAKE
   (cd "$TEST_TMP" && expect_rc 1 env PI_CODING_AGENT_DIR="$home" \
     "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file")
   [ ! -s "$HERDR_TEST_STARTS" ]
+
+  # A `claude:` role spec stops before any herdr call and says why: Claude
+  # starts arrive with the shared launcher, so this revision never launches a
+  # harness it cannot verify. team-record.sh now always prints the prefix, so a
+  # stored Claude role reaches this branch unmodified.
+  local claude_home claude_task claude_err
+  claude_home="$(profile_home claude)"
+  claude_task="$TEST_TMP/claude-task.md"
+  printf '%s\n' 'Goal: a claude orchestrator' > "$claude_task"
+  write_profile_fixture "$claude_home" default '{
+  "pr_fix_shared_with_impl": false,
+  "roles": {
+    "impl": {"provider": "p", "model": "m", "thinking": "high"},
+    "review": {"provider": "p", "model": "m", "thinking": "high"},
+    "pr-fix": {"provider": "p", "model": "m", "thinking": "high"},
+    "orchestrator": {"harness": "claude", "model": "claude-haiku-5-5", "effort": "high", "permission_mode": "auto"}
+  }
+}'
+  reset_logs
+  set +e
+  claude_err="$(HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$claude_home" "$START_SCRIPT" wB:p2 orchestrator \
+    --role orchestrator --resolver "$TEST_TMP/resolver-ok.sh" "$claude_task" 2>&1 >/dev/null)"
+  rc_claude=$?
+  set -e
+  [ "$rc_claude" -eq 1 ]
+  grep -Fq 'claude: role specs are not supported yet' <<< "$claude_err"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  [ ! -s "$HERDR_TEST_WAITS" ]
+  [ ! -e "$HERDR_TEST_TARGET" ]
+
+  # An unknown harness prefix is rejected too, rather than read as a provider.
+  cat > "$fake_root/scripts/pi-development/team-record.sh" <<'FAKE'
+#!/usr/bin/env bash
+printf 'command=resolve profile=default source=default present=true result=ok orchestrator=codex:model/high\n'
+exit 0
+FAKE
+  chmod +x "$fake_root/scripts/pi-development/team-record.sh"
+  reset_logs
+  set +e
+  unknown_err="$( (cd "$TEST_TMP" && HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" \
+    "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file") 2>&1 >/dev/null)"
+  rc_unknown=$?
+  set -e
+  [ "$rc_unknown" -eq 1 ]
+  grep -Fq 'unknown harness prefix' <<< "$unknown_err"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+
+  # A legacy unprefixed spec from an older producer still launches, and its
+  # launch line stays in the previous `spec=<provider>/<model>/<thinking>` form
+  # until the shared launcher owns that line.
+  cat > "$fake_root/scripts/pi-development/team-record.sh" <<'FAKE'
+#!/usr/bin/env bash
+printf 'command=resolve profile=default source=default present=true result=ok orchestrator=openrouter/anthropic/claude-x/max\n'
+exit 0
+FAKE
+  chmod +x "$fake_root/scripts/pi-development/team-record.sh"
+  reset_logs
+  legacy_err="$( (cd "$TEST_TMP" && HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" \
+    "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file") 2>&1 >/dev/null)"
+  grep -Fqx 'agent start orchestrator --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
+  grep -Fqx 'launch: profile=default role=orchestrator spec=openrouter/anthropic/claude-x/max spec_source=profile origin=default' <<< "$legacy_err"
+
+  # A `pi:` prefixed spec from the current producer launches the same way.
+  cat > "$fake_root/scripts/pi-development/team-record.sh" <<'FAKE'
+#!/usr/bin/env bash
+printf 'command=resolve profile=default source=default present=true result=ok orchestrator=pi:openrouter/anthropic/claude-x/max\n'
+exit 0
+FAKE
+  chmod +x "$fake_root/scripts/pi-development/team-record.sh"
+  reset_logs
+  pi_err="$( (cd "$TEST_TMP" && HERDR_TEST_RC=0 PI_CODING_AGENT_DIR="$home" \
+    "$fake_root/herdr/scripts/worktree-team-start.sh" wB:p2 orchestrator --role orchestrator "$task_file") 2>&1 >/dev/null)"
+  grep -Fqx 'agent start orchestrator --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
+  grep -Fqx 'launch: profile=default role=orchestrator spec=openrouter/anthropic/claude-x/max spec_source=profile origin=default' <<< "$pi_err"
+  [ "$(wc -l < "$HERDR_TEST_STARTS")" -eq 1 ]
 }
 
 cli_failure_is_propagated() {
