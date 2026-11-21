@@ -38,7 +38,7 @@ Measured on 2026-11-18 while designing the current layout ([#285](https://github
 
 - Claude Code discovers skills exactly one directory below a scan path. A skill at `~/.agents/skills/<skill>/SKILL.md` is found; one at `~/.agents/skills/<group>/<skill>/SKILL.md` is not, so a directory-level link to the distribution root is not a distribution mechanism for that harness.
 - Pi reads two levels, so it finds both shapes. Its skill loader resolves real paths and silently skips a second file with the same name; two per-skill links that resolve to the same file therefore raise no collision warning, while two different targets with the same skill name do.
-- `../` inside a linked skill directory resolves in the target tree: `~/.agents/skills/herdr/../_docs/` and `~/.agents/skills/herdr/../scripts/` reached the clone's own copies, and a link to an unlinked sibling skill (`herdr` referencing `herdr-pi-issue-pr-workflow`) still resolved.
+- `../` inside a linked skill directory resolves in the target tree: `~/.agents/skills/herdr/../_docs/` and `~/.agents/skills/herdr/../scripts/` reached the clone's own copies, and a link to an unlinked sibling skill (`herdr` referencing `herdr-issue-pr-workflow`) still resolved.
 - Per-skill links preserve the executable bit of scripts and the relative references of `SKILL.md`, so a release tree can carry `_docs/` and `scripts/` beside the skills at one revision.
 - Codex CLI discovery is unverified. The harness table under [Compatibility and migration](#compatibility-and-migration) marks it as such instead of claiming it.
 
@@ -161,6 +161,8 @@ Take the merged SHA as `<commit-sha>`.
    ```
 
    The command fetches `origin/main` into `<dist-root>/git`, gates the requested SHA, checks the link layout of every link directory against the target release, exports and verifies the release, switches `current`, reconciles the per-skill links, verifies them, records the linked directories, and appends `<rollout-record>`. A layout conflict stops before a release is published; any later failure restores the previous revision and its links. Omitting `--sha` serves the current `origin/main` head, which is only what you want when no later merge should be skipped. On the first cutover from the pi package install, add `--replace-links` as described in [Compatibility and migration](#compatibility-and-migration).
+
+   When the revision renames a skill, the same reconcile step removes the link for the name the release no longer serves and creates the link for the new name from the release manifest. Do not rename, create, or delete a link by hand: a real directory or a foreign symlink at a new name stops the layout check before the switch, and a leftover link for a previous name is drift that `verify` reports. No command change is needed, because the reconcile is driven by `skills.json`.
 4. Unregister the legacy pi package when it is still registered: after the switch and before the reload, run `pi list` once and, if it names `git:github.com/u7chan/agent-harness`, `pi remove git:github.com/u7chan/agent-harness`. Skipping this leaves two different real paths for the same skill names, which Pi reports as a collision. A machine without pi skips this step; nothing in the distribution path depends on pi.
 5. Run the harness's reload command (`/reload` in Pi, `/reload-skills` in Claude Code) or restart every running session. A session reloaded after this step serves the new revision; one that skips it keeps its pre-switch listing until it reloads.
 6. Run the [smoke test](#smoke-test) with the installed SHA, then the session-level listing check.
@@ -245,6 +247,8 @@ test -f <link-dir>/<any-served-skill>/../_docs/skill-distribution.md
 ```
 
 `verify` re-reads the release's own `skills.json`, checks that every listed skill has a `SKILL.md`, that `current` names the expected SHA, that the record's last line names the same SHA, and that every per-skill link in the linked directories resolves. Without `--link-dir` it uses the directories recorded by the last `update`. It fails when no link directory exists; `--no-link` is the explicit way to verify a release that is not linked yet. Reading the manifest from the served tree rather than from `<checkout>` keeps a rollback validated against the revision being served.
+
+For a rollout that renames a skill, confirm both directions by name: the new name resolves (`test -f <link-dir>/<new-skill>/SKILL.md`) and no directory entry remains for the previous name (`[ ! -e <link-dir>/<previous-skill> ] && [ ! -L <link-dir>/<previous-skill> ]`). Then run the harness reload (`/reload` in Pi, `/reload-skills` in Claude Code) and confirm the session listing shows the new name. A session that skipped the reload can still list the previous name until it restarts; that is a stale session listing, not a leftover link.
 
 As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills and no collision warning; a session started or reloaded after the switch is consistent by construction. Running sessions verify themselves: after their `/reload` (Pi) or `/reload-skills` (Claude Code), each runs the confirmation command and compares against the expected SHA.
 

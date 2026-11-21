@@ -49,8 +49,8 @@ herdr/scripts/scope-grant.sh grant --source <parent-workspace> --target-repo <re
 
 starter には 2 つの経路がある。
 
-- **経路 1**: `herdr-pi-issue-pr-workflow` の親がキックオフゲートを通し、承認済みチームを起動する。orchestrator 自身の仕様はチームの承認対象ではなく、この経路でもプロファイルから解決する。
-- **経路 2**: 別のペイン（Pi または Claude）がこのスキルだけを読んで起動する。このペインはキックオフゲートを通っていないため、承認済みチームも orchestrator の仕様も持たない。それでもハーネス別の仕様をその場で選ばず、プロファイルから解決する。この経路の orchestrator は、`launch:` 行の確認後に [Preflight](../../herdr-pi-issue-pr-workflow/SKILL.md#preflight) と [Kickoff gate](../../herdr-pi-issue-pr-workflow/SKILL.md#kickoff-gate) を通してチームを確定してから `Start the team` へ進む（[キックオフ用テンプレート](../../herdr-pi-issue-pr-workflow/references/kickoff-task-template.md)）。
+- **経路 1**: `herdr-issue-pr-workflow` の親がキックオフゲートを通し、承認済みチームを起動する。orchestrator 自身の仕様はチームの承認対象ではなく、この経路でもプロファイルから解決する。
+- **経路 2**: 別のペイン（Pi または Claude）がこのスキルだけを読んで起動する。このペインはキックオフゲートを通っていないため、承認済みチームも orchestrator の仕様も持たない。それでもハーネス別の仕様をその場で選ばず、プロファイルから解決する。この経路の orchestrator は、`launch:` 行の確認後に [Preflight](../../herdr-issue-pr-workflow/SKILL.md#preflight) と [Kickoff gate](../../herdr-issue-pr-workflow/SKILL.md#kickoff-gate) を通してチームを確定してから `Start the team` へ進む（[キックオフ用テンプレート](../../herdr-issue-pr-workflow/references/kickoff-task-template.md)）。
 
 プロファイル解決の正本は [Pi Development Profiles](../../_docs/pi-development.md)、起動・`launch:` 行・報告の正本はこの節とする。同じ手順をキックオフテンプレートへ複製しない。
 
@@ -76,13 +76,9 @@ starter には 2 つの経路がある。
 
    スクリプトは `team-record.sh resolve --only-role <role>` で仕様を解決し、共有ランチャー（`start-agent.sh`）を呼んで起動する。解決結果を stderr と委譲本文の末尾（返却指示の前）へ `launch:` 行として出す。Claude の場合はランチャーの `effective:` 行も同じ位置へ転記する。Pi の `effective:` 行はエージェント自身が出す。
 
-   ```text
-   launch: profile=<name|-> role=<profile-role|-> harness=<pi|claude> spec=<harness>:<...> spec_source=<profile|explicit> origin=<explicit|active|default>
-   ```
+   行の形式、`harness` と `spec` の接頭辞一致、複数行のときの正本は [Launch and effective lines](../../_docs/pi-development.md#launch-and-effective-lines)。starter は stderr の `launch:` 行を応答に含める。内容が曖昧なら停止する。
 
-   `spec` は接頭辞を含む正本の文字列（Pi なら `pi:<provider>/<model>/<thinking>`、Claude なら `claude:<model>/<effort>/<permission_mode>`）であり、`harness` はその接頭辞と一致しなければならない。接頭辞のない旧形式の値はランチャーが `pi:` を付けて報告する。
-
-   プロファイルモードでは `profile` が使用したプロファイル名、`role` が `--role`、`spec_source=profile`、`origin` が team-record の `source` になる。starter は stderr の `launch:` 行を応答に含める。タスクファイルや委譲本文に `launch:` 行が複数ある場合は最後の行を正本とし、内容が曖昧なら停止する。
+   プロファイルモードでは `profile` が使用したプロファイル名、`role` が `--role`、`spec_source=profile`、`origin` が team-record の `source` になる。
 
    プロファイルに orchestrator が無い初回はまだ起動できない。プロファイル解決の手順は [Pi Development Profiles](../../_docs/pi-development.md) を正本とし、`write` で追加するか、次の一度限りの明示モードで起動する。
 
@@ -107,7 +103,7 @@ starter には 2 つの経路がある。
    明示モードはプロファイルを読まない。`--harness` の既定は `pi` で、Pi は `--provider`/`--model`/`--thinking`、Claude は `--model`/`--effort`/`--permission-mode` の完全な 3 値だけを受け付ける。ハーネスをまたぐ値や一部だけの 3 値は usage error である。「プロファイルに orchestrator が無い場合だけ」は規約であり、スクリプトで強制しない。starter は `launch: ... spec_source=explicit origin=explicit` を応答に含めて監査する。明示 3 値と `--role`、3 値の一部だけ、`--role` なしの `--profile` や `--resolver`、モード未指定はすべて usage error（終了コード 2）であり、何も起動しない。
 
    この起動が、starter による worktree ワークスペースへの唯一の `worktree-team-start.sh` 呼び出しである。経路 2 ではワークフローの親が同じ worktree へ別の orchestrator を追加しない。スクリプトのスコープ、起動、返却のルールはそのまま適用される。
-4. starter は orchestrator の起動 spec を確認する。判定はハーネス別にする。Pi の orchestrator は起動後に `printf 'pi:%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"` を実行し、`launch:` の `spec` と照合する。`spec` は `pi:` 接頭辞を含み、`harness=pi` がその接頭辞と一致する。Claude の orchestrator は、`worktree-team-start.sh` が転記したランチャーの `effective:` 行の `requested=` を `launch:` の `spec` と照合する。`spec_source=profile` のときだけ `model` を保存済みの canonical 完全 ID と照合し、明示 alias の起動では canonical な `model` を今回の実効値として報告する。starter は補助として `herdr agent read <pane-id> --source visible` の footer を見てよいが、footer だけで一致とみなさない。一致しない、または取得できない場合は停止して報告する（[キックオフ用テンプレート](../../herdr-pi-issue-pr-workflow/references/kickoff-task-template.md)）。
+4. starter は orchestrator の起動 spec を確認する。判定はハーネス別にする。Pi の orchestrator は起動後に `printf 'pi:%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"` を実行し、`launch:` の `spec` と照合する。`spec` は `pi:` 接頭辞を含み、`harness=pi` がその接頭辞と一致する。Claude の orchestrator は、`worktree-team-start.sh` が転記したランチャーの `effective:` 行の `requested=` を `launch:` の `spec` と照合する。`spec_source=profile` のときだけ `model` を保存済みの canonical 完全 ID と照合し、明示 alias の起動では canonical な `model` を今回の実効値として報告する。starter は補助として `herdr agent read <pane-id> --source visible` の footer を見てよいが、footer だけで一致とみなさない。一致しない、または取得できない場合は停止して報告する（[キックオフ用テンプレート](../../herdr-issue-pr-workflow/references/kickoff-task-template.md)）。
 5. orchestrator は worktree ワークスペース内のチームを所有する。ペインの作成（`herdr/scripts/pane-layout.sh apply`）、エージェントの起動（共有ランチャー `herdr/scripts/start-agent.sh`）、タスクの委譲（`herdr/scripts/parent-delegate-async.sh`）を行う。チームロールの起動に `herdr agent start` を直接組み立てない。親は `impl`、`review`、`ui-tester` などのロールペインを事前に作ったり、それらのエージェントを起動したりしてはならない。チームごとに書き込み主体は 1 つである。
 
 #### Worktree environment block
@@ -168,7 +164,7 @@ herdr pane rename <pane-id> <role>
 herdr/scripts/parent-delegate-async.sh <pane-id> "$(cat <task-file>)"
 ```
 
-`start-agent.sh` は引数検証と preflight、`herdr agent start --kind <harness>`、起動後の有界待機、Claude の `probe:`/`effective:` 行を所有する。`launch:` 行は `harness=<pi|claude>` と接頭辞付きの `spec=<harness>:<...>` を出す。`effective:` 行は Pi がエージェント自身、Claude がランチャーが出す。rename とタスク委譲はランチャーの責務ではない。
+`start-agent.sh` は引数検証と preflight、`herdr agent start --kind <harness>`、起動後の有界待機、Claude の `probe:`/`effective:` 行を所有する。`launch:` / `effective:` の形式と不変条件は [Launch and effective lines](../../_docs/pi-development.md#launch-and-effective-lines) を正本とする。rename とタスク委譲はランチャーの責務ではない。
 
 `worktree-team-start.sh` は何よりも先に辺を分類し、共有ランチャーで起動し、エージェントが対話可能になるまでの有界待機、`herdr pane rename <pane-id> <role>`、最後に `parent-delegate-async.sh` 経由のタスク本文（直接の親への返却指示を追加する）を行う。起動、準備完了待機、rename のいずれかが失敗すると、プロンプトの前にコマンドが停止する。scope 拒否は終了コード 3 で終わる。プロンプトの失敗は通信失敗である。エージェントはペイン内で起動・rename されたままなので、隣に 2 人目を起動せず、そのペインを調べる（`herdr agent get`、`herdr agent read`）。エージェントのフラグは、個別の引数として渡す 1 行のトークンである。`herdr agent start` は複数行の AGENT_ARG を、何かが起動する前に拒否する。
 

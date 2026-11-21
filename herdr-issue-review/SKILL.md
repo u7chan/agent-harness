@@ -76,7 +76,7 @@ description: >
   claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。
   ```
 
-- 起動は共有ランチャー `herdr/scripts/start-agent.sh` を使う。共有ランチャー以外の起動経路を使わない。ランチャーは引数検証、認証と trust の preflight、起動、実効値確認、`launch:` / `effective:` 行を所有する。
+- 起動は共有ランチャー `herdr/scripts/start-agent.sh` を使う。共有ランチャー以外の起動経路を使わない。ランチャーは引数検証、認証と trust の preflight、起動、実効値確認、`launch:` / `effective:` 行を所有する。行の形式と不変条件は [Launch and effective lines](../_docs/pi-development.md#launch-and-effective-lines) を正本とする。
 
   ```bash
   herdr/scripts/start-agent.sh <pane-id> herdr-issue-review \

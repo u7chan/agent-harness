@@ -19,7 +19,7 @@ for value in (
     'pr_fix_shared_with_impl',
     'ハーネスと Claude の permission_mode を含む全フィールドを使う',
     '実行中に保存プロファイルを書き換えない',
-    '保存済み `ui-tester` のハーネスが `claude` の場合は PR 1〜4 では再利用しない',
+    '保存済み `ui-tester` のハーネスが `claude` の場合は再利用しない',
     '`impl`、`review`、`pr-fix` の保存済みハーネスはそのまま再利用する',
 ):
     assert value in team, value
@@ -63,7 +63,7 @@ assert '`PI_*`' in template
 assert 'Claude の orchestrator は `$PI_*` を使わない' in template
 assert '`effective:` 行の `requested=` が `spec` と一致し、`model` と `effort` が確定値と一致' in template
 assert '.model.id' not in template and '.effort.level' not in template
-assert '`harness=<pi|claude>`' in template
+assert '../../_docs/pi-development.md#launch-and-effective-lines' in template
 assert '`spec_source=profile` のときだけ' in template
 assert '明示 alias を一度限りで使った起動では canonical な `model`' in template
 # Route 2 has no approved team from the starter, so the handoff enters the
@@ -88,7 +88,7 @@ assert 'Preflight' in route2[0] and 'Kickoff gate' in route2[0]
 assert '--only-role' not in gate
 assert 'PR が存在し、Draft のままである' in text
 assert 'PR を自動で Ready にしたり' in text
-assert 'herdr-pi-issue-pr-workflow/scripts/' not in text
+assert 'herdr-issue-pr-workflow/scripts/' not in text
 assert '`herdr tab close` や `herdr workspace close` は使わない' in text
 print('Issue workflow team/bootstrap/Draft contracts passed')
 PY

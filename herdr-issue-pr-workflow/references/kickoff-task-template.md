@@ -1,6 +1,6 @@
 # Kickoff task template
 
-起動元（starter）が orchestrator に渡すタスク文面の形式。チーム表、承認ルール、手順の正本は [herdr-pi-issue-pr-workflow/SKILL.md](../SKILL.md) にある。このテンプレートはタスク文面の形だけを定め、それらを再定義・変更しない。
+起動元（starter）が orchestrator に渡すタスク文面の形式。チーム表、承認ルール、手順の正本は [herdr-issue-pr-workflow/SKILL.md](../SKILL.md) にある。このテンプレートはタスク文面の形だけを定め、それらを再定義・変更しない。
 
 worktree 環境ブロックと、その ID を Herdr の JSON 応答から取得するルールは [Worktree workspace teams — Orchestrator-first](../../herdr/references/worktree-workspace-teams.md#orchestrator-first) に一度だけ定義されている。その節を正本とし、以下のコピーはタスク文面が持つべきフィールド一覧にすぎない。
 
@@ -16,7 +16,7 @@ role: orchestrator
 
 起動後、orchestrator は自分のハーネスに合った手段で実効 spec を `launch:` 行と照合する。
 
-`launch:` 行は `harness=<pi|claude>` と、接頭辞付きの `spec=<harness>:<...>` を出す。`spec` は正本の文字列であり、`harness` はその接頭辞と一致しなければならない。`launch:` 行の形式と意味の正本は [Worktree workspace teams — Orchestrator-first](../../herdr/references/worktree-workspace-teams.md#orchestrator-first) である。本文に `launch:` 行が複数ある場合は最後の行を正本とする。
+`launch:` 行と `effective:` 行の形式、`harness` と `spec` の接頭辞一致、本文に複数ある場合の扱いは [Launch and effective lines](../../_docs/pi-development.md#launch-and-effective-lines) を正本とする。`spec` は正本の文字列であり、`harness` がその接頭辞と一致しない行は使わない。
 
 - Pi の orchestrator は bash ツールで次を実行し、結果を `spec` の値とそのまま照合する。接頭辞を落として比較してはいけない。自身の起動判定の正本は `PI_*` 環境変数（`$PI_PROVIDER` など）であり、footer（`herdr agent read <pane-id> --source visible`）は起動元による補助確認である。footer だけで一致とみなさない。`effective:` 行も `launch:` 行と照合する。
 
@@ -55,7 +55,7 @@ scope: <Issue scope the orchestrator must not exceed>
 
 ## Workflow procedure
 
-[herdr-pi-issue-pr-workflow](../SKILL.md) の手順の正本に従う。入口は starter の経路で決まる。
+[herdr-issue-pr-workflow](../SKILL.md) の手順の正本に従う。入口は starter の経路で決まる。
 
 - **経路 1**（starter がキックオフゲートを実行済み）: [Start the team](../SKILL.md#start-the-team) から開始してよい。ただし起動前に、承認済みまたは再利用したチーム（`impl` / `review` / `pr-fix` と参加する `ui-tester`）を確認できることを確かめる。確認できない場合は経路 2 として扱う。
 - **経路 2**（starter がキックオフゲートを実行していない）: launch check の後、[Preflight](../SKILL.md#preflight) と [Kickoff gate](../SKILL.md#kickoff-gate) を先に実行する。チームを解決し、再利用するか提案して承認を得るまで `Start the team` へ進まない。承認済みチームがあると仮定しない。

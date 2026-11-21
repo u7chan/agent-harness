@@ -1,5 +1,5 @@
 ---
-name: herdr-pi-issue-pr-workflow
+name: herdr-issue-pr-workflow
 description: >
   Herdr のペインで役割ごとに選択したハーネス（Pi または Claude）のエージェントを起動し、GitHub Issue の実装から Draft PR の最終レビューまでを統括する。
   ハーネスを選べる Issue→PR ワークフロー（チーム編成、実装、レビュー、修正）を依頼されたときに使う。
@@ -62,9 +62,9 @@ orchestrator-first 方式の worktree チームでは、orchestrator へ渡す�
 - ハーネス固有のモデル指定。Pi は正確な provider ID と、`pi --list-models` で当該 provider 配下に存在する正確な model ID。Claude は canonical な完全 model ID。
 - ハーネス固有の実行パラメータ。Pi はそのモデルがサポートする thinking レベル（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` のいずれか）。Claude は effort（`low`、`medium`、`high`、`xhigh`、`max` のいずれか）と permission_mode（`acceptEdits`、`auto`、`manual`、`dontAsk`、`plan` のいずれか）。
 
-`pr-fix` は独立エージェントではなく `impl` に兼務させてもよい。`review` は必ず別エージェントであり、実装を編集してはならない。`ui-tester` も独立した物理エージェントで、仕様に含まれない場合は起動しない。`ui-tester` を使わない実行には、余分なペインや条件を追加しない。`ui-tester` は実装の編集、コミット、PR 編集、GitHub レビュー投稿、PR コメント投稿を行わない。指摘は orchestrator のトリアージ材料となり、再現可能な機能不具合は必須修正、それ以外は同じ修正ラウンドに含めてよい。一方、Blocker 判定の正本は `review` ロールである。`ui-tester` のタスク文面、再検証、完了、環境分離は [ui-tester ロール参照](references/ui-tester-role.md) に定める。PR 1〜4 では `ui-tester` に Claude を選ばず、Pi で実行する。Pi の仕様を用意できない場合は `ui-tester` を起動しない。
+`pr-fix` は独立エージェントではなく `impl` に兼務させてもよい。`review` は必ず別エージェントであり、実装を編集してはならない。`ui-tester` も独立した物理エージェントで、仕様に含まれない場合は起動しない。`ui-tester` を使わない実行には、余分なペインや条件を追加しない。`ui-tester` は実装の編集、コミット、PR 編集、GitHub レビュー投稿、PR コメント投稿を行わない。指摘は orchestrator のトリアージ材料となり、再現可能な機能不具合は必須修正、それ以外は同じ修正ラウンドに含めてよい。一方、Blocker 判定の正本は `review` ロールである。`ui-tester` のタスク文面、再検証、完了、環境分離は [ui-tester ロール参照](references/ui-tester-role.md) に定める。`ui-tester` は Pi で実行し、Claude では起動しない。Pi の仕様を用意できない場合は `ui-tester` を起動しない。
 
-PR 1〜4 では Pi と Claude を同じチームに混ぜた構成は実機未検証とする。混在を禁止はしないが、まず単一ハーネスのチームを検証する。混在チームを提案する場合は、その未検証範囲を提案に明記する。
+Pi と Claude を同じチームに混ぜた構成は実機未検証とする。混在を禁止はしないが、まず単一ハーネスのチームを検証する。混在チームを提案する場合は、その未検証範囲を提案に明記する。
 
 モデルの提案経路はハーネス別に限り、推測で埋めない。
 
@@ -104,7 +104,7 @@ orchestrator はチームメンバーではない。チーム表・承認・再�
 
 初期化では合意した編成を `write --profile default` で保存し、承認待ちは追加しない。`profiles_present=true` なのに選択名だけが存在しない場合、`active` が壊れている場合、明示指定のプロファイルがない場合は初期化しない。これらは提案経路に戻り、ユーザーが明示した場合だけ保存する。`profiles/` や `active` を読み取れない場合も `profiles_present=false` の例外ではない。`result=invalid`（プロファイル集合の `profiles_present` は空）となるため初期化しない。
 
-保存するのはチーム仕様のみ。対象 PR は保存しないため、再利用を妨げるのは対象 PR が未確定の場合だけ。`ui-tester` のタスクも再利用条件にはしない。今回指定がなければ [ui-tester ロール参照の既定タスク](references/ui-tester-role.md#default-task) が使われるため。保存済みのハーネスと、そのハーネスのモデル指定・実行パラメータ、編成の各値は、今回の実行でその値が指定されていない場合だけ再利用する（[Kickoff gate](#kickoff-gate)）。ただし、保存済み `ui-tester` のハーネスが `claude` の場合は PR 1〜4 では再利用しない。`ui-tester` を含めるには、今回の実行で Pi の完全な仕様を明示してもらい、用意できない場合は `ui-tester` を除外して Claude を起動しない。`impl`、`review`、`pr-fix` の保存済みハーネスはそのまま再利用する。`pr_fix_shared_with_impl` が true のときの `impl` と `pr-fix` の比較には、ハーネスと Claude の permission_mode を含む全フィールドを使う。実行中に保存プロファイルを書き換えない。
+保存するのはチーム仕様のみ。対象 PR は保存しないため、再利用を妨げるのは対象 PR が未確定の場合だけ。`ui-tester` のタスクも再利用条件にはしない。今回指定がなければ [ui-tester ロール参照の既定タスク](references/ui-tester-role.md#default-task) が使われるため。保存済みのハーネスと、そのハーネスのモデル指定・実行パラメータ、編成の各値は、今回の実行でその値が指定されていない場合だけ再利用する（[Kickoff gate](#kickoff-gate)）。ただし、保存済み `ui-tester` のハーネスが `claude` の場合は再利用しない。`ui-tester` を含めるには、今回の実行で Pi の完全な仕様を明示してもらい、用意できない場合は `ui-tester` を除外して Claude を起動しない。`impl`、`review`、`pr-fix` の保存済みハーネスはそのまま再利用する。`pr_fix_shared_with_impl` が true のときの `impl` と `pr-fix` の比較には、ハーネスと Claude の permission_mode を含む全フィールドを使う。実行中に保存プロファイルを書き換えない。
 
 未移行の資産は初回起動時の欠落ではなく `migration-required` を返す。その上に初期化しない。継続前にバックアップを伴う手動の [プロファイル移行](../_docs/pi-development-migration.md) を行う。
 
@@ -178,7 +178,7 @@ GitHub は default ブランチへ到達したコミットメッセージ中の�
 
    `--spec` には `team-record.sh resolve` が返す正本の文字列（Pi は `pi:<provider>/<model>/<thinking>`、Claude は `claude:<model>/<effort>/<permission_mode>`）を渡す。プロファイルの仕様をそのまま使う場合は `--spec-source profile`、明示指定を 1 つでも含む場合は `--spec-source explicit` にする。`--profile` は土台にしたプロファイル名（明示 spec だけなら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。Claude の auth と trust の preflight、`probe:`、`launch:`、`effective:` 行はランチャーが所有する。`herdr agent start` をこのスキルから直接組み立てない。
 6. 新規ペインには責務に基づいたエージェント名とペインラベルを付ける。`herdr pane rename <pane-id> <name>` と `herdr pane get <pane-id>` で label を確認する。再利用するペインの既存の名前とラベルは維持する。ランチャーは rename もタスク委譲も行わないため、rename と `herdr/scripts/parent-delegate-async.sh` の呼び出しはこの orchestrator が行う。
-7. 作業を送る前に、起動した各ペインの実効値を確認する。Pi はエージェントに次の `effective:` 行を出させ、`launch:` 行の `spec` と照合する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
+7. 作業を送る前に、起動した各ペインの実効値を確認する。行の形式と不変条件は [Launch and effective lines](../_docs/pi-development.md#launch-and-effective-lines) を正本とする。Pi はエージェントに次の `effective:` 行を出させ、`launch:` 行の `spec` と照合する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
 
    ```bash
    printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s\n' \

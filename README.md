@@ -18,11 +18,10 @@ A skill may consist only of instructions or include a small, purpose-built harne
 
 Each top-level skill directory contains a `SKILL.md` file that describes when and how to use that skill.
 
-- [Issue-to-PR workflow](herdr-pi-issue-pr-workflow/SKILL.md): delegate a defined
+- [Issue-to-PR workflow](herdr-issue-pr-workflow/SKILL.md): delegate a defined
   Issue to an implementation team; finish with a reviewed Draft PR. Each role
-  agent runs on Pi or Claude. In this release (PR 1–4 of Issue #318),
-  `ui-tester` is Pi-only; a Claude `ui-tester` is not supported yet.
-- [PR review workflow](herdr-pi-pr-review-workflow/SKILL.md): create a Draft PR
+  agent runs on Pi or Claude. `ui-tester` is Pi-only; a Claude `ui-tester` is not supported yet.
+- [PR review workflow](herdr-pr-review-workflow/SKILL.md): create a Draft PR
   when the request includes it, keep the current agent as developer, add only an
   independent reviewer on the harness the profile or the request selects (Pi or
   Claude), and review/fix for at most three rounds plus up to two polish

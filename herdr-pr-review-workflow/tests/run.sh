@@ -68,7 +68,7 @@ for value in (
     'マージは行わない', '最終ゲートは人間', '別 Issue 候補',
 ):
     assert value in text, value
-assert 'herdr-pi-issue-pr-workflow/' not in text, 'no dependency on the Issue workflow'
+assert 'herdr-issue-pr-workflow/' not in text, 'no dependency on the Issue workflow'
 evidence = (skill.parent / 'references' / 'evidence.md').read_text()
 for value in (
     '_docs/pr-evidence.md', 'PR 本文の証跡節', 'pr.create', 'pr.update',
