@@ -1,30 +1,29 @@
 #!/usr/bin/env bash
-# Start a Pi team member in a Herdr worktree workspace pane and delegate the
-# task file body to it in one command.
+# Start a team member (Pi or Claude) in a Herdr worktree workspace pane and
+# delegate the task file body to it in one command.
 #
 # Sequence: argument and task-file checks, scope check, optional profile
-# resolution, `herdr agent start` with flags only, bounded readiness wait, pane
-# rename, then the task body through the existing parent-delegate-async.sh
-# wrapper (which appends the direct-parent return instruction and performs the
-# same scope check again).
+# resolution, the shared launcher (`start-agent.sh`: specification validation,
+# Claude authentication and workspace-trust preflight, `herdr agent start`,
+# bounded readiness wait, Claude effective-value check, and the
+# `launch:`/`effective:` lines), pane rename, then the task body through the
+# existing parent-delegate-async.sh wrapper (which appends the direct-parent
+# return instruction and performs the same scope check again).
 #
-# The three agent flags come from one of two modes:
-#   explicit  --provider/--model/--thinking are passed as given. The mode never
-#             reads a profile, so it stays the one-off path for a role that a
-#             profile does not carry yet.
-#   profile   --role names a profile role and team-record.sh resolves its
+# The agent specification comes from one of two modes:
+#   explicit  `--harness` selects pi (default) or claude, and that harness's own
+#             flags are passed as given. The mode never reads a profile, so it
+#             stays the one-off path for a role that a profile does not carry.
+#   profile   `--role` names a profile role and team-record.sh resolves its
 #             canonical `<harness>:<...>` specification. A missing, invalid, or
 #             unresolved role stops the start (fail closed).
 #
-# Profile mode accepts the canonical `pi:<provider>/<model>/<thinking>` value
-# team-record.sh now prints and the legacy unprefixed value; both are launched
-# as the same Pi specification and the printed `launch:` line stays in the
-# previous `spec=<provider>/<model>/<thinking>` form until the shared launcher
-# owns the line. A `claude:` specification stops here: Claude starts are not
-# implemented yet, and this script never launches a harness it cannot verify.
-#
-# Both modes print one `launch:` line to stderr and append the same line to the
-# delegated body, before the return instruction.
+# Both modes hand the specification to the shared launcher, which owns the
+# grammar, the launch arguments, and the stop conditions. This script appends
+# only what the launcher reported: its `launch:` line, plus its `effective:`
+# line for Claude, whose harness cannot print one from inside the pane. A Pi
+# agent prints its own `effective:` line from `$PI_*`, so the launcher prints
+# none for Pi and neither does this script.
 #
 # The worktree workspace and its pane must already exist; this script never
 # creates, shares, or removes workspaces, worktrees, tabs, or panes.
@@ -33,9 +32,13 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/scope.sh
 source "$script_dir/lib/scope.sh"
+# shellcheck source=lib/record.sh
+source "$script_dir/lib/record.sh"
 parent_script="$script_dir/parent-delegate-async.sh"
-# Resolved from this script, never from the caller's cwd: profile mode must
-# find the shared helper even when it is invoked from the worktree.
+# Resolved from this script, never from the caller's cwd: both the shared
+# launcher and profile mode must be found even when this script is invoked from
+# the worktree.
+start_agent="$script_dir/start-agent.sh"
 team_record="$script_dir/../../scripts/pi-development/team-record.sh"
 
 # Bounded readiness wait, in milliseconds, for both `agent start` and
@@ -44,22 +47,29 @@ team_record="$script_dir/../../scripts/pi-development/team-record.sh"
 startup_timeout_ms=60000
 
 usage() {
-  printf 'Usage: %s <pane-id> <agent-name> --provider <provider> --model <model> --thinking <level> <task-file>\n' "$0" >&2
+  printf 'Usage: %s <pane-id> <agent-name> [--harness pi] --provider <provider> --model <model> --thinking <level> <task-file>\n' "$0" >&2
+  printf '       %s <pane-id> <agent-name> --harness claude --model <model> --effort <level> --permission-mode <mode> <task-file>\n' "$0" >&2
   printf '       %s <pane-id> <agent-name> --role <profile-role> [--profile <name>] [--resolver <path>] <task-file>\n' "$0" >&2
-  printf '\nThe explicit mode passes the three agent flags as given and never reads a profile.\n' >&2
+  printf '\nThe explicit mode passes the harness flags as given and never reads a profile.\n' >&2
   printf 'The profile mode resolves <profile-role> from\n' >&2
   printf '${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-development/profiles.\n' >&2
+  printf '  --harness <harness>    pi (default) or claude; the harness decides which\n' >&2
+  printf '                         explicit flags are accepted and which <level> values exist\n' >&2
+  printf '  --provider/--model/--thinking           Pi explicit mode (all three)\n' >&2
+  printf '  --model/--effort/--permission-mode      Claude explicit mode (all three)\n' >&2
   printf '  --role <profile-role>  role to resolve (the documented orchestrator start is --role orchestrator)\n' >&2
   printf '  --profile <name>       profile to read; the default is active, then default\n' >&2
   printf '  --resolver <path>      model-spec resolver passed through unchanged; pass an absolute path\n' >&2
   printf '                         (advanced use and tests only)\n' >&2
   printf 'An empty option value is a usage error, never "not specified".\n' >&2
   printf '\n<profile-role> is a profile role, not the `role: orchestrator` label of the task text.\n' >&2
-  printf 'A profile role resolves to `pi:<provider>/<model>/<thinking>` or, once Claude\n' >&2
-  printf 'starts are implemented, `claude:<model>/<effort>/<permission_mode>`. A `claude:`\n' >&2
-  printf 'role stops here without starting anything; Claude is not supported yet.\n' >&2
-  printf 'Both modes print and append this line; write it nowhere yourself:\n' >&2
-  printf '  launch: profile=<name|-> role=<profile-role|-> spec=<provider>/<model>/<thinking> spec_source=<profile|explicit> origin=<explicit|active|default>\n' >&2
+  printf 'A profile role resolves to `pi:<provider>/<model>/<thinking>` or\n' >&2
+  printf '`claude:<model>/<effort>/<permission_mode>`, and the shared launcher starts it.\n' >&2
+  printf 'Both modes print these lines, and append them to the delegated body; write\n' >&2
+  printf 'neither yourself:\n' >&2
+  printf '  launch: profile=<name|-> role=<profile-role|-> harness=<pi|claude> spec=<harness>:<...> spec_source=<profile|explicit> origin=<explicit|active|default>\n' >&2
+  printf '  effective: harness=<pi|claude> provider=<provider|-> model=<canonical model> effort=<level|-> thinking=<level|-> permission_requested=<mode|-> requested=<spec>\n' >&2
+  printf 'The effective line is printed here only for Claude; a Pi agent prints its own.\n' >&2
   exit 2
 }
 
@@ -76,46 +86,17 @@ valid_pane() {
   [[ "$1" =~ ^[[:alnum:]_.-]+:[[:alnum:]_.-]+$ ]]
 }
 
-# Single-line tokens passed as agent start arguments. The value becomes one
-# discrete argument, but agent start encodes them for the target shell, so
-# reject anything outside an unreserved token shape before starting anything.
-valid_flag_value() {
-  [[ "$1" =~ ^[[:alnum:]_.:@+~/-]+$ ]]
-}
-
-valid_thinking() {
-  case "$1" in
-    off|minimal|low|medium|high|xhigh|max) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# One `key=value` field of a team-record line. The helper keeps values free of
-# whitespace, and the line is split without globbing, so a value is never
-# expanded into filenames. A missing key returns nonzero.
-record_field() { # line key
-  local rest="$1" key="$2" token
-  while [ -n "$rest" ]; do
-    token="${rest%% *}"
-    case "$token" in
-      "$key"=*) printf '%s' "${token#*=}"; return 0 ;;
-    esac
-    case "$rest" in
-      *' '*) rest="${rest#* }" ;;
-      *) rest='' ;;
-    esac
-  done
-  return 1
-}
-
 [ "$#" -ge 2 ] || usage
 pane="$1"
 agent_name="$2"
 shift 2
 
+harness=''
 provider=''
 model=''
 thinking=''
+effort=''
+permission_mode=''
 role=''
 profile=''
 resolver=''
@@ -126,9 +107,12 @@ while [ "$#" -gt 0 ]; do
     # `--profile ""` must never fall back to `active`, and `--role ""` must
     # never turn a profile call into the explicit mode. Rejecting it here is
     # before mode selection, the resolver, and any herdr write.
+    --harness) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; harness="$2"; shift 2 ;;
     --provider) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; provider="$2"; shift 2 ;;
     --model) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; model="$2"; shift 2 ;;
     --thinking) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; thinking="$2"; shift 2 ;;
+    --effort) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; effort="$2"; shift 2 ;;
+    --permission-mode) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; permission_mode="$2"; shift 2 ;;
     --role) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; role="$2"; shift 2 ;;
     --profile) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; profile="$2"; shift 2 ;;
     --resolver) [ "$#" -ge 2 ] || usage; [ -n "$2" ] || usage; resolver="$2"; shift 2 ;;
@@ -138,33 +122,44 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-# Mode selection is fail closed: a caller either supplies all three explicit
-# values or names a profile role, never a mix and never neither. The
-# all-or-none check it replaces used to run before the scope check; profile
-# mode has no explicit values, so the mode is decided here instead.
-explicit_count=0
-if [ -n "$provider" ]; then explicit_count=$((explicit_count + 1)); fi
-if [ -n "$model" ]; then explicit_count=$((explicit_count + 1)); fi
-if [ -n "$thinking" ]; then explicit_count=$((explicit_count + 1)); fi
+[ -z "$harness" ] || case "$harness" in
+  pi | claude) ;;
+  *) usage ;;
+esac
+
+# Mode selection is fail closed: a caller either names a profile role or
+# supplies the selected harness's own complete explicit mode, never a mix and
+# never neither. The harness decides which flags exist, so a flag of the other
+# harness and a partial explicit mode are usage errors before anything runs.
+pi_flags=0
+claude_flags=0
+[ -z "$provider" ] || pi_flags=$((pi_flags + 1))
+[ -z "$thinking" ] || pi_flags=$((pi_flags + 1))
+[ -z "$effort" ] || claude_flags=$((claude_flags + 1))
+[ -z "$permission_mode" ] || claude_flags=$((claude_flags + 1))
 
 mode=''
 if [ -n "$role" ]; then
-  [ "$explicit_count" -eq 0 ] || usage
+  [ -z "$harness" ] || usage
+  [ "$pi_flags" -eq 0 ] && [ "$claude_flags" -eq 0 ] && [ -z "$model" ] || usage
   mode='profile'
 else
   [ -z "$profile" ] && [ -z "$resolver" ] || usage
-  [ "$explicit_count" -eq 3 ] || usage
+  harness="${harness:-pi}"
+  if [ "$harness" = claude ]; then
+    [ "$pi_flags" -eq 0 ] || usage
+    [ "$claude_flags" -eq 2 ] || usage
+  else
+    [ "$claude_flags" -eq 0 ] || usage
+    [ "$pi_flags" -eq 2 ] || usage
+  fi
+  [ -n "$model" ] || usage
   mode='explicit'
 fi
 
 [ -n "$task_file" ] || usage
 valid_pane "$pane" || fail 'pane must be a pane ID'
 [[ "$agent_name" =~ ^[[:alnum:]_.-]+$ ]] || fail 'agent name must match [A-Za-z0-9_.-]+'
-if [ "$mode" = 'explicit' ]; then
-  valid_flag_value "$provider" || fail 'provider must be a single-line token'
-  valid_flag_value "$model" || fail 'model must be a single-line token'
-  valid_thinking "$thinking" || fail 'thinking must be one of off, minimal, low, medium, high, xhigh, max'
-fi
 [ -f "$task_file" ] || fail 'task file does not exist'
 [ -r "$task_file" ] || fail 'task file is not readable'
 [ -s "$task_file" ] || fail 'task file is empty'
@@ -172,6 +167,7 @@ fi
 [ "${HERDR_ENV:-}" = 1 ] || fail 'HERDR_ENV must be 1'
 command -v herdr >/dev/null 2>&1 || fail 'herdr is required'
 [ -x "$parent_script" ] || fail 'parent-delegate-async.sh is required'
+[ -x "$start_agent" ] || fail 'start-agent.sh is required'
 
 parent_pane="${HERDR_PANE_ID:-}"
 workspace="${HERDR_WORKSPACE_ID:-}"
@@ -189,11 +185,11 @@ launch_profile='-'
 launch_role='-'
 launch_spec_source='explicit'
 launch_origin='explicit'
+spec=''
 if [ "$mode" = 'profile' ]; then
   # Resolved after the scope check: a rejected edge stays exit code 3 and is
   # never reported as a profile error. The tool checks are profile-only, so the
   # explicit mode keeps its existing prerequisites.
-  command -v node >/dev/null 2>&1 || fail 'node is required for --role profile mode'
   [ -x "$team_record" ] || fail 'team-record.sh is required for --role profile mode'
 
   record_args=(resolve --only-role "$role")
@@ -215,45 +211,14 @@ if [ "$mode" = 'profile' ]; then
   [ "$record_result" = ok ] || fail "profile resolution did not succeed: $record"
   launch_profile="$(record_field "$record" profile)" || fail "team-record.sh reported no profile: $record"
   launch_origin="$(record_field "$record" source)" || fail "team-record.sh reported no source: $record"
+  # The value is the canonical `<harness>:<...>` specification. Its grammar,
+  # its harness prefix, and its start arguments belong to the shared launcher,
+  # so this script passes it through without splitting it again.
   spec="$(record_field "$record" "$role")" || fail "team-record.sh reported no '$role' spec: $record"
-
-  # The resolved value is a canonical specification. Only a leading `pi:` or
-  # `claude:` is a harness prefix: the rest is a legacy Pi specification, which
-  # stays accepted. `claude:` has no start path yet, and an unknown harness
-  # prefix is reported rather than read as a provider name.
-  spec_head="${spec%%/*}"
-  case "$spec" in
-    pi:*) spec="${spec#pi:}" ;;
-    claude:*)
-      fail "claude: role specs are not supported yet: $spec (no agent was started)"
-      ;;
-    *)
-      case "$spec_head" in
-        *:*) fail "team-record.sh reported an unknown harness prefix: $spec" ;;
-      esac
-      ;;
-  esac
-
-  # Same split rule as parseRoleSpec: the provider is the first segment, the
-  # thinking level the last one, and the rest is the model, so a model ID may
-  # contain `/`.
-  case "$spec" in
-    */*/*) ;;
-    *) fail "team-record.sh reported an unusable '$role' spec: $spec" ;;
-  esac
-  provider="${spec%%/*}"
-  remainder="${spec#*/}"
-  thinking="${remainder##*/}"
-  model="${remainder%/*}"
-  if [ -z "$provider" ] || [ -z "$model" ] || [ -z "$thinking" ]; then
-    fail "team-record.sh reported an unusable '$role' spec: $spec"
-  fi
-  valid_flag_value "$provider" || fail 'the resolved provider must be a single-line token'
-  valid_flag_value "$model" || fail 'the resolved model must be a single-line token'
-  valid_thinking "$thinking" || fail 'the resolved thinking must be one of off, minimal, low, medium, high, xhigh, max'
+  [ -n "$spec" ] || fail "team-record.sh reported an empty '$role' spec"
   [[ "$launch_profile" =~ ^[[:alnum:]_.-]+$ ]] || fail 'team-record.sh reported an unusable profile name'
   case "$launch_origin" in
-    explicit|active|default) ;;
+    explicit | active | default) ;;
     *) fail 'team-record.sh reported an unusable source' ;;
   esac
 
@@ -261,20 +226,46 @@ if [ "$mode" = 'profile' ]; then
   launch_spec_source='profile'
 fi
 
-launch_line="launch: profile=${launch_profile} role=${launch_role} spec=${provider}/${model}/${thinking} spec_source=${launch_spec_source} origin=${launch_origin}"
-printf '%s\n' "$launch_line" >&2
+start_args=("$pane" "$agent_name")
+if [ "$mode" = 'profile' ]; then
+  start_args+=(--spec "$spec")
+else
+  start_args+=(--harness "$harness")
+  if [ "$harness" = claude ]; then
+    start_args+=(--model "$model" --effort "$effort" --permission-mode "$permission_mode")
+  else
+    start_args+=(--provider "$provider" --model "$model" --thinking "$thinking")
+  fi
+fi
+start_args+=(--profile "$launch_profile" --role "$launch_role"
+  --spec-source "$launch_spec_source" --origin "$launch_origin"
+  --timeout "$startup_timeout_ms")
 
-herdr agent start "$agent_name" --kind pi --pane "$pane" --timeout "$startup_timeout_ms" \
-  -- --provider "$provider" --model "$model" --thinking "$thinking" >/dev/null ||
-  fail "herdr agent start failed for $agent_name in $pane"
+agent_records=''
+agent_status=0
+agent_records="$("$start_agent" "${start_args[@]}" 2>&1 >/dev/null)" || agent_status=$?
+if [ -n "$agent_records" ]; then
+  printf '%s\n' "$agent_records" >&2
+fi
+# The launcher's own status is preserved: a usage error stays 2, and every
+# launch or verification failure stays 1. Nothing is renamed or delegated when
+# it fails, and the started pane is left in place.
+[ "$agent_status" -eq 0 ] || exit "$agent_status"
 
-herdr agent wait "$pane" --until idle --until done --until blocked \
-  --timeout "$startup_timeout_ms" >/dev/null ||
-  fail "$agent_name in $pane did not become ready within ${startup_timeout_ms}ms"
+launch_line="$(printf '%s\n' "$agent_records" | grep '^launch: ' | tail -n 1)" || launch_line=''
+[ -n "$launch_line" ] || fail 'the shared launcher reported no launch: line'
+# The last effective line is authoritative. A Pi start reports none here, so
+# the body carries only the launch line; a Claude start carries both.
+effective_line="$(printf '%s\n' "$agent_records" | grep '^effective: ' | tail -n 1)" || effective_line=''
+delegated_records="$launch_line"
+if [ -n "$effective_line" ]; then
+  delegated_records="${delegated_records}"$'\n'"${effective_line}"
+fi
 
-herdr pane rename "$pane" "$agent_name" >/dev/null
+herdr pane rename "$pane" "$agent_name" >/dev/null ||
+  fail "herdr pane rename failed for $pane"
 
 body="$(cat "$task_file")"
 # Appended for the wrapper to deliver before its own return instruction; the
 # wrapper's contract is unchanged.
-exec "$parent_script" "$pane" "${body}"$'\n\n'"${launch_line}"
+exec "$parent_script" "$pane" "${body}"$'\n\n'"${delegated_records}"
