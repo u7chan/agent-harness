@@ -137,17 +137,54 @@ eq("parseActiveContent rejects a path", activeReasonOf("../x\n"), "bad-active");
 eq("parseActiveContent rejects a dot", activeReasonOf(".\n"), "bad-active");
 eq("parseActiveContent rejects a non-string", activeReasonOf(null), "bad-active");
 
-// parseRoleSpec: the provider is the first segment, the thinking level the
-// last one, and the model everything between them.
+// parseRoleSpec: a leading `pi:`/`claude:` is the only harness prefix. A Pi
+// spec splits at the first `/` (provider) and the last `/` (thinking); a Claude
+// spec splits at the last `/` (permission mode) and the second-to-last `/`
+// (effort). A model may contain `/` in both.
 eq("parseRoleSpec accepts a plain spec", lib.parseRoleSpec("opencode-go/deepseek-v4.1-flash/high"), {
+  harness: "pi",
+  provider: "opencode-go",
+  model: "deepseek-v4.1-flash",
+  thinking: "high",
+});
+eq("parseRoleSpec accepts the pi prefix", lib.parseRoleSpec("pi:opencode-go/deepseek-v4.1-flash/high"), {
+  harness: "pi",
   provider: "opencode-go",
   model: "deepseek-v4.1-flash",
   thinking: "high",
 });
 eq("parseRoleSpec keeps slashes in the model", lib.parseRoleSpec("openrouter/anthropic/claude-x/max"), {
+  harness: "pi",
   provider: "openrouter",
   model: "anthropic/claude-x",
   thinking: "max",
+});
+eq(
+  "parseRoleSpec keeps a colon in a legacy model and reads it as pi",
+  lib.parseRoleSpec("openrouter/model:tag/high"),
+  { harness: "pi", provider: "openrouter", model: "model:tag", thinking: "high" },
+);
+eq("parseRoleSpec accepts a claude spec", lib.parseRoleSpec("claude:claude-haiku-5-5/high/auto"), {
+  harness: "claude",
+  model: "claude-haiku-5-5",
+  effort: "high",
+  permission_mode: "auto",
+});
+eq(
+  "parseRoleSpec keeps slashes in a claude model",
+  lib.parseRoleSpec("claude:anthropic/claude-sonnet-4-5-20250929/xhigh/acceptEdits"),
+  {
+    harness: "claude",
+    model: "anthropic/claude-sonnet-4-5-20250929",
+    effort: "xhigh",
+    permission_mode: "acceptEdits",
+  },
+);
+eq("parseRoleSpec accepts a claude alias", lib.parseRoleSpec("claude:haiku/high/auto"), {
+  harness: "claude",
+  model: "haiku",
+  effort: "high",
+  permission_mode: "auto",
 });
 eq("parseRoleSpec rejects a missing segment", lib.parseRoleSpec("opencode-go/high"), null);
 eq("parseRoleSpec rejects an empty model", lib.parseRoleSpec("opencode-go//high"), null);
@@ -156,22 +193,86 @@ eq("parseRoleSpec rejects an unknown level", lib.parseRoleSpec("opencode-go/mode
 eq("parseRoleSpec rejects whitespace", lib.parseRoleSpec("opencode-go/deep seek/high"), null);
 eq("parseRoleSpec rejects a non-string", lib.parseRoleSpec(null), null);
 eq("parseRoleSpec rejects an empty string", lib.parseRoleSpec(""), null);
+eq("parseRoleSpec rejects an unknown harness", lib.parseRoleSpec("codex:model/high"), null);
+eq("parseRoleSpec rejects an empty pi body", lib.parseRoleSpec("pi:"), null);
+eq("parseRoleSpec rejects an empty claude effort", lib.parseRoleSpec("claude:haiku//auto"), null);
+eq("parseRoleSpec rejects an empty claude model", lib.parseRoleSpec("claude:/high/auto"), null);
+eq("parseRoleSpec rejects a claude spec without a mode", lib.parseRoleSpec("claude:haiku/high"), null);
+eq("parseRoleSpec rejects an off effort", lib.parseRoleSpec("claude:haiku/off/auto"), null);
+eq("parseRoleSpec rejects a minimal effort", lib.parseRoleSpec("claude:haiku/minimal/auto"), null);
+eq("parseRoleSpec rejects bypassPermissions", lib.parseRoleSpec("claude:haiku/high/bypassPermissions"), null);
+eq("parseRoleSpec rejects an unknown permission mode", lib.parseRoleSpec("claude:haiku/high/always"), null);
+eq("parseRoleSpec rejects a pi spec under the claude prefix", lib.parseRoleSpec("claude:haiku/high"), null);
 eq(
-  "formatRoleSpec round-trips",
+  "formatRoleSpec round-trips a pi spec",
   lib.formatRoleSpec(lib.parseRoleSpec("opencode-go/deepseek-v4.1-flash/high")),
-  "opencode-go/deepseek-v4.1-flash/high",
+  "pi:opencode-go/deepseek-v4.1-flash/high",
+);
+eq(
+  "formatRoleSpec round-trips a claude spec",
+  lib.formatRoleSpec(lib.parseRoleSpec("claude:haiku/high/auto")),
+  "claude:haiku/high/auto",
 );
 
-// readRoleSpec: strict about the stored shape, tolerant of extra keys.
-eq("readRoleSpec accepts a stored spec", lib.readRoleSpec(makeRoles().impl), makeRoles().impl);
+// readRoleSpec: strict about the stored shape, tolerant of extra keys. A role
+// without `harness` is read as the Pi specification it is.
+eq("readRoleSpec accepts a stored spec", lib.readRoleSpec(makeRoles().impl), {
+  harness: "pi",
+  ...makeRoles().impl,
+});
 eq(
   "readRoleSpec ignores extra keys",
   lib.readRoleSpec({ ...makeRoles().impl, note: "ignored" }),
-  makeRoles().impl,
+  { harness: "pi", ...makeRoles().impl },
+);
+eq(
+  "readRoleSpec accepts an explicit pi harness",
+  lib.readRoleSpec({ harness: "pi", ...makeRoles().impl }),
+  { harness: "pi", ...makeRoles().impl },
+);
+eq(
+  "readRoleSpec rejects a pi role that carries an effort",
+  lib.readRoleSpec({ ...makeRoles().impl, effort: "high" }),
+  null,
+);
+eq(
+  "readRoleSpec rejects a pi role that carries a permission mode",
+  lib.readRoleSpec({ ...makeRoles().impl, permission_mode: "auto" }),
+  null,
 );
 eq("readRoleSpec rejects a slash in the provider", lib.readRoleSpec({ ...makeRoles().impl, provider: "open/ai" }), null);
 eq("readRoleSpec rejects a missing level", lib.readRoleSpec({ provider: "opencode-go", model: "m" }), null);
 eq("readRoleSpec rejects a non-object", lib.readRoleSpec("opencode-go/m/high"), null);
+const CLAUDE_ROLE = { harness: "claude", model: "claude-haiku-5-5", effort: "high", permission_mode: "auto" };
+eq("readRoleSpec accepts a claude role", lib.readRoleSpec(CLAUDE_ROLE), CLAUDE_ROLE);
+eq(
+  "readRoleSpec accepts a claude model with a slash",
+  lib.readRoleSpec({ ...CLAUDE_ROLE, model: "anthropic/claude-sonnet-4-5" }),
+  { ...CLAUDE_ROLE, model: "anthropic/claude-sonnet-4-5" },
+);
+eq(
+  "readRoleSpec rejects a claude role that carries a provider",
+  lib.readRoleSpec({ ...CLAUDE_ROLE, provider: "anthropic" }),
+  null,
+);
+eq(
+  "readRoleSpec rejects a claude role that carries a thinking level",
+  lib.readRoleSpec({ ...CLAUDE_ROLE, thinking: "high" }),
+  null,
+);
+eq("readRoleSpec rejects a missing claude effort", lib.readRoleSpec({ harness: "claude", model: "m", permission_mode: "auto" }), null);
+eq("readRoleSpec rejects a missing claude permission mode", lib.readRoleSpec({ harness: "claude", model: "m", effort: "high" }), null);
+eq("readRoleSpec rejects an off effort", lib.readRoleSpec({ ...CLAUDE_ROLE, effort: "off" }), null);
+eq("readRoleSpec rejects bypassPermissions", lib.readRoleSpec({ ...CLAUDE_ROLE, permission_mode: "bypassPermissions" }), null);
+eq("readRoleSpec rejects an unknown harness", lib.readRoleSpec({ ...CLAUDE_ROLE, harness: "codex" }), null);
+eq("readRoleSpec rejects a null harness", lib.readRoleSpec({ ...CLAUDE_ROLE, harness: null }), null);
+eq(
+  "renderStoredRole renders an implicit pi role",
+  lib.renderStoredRole(makeRoles().impl),
+  "pi:opencode-go/deepseek-v4.1-flash/high",
+);
+eq("renderStoredRole renders a claude role", lib.renderStoredRole(CLAUDE_ROLE), "claude:claude-haiku-5-5/high/auto");
+eq("renderStoredRole rejects an unknown harness", lib.renderStoredRole({ ...CLAUDE_ROLE, harness: "codex" }), "");
 
 // validateProfile: what the reuse path may accept.
 eq("validateProfile accepts the smallest profile", reasonOf(valid()), "ok:impl,review,pr-fix");
@@ -255,6 +356,89 @@ eq(
   "ok:impl,review,pr-fix",
 );
 
+// validateProfile: the harness decides which fields a role must and must not
+// carry, and a shared pr-fix compares every field, permission mode included.
+const mixedRoles = () => ({
+  ...makeRoles(),
+  review: CLAUDE_ROLE,
+  "pr-fix": makeRoles()["pr-fix"],
+});
+const sharedMixed = (roles = makeRoles()) => ({ pr_fix_shared_with_impl: true, roles });
+eq(
+  "validateProfile accepts a claude review role",
+  reasonOf({ pr_fix_shared_with_impl: false, roles: mixedRoles() }),
+  "ok:impl,review,pr-fix",
+);
+eq(
+  "validateProfile accepts a profile that predates the harness key",
+  reasonOf(sharedMixed()),
+  "ok:impl,review,pr-fix",
+);
+eq(
+  "validateProfile accepts an explicit pi harness",
+  reasonOf(sharedMixed({ ...makeRoles(), impl: { harness: "pi", ...makeRoles().impl } })),
+  "ok:impl,review,pr-fix",
+);
+eq(
+  "validateProfile rejects a pi role with an effort",
+  reasonOf(sharedMixed({ ...makeRoles(), review: { ...makeRoles().review, effort: "high" } })),
+  "bad-role-spec",
+);
+eq(
+  "validateProfile rejects a claude role with a provider",
+  reasonOf({ pr_fix_shared_with_impl: false, roles: { ...mixedRoles(), review: { ...CLAUDE_ROLE, provider: "p" } } }),
+  "bad-role-spec",
+);
+eq(
+  "validateProfile rejects a claude role without a permission mode",
+  reasonOf({
+    pr_fix_shared_with_impl: false,
+    roles: { ...mixedRoles(), review: { harness: "claude", model: "m", effort: "high" } },
+  }),
+  "bad-role-spec",
+);
+eq(
+  "validateProfile rejects a claude role with bypassPermissions",
+  reasonOf({
+    pr_fix_shared_with_impl: false,
+    roles: { ...mixedRoles(), review: { ...CLAUDE_ROLE, permission_mode: "bypassPermissions" } },
+  }),
+  "bad-role-spec",
+);
+eq(
+  "validateProfile rejects an unknown harness in a role",
+  reasonOf({ pr_fix_shared_with_impl: false, roles: { ...mixedRoles(), review: { ...CLAUDE_ROLE, harness: "codex" } } }),
+  "bad-role-spec",
+);
+eq(
+  "validateProfile rejects a shared pr-fix on another harness",
+  reasonOf({
+    pr_fix_shared_with_impl: true,
+    roles: { ...makeRoles(), "pr-fix": { ...CLAUDE_ROLE, permission_mode: "manual" }, impl: makeRoles().impl },
+  }),
+  "bad-shared",
+);
+eq(
+  "validateProfile rejects a shared pr-fix that differs only by permission mode",
+  reasonOf({
+    pr_fix_shared_with_impl: true,
+    roles: {
+      impl: CLAUDE_ROLE,
+      review: makeRoles().review,
+      "pr-fix": { ...CLAUDE_ROLE, permission_mode: "plan" },
+    },
+  }),
+  "bad-shared",
+);
+eq(
+  "validateProfile accepts a shared claude team",
+  reasonOf({
+    pr_fix_shared_with_impl: true,
+    roles: { impl: CLAUDE_ROLE, review: makeRoles().review, "pr-fix": CLAUDE_ROLE },
+  }),
+  "ok:impl,review,pr-fix",
+);
+
 // buildProfile: the canonical content the writer stores.
 eq(
   "buildProfile keeps role order",
@@ -270,6 +454,16 @@ eq(
   ["impl", "review", "pr-fix", "ui-tester", "orchestrator"],
 );
 eq("buildProfile stores the shared flag", lib.buildProfile(makeRoles(), true).pr_fix_shared_with_impl, true);
+eq(
+  "buildProfile keeps the explicit pi harness implicit",
+  lib.buildProfile({ ...makeRoles(), impl: { harness: "pi", ...makeRoles().impl } }, false).roles.impl,
+  makeRoles().impl,
+);
+eq(
+  "buildProfile stores a claude role with its harness",
+  lib.buildProfile({ ...makeRoles(), review: CLAUDE_ROLE }, false).roles.review,
+  CLAUDE_ROLE,
+);
 eq(
   "buildProfile no longer stores a version",
   Object.prototype.hasOwnProperty.call(lib.buildProfile(makeRoles(), true), "version"),
@@ -570,9 +764,9 @@ check_eq "default profile source" "$(kv "$OUT" source)" "default"
 check_eq "default profile present" "$(kv "$OUT" present)" "true"
 check_eq "default profile reports the set" "$(kv "$OUT" profiles_present)" "true"
 check_eq "default profile shared flag" "$(kv "$OUT" pr_fix_shared_with_impl)" "true"
-check_eq "default profile impl" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
-check_eq "default profile review" "$(kv "$OUT" review)" "openai-codex/gpt-6-astra/medium"
-check_eq "default profile pr-fix" "$(kv "$OUT" pr-fix)" "opencode-go/deepseek-v4.1-flash/high"
+check_eq "default profile impl" "$(kv "$OUT" impl)" "pi:opencode-go/deepseek-v4.1-flash/high"
+check_eq "default profile review" "$(kv "$OUT" review)" "pi:openai-codex/gpt-6-astra/medium"
+check_eq "default profile pr-fix" "$(kv "$OUT" pr-fix)" "pi:opencode-go/deepseek-v4.1-flash/high"
 
 # active selects the named profile, with or without a trailing newline.
 D="$(new_agent active)"
@@ -703,7 +897,7 @@ D="$(new_agent version-key)"
 put_profile "$D" default '{"version":1,"pr_fix_shared_with_impl":true,"roles":'"$ROLES"'}'
 capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
 check_exit "a leftover version key still resolves" "0"
-check_eq "a leftover version key keeps the roles" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
+check_eq "a leftover version key keeps the roles" "$(kv "$OUT" impl)" "pi:opencode-go/deepseek-v4.1-flash/high"
 
 # A directory in place of the profile file is unreadable, not broken JSON.
 D="$(new_agent unreadable)"
@@ -724,7 +918,7 @@ check_eq "unresolvable role result" "$(kv "$OUT" result)" "unresolved"
 check_eq "unresolvable role reason" "$(kv "$OUT" reason)" "role"
 check_eq "unresolvable role is reported" "$(kv "$OUT" unresolved)" "review"
 check_eq "unresolvable role token" "$(kv "$OUT" unresolved_result)" "unknown"
-check_eq "unresolvable role keeps impl for the proposal" "$(kv "$OUT" impl)" "opencode-go/deepseek-v4.1-flash/high"
+check_eq "unresolvable role keeps impl for the proposal" "$(kv "$OUT" impl)" "pi:opencode-go/deepseek-v4.1-flash/high"
 
 D="$(new_agent clamped)"
 put_profile "$D" default \
@@ -751,7 +945,7 @@ D="$(new_agent ui-tester)"
 put_profile "$D" default "$(profile_json false "$ROLES_UI_TESTER")"
 capture_in "$D" resolve --require-role ui-tester --resolver "$WORK/stub-mixed.sh"
 check_exit "required ui-tester present exits ok" "0"
-check_eq "required ui-tester is reusable" "$(kv "$OUT" ui-tester)" "opencode-go/deepseek-v4-flash/max"
+check_eq "required ui-tester is reusable" "$(kv "$OUT" ui-tester)" "pi:opencode-go/deepseek-v4-flash/max"
 check_eq "required ui-tester keeps the shared flag" "$(kv "$OUT" pr_fix_shared_with_impl)" "false"
 
 put_profile "$D" default "$(profile_json true "$ROLES")"
@@ -925,6 +1119,106 @@ capture_in "$D" resolve --profile default --resolver "$WORK/stub-mixed.sh" --bog
 check_exit "resolve rejects an unknown argument with a usage status" "2"
 capture_in "$D" resolve --profile default --resolver
 check_exit "resolve rejects a dangling option with a usage status" "2"
+
+# --- harness-aware specifications -----------------------------------------
+
+# `write` accepts the canonical form for both harnesses and always reports the
+# role values through `resolve` in that same prefixed form.
+D="$(new_agent claude-write)"
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
+  --pr-fix-shared-with-impl true \
+  --role impl=claude:claude-haiku-5-5/high/auto \
+  --role review=claude:anthropic/claude-sonnet-4-5-20250929/xhigh/acceptEdits \
+  --role pr-fix=claude:claude-haiku-5-5/high/auto
+check_single_line "write accepts claude roles"
+check_eq "write accepts claude roles exit" "$RC" "0"
+check_eq "write stores the claude harness" "$(json_field "$(asset "$D")/profiles/default.json" roles.impl.harness)" "claude"
+check_eq "write stores the claude effort" "$(json_field "$(asset "$D")/profiles/default.json" roles.review.effort)" "xhigh"
+check_eq "write stores the claude permission mode" "$(json_field "$(asset "$D")/profiles/default.json" roles.review.permission_mode)" "acceptEdits"
+check_eq "write stores the claude model with a slash" "$(json_field "$(asset "$D")/profiles/default.json" roles.review.model)" "anthropic/claude-sonnet-4-5-20250929"
+check_eq "write stores no provider for a claude role" "$(json_field "$(asset "$D")/profiles/default.json" roles.impl.provider)" ""
+
+capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
+check_eq "a claude profile resolves" "$(kv "$OUT" result)" "ok"
+check_eq "resolve reports the claude prefix for impl" "$(kv "$OUT" impl)" "claude:claude-haiku-5-5/high/auto"
+check_eq "resolve reports the claude spec" "$(kv "$OUT" review)" \
+  "claude:anthropic/claude-sonnet-4-5-20250929/xhigh/acceptEdits"
+check_eq "resolve reports a mixed team" "$(kv "$OUT" pr-fix)" "claude:claude-haiku-5-5/high/auto"
+
+# `use` writes the same canonical values, so a consumer never reads a legacy
+# value back.
+capture_in "$D" use default --resolver "$WORK/stub-mixed.sh"
+check_eq "use accepts a claude profile" "$RC" "0"
+check_eq "use reports the claude role" "$(kv "$OUT" review)" \
+  "claude:anthropic/claude-sonnet-4-5-20250929/xhigh/acceptEdits"
+
+# A legacy unprefixed value is accepted on input and stored as pi (implicit).
+D="$(new_agent legacy-prefix)"
+capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
+  --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+check_eq "legacy write input still exits ok" "$RC" "0"
+check_eq "legacy write input stores no harness" \
+  "$(json_field "$(asset "$D")/profiles/default.json" roles.impl.harness)" ""
+capture_in "$D" resolve --only-role impl --resolver "$WORK/stub-mixed.sh"
+check_eq "legacy write input resolves with the pi prefix" "$(kv "$OUT" impl)" \
+  "pi:opencode-go/deepseek-v4.1-flash/high"
+
+# The resolver is called with the harness named explicitly, so it never has to
+# infer the grammar from which options are present, and a Claude role is
+# resolved through the Claude options only.
+cat > "$WORK/stub-argv.sh" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$WORK/resolver-argv"
+printf 'harness=stub result=ok verification=postlaunch\n'
+exit 0
+STUB
+chmod +x "$WORK/stub-argv.sh"
+D="$(new_agent resolver-argv)"
+rm -f "$WORK/resolver-argv"
+capture_in "$D" write --profile default --resolver "$WORK/stub-argv.sh" \
+  --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"
+check_eq "pi roles resolve through the pi options" "$RC" "0"
+capture_in "$D" write --profile claude --resolver "$WORK/stub-argv.sh" \
+  --pr-fix-shared-with-impl true \
+  --role impl=claude:claude-haiku-5-5/high/auto \
+  --role review=claude:claude-haiku-5-5/medium/manual \
+  --role pr-fix=claude:claude-haiku-5-5/high/auto
+check_eq "claude roles resolve through the claude options" "$RC" "0"
+check_contains "the pi resolver call names the harness" "$(sed -n 1p "$WORK/resolver-argv")" \
+  "--harness pi --provider opencode-go --model deepseek-v4.1-flash --thinking high"
+check_contains "the claude resolver call names the harness" "$(tail -n 1 "$WORK/resolver-argv")" \
+  "--harness claude --model claude-haiku-5-5 --effort high --permission-mode auto"
+
+# The harness decides which fields are refused, and a permission mode is part
+# of the shared comparison.
+check_write_invalid "claude-without-mode" bad-role-spec --profile default --pr-fix-shared-with-impl true \
+  --role impl=claude:claude-haiku-5-5/high --role review=openai-codex/gpt-6-astra/medium \
+  --role pr-fix=claude:claude-haiku-5-5/high
+check_write_invalid "claude-bypass-permissions" bad-role-spec --profile default --pr-fix-shared-with-impl true \
+  --role impl=claude:claude-haiku-5-5/high/bypassPermissions \
+  --role review=openai-codex/gpt-6-astra/medium \
+  --role pr-fix=claude:claude-haiku-5-5/high/bypassPermissions
+check_write_invalid "claude-off-effort" bad-role-spec --profile default --pr-fix-shared-with-impl true \
+  --role impl=claude:claude-haiku-5-5/off/auto --role review=openai-codex/gpt-6-astra/medium \
+  --role pr-fix=claude:claude-haiku-5-5/off/auto
+check_write_invalid "unknown-harness" bad-role-spec --profile default --pr-fix-shared-with-impl true \
+  --role impl=codex:model/high --role review=openai-codex/gpt-6-astra/medium \
+  --role pr-fix=codex:model/high
+check_write_invalid "shared-permission-mode-mismatch" bad-shared --profile default --pr-fix-shared-with-impl true \
+  --role impl=claude:claude-haiku-5-5/high/auto \
+  --role review=openai-codex/gpt-6-astra/medium \
+  --role pr-fix=claude:claude-haiku-5-5/high/plan
+check_write_invalid "shared-harness-mismatch" bad-shared --profile default --pr-fix-shared-with-impl true \
+  --role impl=opencode-go/deepseek-v4.1-flash/high \
+  --role review=openai-codex/gpt-6-astra/medium \
+  --role pr-fix=claude:claude-haiku-5-5/high/auto
+
+# A stored profile that carries the wrong harness fields is invalid, so the
+# kickoff goes back to the proposal instead of launching a half-read team.
+check_invalid "claude-role-with-provider" \
+  '{"pr_fix_shared_with_impl":false,"roles":{"impl":'"$IMPL"',"review":{"harness":"claude","provider":"anthropic","model":"claude-haiku-5-5","effort":"high","permission_mode":"auto"},"pr-fix":'"$PRFIX"'}}' bad-role-spec
+check_invalid "pi-role-with-effort" \
+  '{"pr_fix_shared_with_impl":false,"roles":{"impl":'"$IMPL"',"review":{"provider":"openai-codex","model":"gpt-6-astra","thinking":"medium","effort":"medium"},"pr-fix":'"$PRFIX"'}}' bad-role-spec
 
 # --- use -------------------------------------------------------------------
 
@@ -1194,7 +1488,7 @@ D="$(new_agent review-only)"
 put_profile "$D" default '{"roles":{"review":'"$REVIEW"'}}'
 capture_in "$D" resolve --only-role review --resolver "$WORK/stub-mixed.sh"
 check_eq "review-only profile resolves" "$RC" "0"
-check_eq "review-only returns review" "$(kv "$OUT" review)" "openai-codex/gpt-6-astra/medium"
+check_eq "review-only returns review" "$(kv "$OUT" review)" "pi:openai-codex/gpt-6-astra/medium"
 check_eq "review-only does not return impl" "$(kv "$OUT" impl)" ""
 check_not_contains "review-only does not invent a composition" "$OUT" 'pr_fix_shared_with_impl='
 capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
@@ -1257,7 +1551,7 @@ D="$(new_agent orchestrator)"
 put_profile "$D" default "$(profile_json true "$ROLES_ORCHESTRATOR")"
 capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
 check_exit "a stored orchestrator resolves the full team" "0"
-check_eq "a stored orchestrator is reported" "$(kv "$OUT" orchestrator)" "openai-codex/gpt-6-astra/high"
+check_eq "a stored orchestrator is reported" "$(kv "$OUT" orchestrator)" "pi:openai-codex/gpt-6-astra/high"
 check_eq "a stored orchestrator keeps the shared flag" "$(kv "$OUT" pr_fix_shared_with_impl)" "true"
 
 D="$(new_agent orchestrator-unavailable)"
@@ -1266,10 +1560,10 @@ put_profile "$D" default \
 capture_in "$D" resolve --resolver "$WORK/stub-mixed.sh"
 check_exit "an unavailable orchestrator does not block a full-team read" "0"
 check_eq "an unavailable orchestrator is reported as stored" "$(kv "$OUT" orchestrator)" \
-  "opencode-go/unresolvable/high"
+  "pi:opencode-go/unresolvable/high"
 capture_in "$D" use default --resolver "$WORK/stub-mixed.sh"
 check_exit "an unavailable orchestrator does not block use" "0"
-check_eq "use reports the stored orchestrator" "$(kv "$OUT" orchestrator)" "opencode-go/unresolvable/high"
+check_eq "use reports the stored orchestrator" "$(kv "$OUT" orchestrator)" "pi:opencode-go/unresolvable/high"
 check_eq "use still switches active" "$(active_content "$D")" "default"
 
 # A malformed orchestrator is never reported as usable by a full-team read.
@@ -1285,7 +1579,7 @@ D="$(new_agent orchestrator-only)"
 put_profile "$D" default '{"roles":{"orchestrator":'"$ORCHESTRATOR"'}}'
 capture_in "$D" resolve --only-role orchestrator --resolver "$WORK/stub-mixed.sh"
 check_exit "only-role orchestrator exits ok" "0"
-check_eq "only-role orchestrator returns the spec" "$(kv "$OUT" orchestrator)" "openai-codex/gpt-6-astra/high"
+check_eq "only-role orchestrator returns the spec" "$(kv "$OUT" orchestrator)" "pi:openai-codex/gpt-6-astra/high"
 check_eq "only-role orchestrator returns no team role" "$(kv "$OUT" impl)" ""
 check_not_contains "only-role orchestrator invents no composition" "$OUT" 'pr_fix_shared_with_impl='
 
@@ -1302,7 +1596,7 @@ put_profile "$D" default \
   '{"pr_fix_shared_with_impl":true,"roles":{"impl":'"$IMPL"',"review":'"$REVIEW"',"pr-fix":'"$PRFIX"',"orchestrator":{"provider":"openrouter","model":"anthropic/claude-x","thinking":"max"}}}'
 capture_in "$D" resolve --only-role orchestrator --resolver "$WORK/stub-echo.sh"
 check_eq "only-role orchestrator keeps a slashed model" "$(kv "$OUT" orchestrator)" \
-  "openrouter/anthropic/claude-x/max"
+  "pi:openrouter/anthropic/claude-x/max"
 
 # `--require-role orchestrator` adds the stored orchestrator to the runtime
 # resolution without making it a team role.
@@ -1310,7 +1604,7 @@ D="$(new_agent orchestrator-required)"
 put_profile "$D" default "$(profile_json true "$ROLES_ORCHESTRATOR")"
 capture_in "$D" resolve --require-role orchestrator --resolver "$WORK/stub-mixed.sh"
 check_exit "a required orchestrator present exits ok" "0"
-check_eq "a required orchestrator is reported" "$(kv "$OUT" orchestrator)" "openai-codex/gpt-6-astra/high"
+check_eq "a required orchestrator is reported" "$(kv "$OUT" orchestrator)" "pi:openai-codex/gpt-6-astra/high"
 
 put_profile "$D" default "$(profile_json true "$ROLES")"
 capture_in "$D" resolve --require-role orchestrator --resolver "$WORK/stub-mixed.sh"
@@ -1351,7 +1645,7 @@ check_eq "write stores the orchestrator" \
 check_eq "write reports the orchestrator role" "$(kv "$OUT" roles)" "impl,review,pr-fix,orchestrator"
 capture_in "$D" resolve --only-role orchestrator --resolver "$WORK/stub-mixed.sh"
 check_eq "the written orchestrator resolves through only-role" "$(kv "$OUT" orchestrator)" \
-  "openai-codex/gpt-6-astra/high"
+  "pi:openai-codex/gpt-6-astra/high"
 
 capture_in "$D" write --profile default --resolver "$WORK/stub-mixed.sh" \
   --pr-fix-shared-with-impl true "${WRITE_TEAM[@]}"

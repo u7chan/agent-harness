@@ -13,8 +13,16 @@
 #             reads a profile, so it stays the one-off path for a role that a
 #             profile does not carry yet.
 #   profile   --role names a profile role and team-record.sh resolves its
-#             provider/model/thinking. A missing, invalid, or unresolved role
-#             stops the start (fail closed).
+#             canonical `<harness>:<...>` specification. A missing, invalid, or
+#             unresolved role stops the start (fail closed).
+#
+# Profile mode accepts the canonical `pi:<provider>/<model>/<thinking>` value
+# team-record.sh now prints and the legacy unprefixed value; both are launched
+# as the same Pi specification and the printed `launch:` line stays in the
+# previous `spec=<provider>/<model>/<thinking>` form until the shared launcher
+# owns the line. A `claude:` specification stops here: Claude starts are not
+# implemented yet, and this script never launches a harness it cannot verify.
+#
 # Both modes print one `launch:` line to stderr and append the same line to the
 # delegated body, before the return instruction.
 #
@@ -47,6 +55,9 @@ usage() {
   printf '                         (advanced use and tests only)\n' >&2
   printf 'An empty option value is a usage error, never "not specified".\n' >&2
   printf '\n<profile-role> is a profile role, not the `role: orchestrator` label of the task text.\n' >&2
+  printf 'A profile role resolves to `pi:<provider>/<model>/<thinking>` or, once Claude\n' >&2
+  printf 'starts are implemented, `claude:<model>/<effort>/<permission_mode>`. A `claude:`\n' >&2
+  printf 'role stops here without starting anything; Claude is not supported yet.\n' >&2
   printf 'Both modes print and append this line; write it nowhere yourself:\n' >&2
   printf '  launch: profile=<name|-> role=<profile-role|-> spec=<provider>/<model>/<thinking> spec_source=<profile|explicit> origin=<explicit|active|default>\n' >&2
   exit 2
@@ -205,6 +216,23 @@ if [ "$mode" = 'profile' ]; then
   launch_profile="$(record_field "$record" profile)" || fail "team-record.sh reported no profile: $record"
   launch_origin="$(record_field "$record" source)" || fail "team-record.sh reported no source: $record"
   spec="$(record_field "$record" "$role")" || fail "team-record.sh reported no '$role' spec: $record"
+
+  # The resolved value is a canonical specification. Only a leading `pi:` or
+  # `claude:` is a harness prefix: the rest is a legacy Pi specification, which
+  # stays accepted. `claude:` has no start path yet, and an unknown harness
+  # prefix is reported rather than read as a provider name.
+  spec_head="${spec%%/*}"
+  case "$spec" in
+    pi:*) spec="${spec#pi:}" ;;
+    claude:*)
+      fail "claude: role specs are not supported yet: $spec (no agent was started)"
+      ;;
+    *)
+      case "$spec_head" in
+        *:*) fail "team-record.sh reported an unknown harness prefix: $spec" ;;
+      esac
+      ;;
+  esac
 
   # Same split rule as parseRoleSpec: the provider is the first segment, the
   # thinking level the last one, and the rest is the model, so a model ID may

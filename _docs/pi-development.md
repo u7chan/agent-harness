@@ -26,8 +26,8 @@ The profile format holds the full team plus the optional orchestrator:
   "pr_fix_shared_with_impl": true,
   "roles": {
     "impl": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"},
-    "review": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"},
-    "pr-fix": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"},
+    "review": {"harness": "claude", "model": "<model>", "effort": "<level>", "permission_mode": "<mode>"},
+    "pr-fix": {"harness": "claude", "model": "<model>", "effort": "<level>", "permission_mode": "<mode>"},
     "orchestrator": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"}
   }
 }
@@ -35,17 +35,59 @@ The profile format holds the full team plus the optional orchestrator:
 
 `ui-tester` and `orchestrator` are optional. There is no version field. Unknown
 keys are ignored. Full-team validation requires `impl`, `review`, `pr-fix`, a
-boolean shared flag, and equal `impl`/`pr-fix` specs when that flag is true.
-Writes are atomic (temporary file plus rename), mode `0600`, for both profiles
-and `active`.
+boolean shared flag, and equal `impl`/`pr-fix` specifications when that flag is
+true: every field is compared, so the harness and the Claude permission mode
+are part of the equality. Writes are atomic (temporary file plus rename), mode
+`0600`, for both profiles and `active`.
+
+`harness` is optional and defaults to `pi`, so a profile written before the
+harness existed is valid as it stands. The harness decides which fields a role
+must and must not carry:
+
+| `harness` | Required | Refused |
+| --- | --- | --- |
+| `pi` (default) | `provider`, `model`, `thinking` | `effort`, `permission_mode` |
+| `claude` | `model`, `effort`, `permission_mode` | `provider`, `thinking` |
+
+A Claude `effort` is one of `low`, `medium`, `high`, `xhigh`, `max`; `off` and
+`minimal` are refused because the CLI ignores them with a warning instead of
+applying them. A Claude `permission_mode` is one of `acceptEdits`, `auto`,
+`manual`, `dontAsk`, `plan`; `bypassPermissions` is refused. A profile stores
+the canonical full Claude model ID, never an alias: an alias is a one-off
+explicit mode, and a stored alias stops the run when the launched model
+reported by `effective:` does not match. `write` records `harness: "claude"`
+for a Claude role and keeps the default harness implicit, so a Pi role keeps
+its existing three-field shape.
 
 `orchestrator` is not a team member: the team table, the approval, and the
-reuse line never include it. It is stored in a profile because the same role
-specification (provider, model, thinking) is what a worktree team start
-resolves for the orchestrator.
+reuse line never include it. It is stored in a profile because the same
+canonical specification (the harness and that harness's fields) is what a
+worktree team start resolves for the orchestrator.
 
 Only team and orchestrator launch specifications belong here. Never persist a
 run's PR, phase, review round, reviewed head, findings, or pane IDs.
+
+## Role specifications
+
+One canonical string names a role specification:
+
+| Harness | Canonical form | Example |
+| --- | --- | --- |
+| Pi | `pi:<provider>/<model>/<thinking>` | `pi:opencode-go/deepseek-v4.1-flash/max` |
+| Claude | `claude:<model>/<effort>/<permission_mode>` | `claude:claude-haiku-5-5/high/auto` |
+
+Only a leading `pi:` or `claude:` is a harness prefix. Anything else is a
+legacy Pi specification read from start to end, so a model ID that contains
+`:` does not turn into a harness. A Pi value splits at the first `/`
+(provider) and the last `/` (thinking); a Claude value splits at the last `/`
+(permission mode) and the second-to-last `/` (effort). Both allow `/` in the
+model ID. An empty segment, an unknown harness, a missing field for the named
+harness, and a value outside the effort/permission vocabularies are rejected.
+
+Commands accept both the prefixed and the legacy unprefixed form; every output
+is prefixed. `--role`, the profile file, `resolve`, `launch:`, the reuse line,
+and the team table all use the same string, and the permission mode is part of
+the Claude string everywhere.
 
 ## Selection and commands
 
@@ -71,14 +113,22 @@ scripts/pi-development/team-record.sh use <name>
 # `write` replaces the whole profile, so pass every role you want to keep.
 scripts/pi-development/team-record.sh write --profile <name> \
   --pr-fix-shared-with-impl <true|false> \
-  --role impl=<provider>/<model>/<thinking> \
-  --role review=<provider>/<model>/<thinking> \
-  --role pr-fix=<provider>/<model>/<thinking> \
-  [--role ui-tester=<provider>/<model>/<thinking>] \
-  [--role orchestrator=<provider>/<model>/<thinking>]
+  --role impl=pi:<provider>/<model>/<thinking> \
+  --role review=claude:<model>/<effort>/<permission_mode> \
+  --role pr-fix=<harness>:<...> \
+  [--role ui-tester=<harness>:<...>] \
+  [--role orchestrator=<harness>:<...>]
 
+# pi (default): exact match against the installed catalog.
 scripts/pi-development/resolve-model-spec.sh \
   --provider <provider> --model <model> --thinking <level>
+
+# claude: shape and enumeration only; the model is confirmed after launch.
+scripts/pi-development/resolve-model-spec.sh --harness claude \
+  --model <model> --effort <level> --permission-mode <mode>
+
+# Authentication preflight: login state and config directory only.
+scripts/pi-development/claude-auth-status.sh
 ```
 
 A save that omits `orchestrator` removes a stored one, because `write` is a
@@ -88,8 +138,9 @@ stored role you did not mean to change.
 `--only-role` accepts one known role. It projects the selected role before
 shape validation and runtime resolution: missing, malformed, unavailable, or
 clamped **unused** roles and the shared flag cannot block the run. The selected
-role still needs a complete, exact, supported spec. It cannot be combined with
-`--require-role` or used with `use`/`write`. A full-team read, save, or
+role still needs a complete specification that the resolver answers with
+`result=ok` (exactly for Pi, after launch for Claude). It cannot be combined
+with `--require-role` or used with `use`/`write`. A full-team read, save, or
 persistent switch still validates the whole team. A role-only read never
 rewrites the profile or switches `active`.
 
@@ -108,6 +159,22 @@ on PATH is a launcher shim rather than the installed executable, expose the
 real executable on PATH or pass the resolver's `--pi-root` option. Do not
 interpret its catalog's thinking yes/no column as a supported-level list.
 Only `result=ok` resolves a spec; never accept a clamped level silently.
+
+`--harness` selects what the resolver verifies and defaults to `pi`. A Pi
+request must match an installed model exactly and answers `result=ok` with
+`verification=exact`. A Claude request is checked by model shape and by the
+effort and permission-mode vocabularies and answers `result=ok` with
+`verification=postlaunch`: the model exists only after launch, so the resolver
+keeps no alias table and reports no effective value, and the launcher confirms
+the canonical model and effort from the launched session. A record that is not
+`result=ok` is unresolved for either harness.
+
+`claude-auth-status.sh` runs `claude auth status`, which needs no network, and
+prints only the login state and the config directory. It never prints the
+account email, the organization, or the rest of the status document, and it
+writes no file. It parses the status document with `node`, so `node` must be on
+PATH; without it the helper answers `result=error reason=node-missing` and
+exits 1.
 
 A request such as `fallback で` selects `--profile fallback` for this run only.
 `fallback に切り替えて` is `use fallback` and persists for both consumers.
@@ -233,10 +300,13 @@ Each helper prints one key=value line and exits zero only for `result=ok`.
 roles, plus `pr_fix_shared_with_impl` for a full-team read only. A full-team
 read and `use` report a stored `orchestrator=` as a shape-validated value from
 the file, not a runtime resolution, while the team roles in the same line are
-resolved. `--only-role <role>` reports `<role>=<provider>/<model>/<thinking>`
-for the selected role and resolves only that role. Invalid and unresolved
-records repeat the stored role values, including `orchestrator=` when the file
-has one; `use` reports the stored `orchestrator=` the same way.
+resolved. Every role value is the canonical string, so `impl=pi:...` and
+`review=claude:<model>/<effort>/<permission_mode>` are unambiguous about the
+harness and the permission mode. `--only-role <role>` reports the canonical
+value for the selected role and resolves only that role. Invalid and unresolved
+records repeat the stored role values in the same form, including
+`orchestrator=` when the file has one; `use` reports the stored `orchestrator=`
+the same way.
 
 Missing reasons: `no-profiles`, `missing-selected-profile`,
 `missing-active-profile`, `missing-explicit-profile`. Invalid reasons include
@@ -257,3 +327,34 @@ resolve. Reads never fall back to it, and writes/switches stop too. Follow
 [the migration procedure](pi-development-migration.md) before continuing; an
 empty new directory does not waive the guard. Once migrated, only the new
 location is authoritative.
+
+## Launch and effective lines
+
+A start script prints one `launch:` line before it starts an agent and appends
+the same line to the delegated body. The canonical line names the harness
+explicitly:
+
+```text
+launch: profile=<name|-> role=<role|-> harness=<pi|claude> spec=<harness>:<...> spec_source=<profile|explicit> origin=<explicit|active|default>
+```
+
+`harness` must equal the prefix of `spec`. A mismatch stops the start instead of
+launching an agent whose specification cannot be verified. The current
+`herdr/scripts/worktree-team-start.sh` still prints the previous form without
+`harness=` and with `spec=<provider>/<model>/<thinking>`: it strips the `pi:`
+prefix from a canonical value, accepts a legacy unprefixed value as Pi, and
+stops on a `claude:` value because Claude starts are not implemented yet.
+
+The effective values are reported once after launch:
+
+```text
+effective: harness=<pi|claude> provider=<provider|-> model=<canonical model> effort=<level|-> thinking=<level|-> permission_requested=<mode|-> requested=<spec>
+```
+
+A Pi agent prints this line from its own `$PI_*` variables. For Claude, the
+shared launcher prints it from the launched session, and
+`permission_requested` is the value passed in argv, not a value read back
+(Claude does not expose the merged permission mode). `requested=` must equal the
+`spec` of the `launch:` line, and a stored canonical model ID must match
+`model`. When a body holds several `effective:` lines, the last one is
+authoritative.

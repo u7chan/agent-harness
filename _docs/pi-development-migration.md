@@ -49,12 +49,19 @@ the new root is `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-development/`.
    if test -f "$NEW/active"; then chmod 600 "$NEW/active"; fi
    ```
 
+   The role format is unchanged for an existing profile: a role without
+   `harness` is valid as `pi`, so do not add, remove, or rewrite role fields
+   during the move. A role that already names `harness: "claude"` keeps its
+   `model`, `effort`, and `permission_mode` as written.
+
 3. Run the new helper from `<dist-root>/current` (the served release tree in
    [Notation](skill-distribution.md#notation)). Resolve every kept profile as a
    full team, then resolve the effective review role. Only `result=ok` passes;
    if any check fails, stop before workflow execution and inspect the model
    catalog or restore the backup. Do not replace approved model values with
-   defaults to make the migration pass.
+   defaults to make the migration pass. A Pi profile is verified exactly; a
+   Claude role is verified by shape and enumeration, and its model is confirmed
+   from the launched session.
 
    ```bash
    for profile in "$NEW"/profiles/*.json; do

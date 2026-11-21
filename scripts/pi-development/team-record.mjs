@@ -127,16 +127,23 @@ use:
 write options:
   --profile <name>    required; the profile to write, and the only file this
       command changes (\`active\` is untouched).
-  --role <role>=<provider>/<model>/<thinking>
+  --role <role>=<harness>:<...>
       role to record (repeatable); impl, review, and pr-fix are required,
       ui-tester and orchestrator are optional, and the role name must be one
-      of ROLE_NAMES. The provider is the first segment and the thinking level
-      is the last one, so a model ID may contain \`/\`. \`write\` replaces the
-      whole profile, so a role that is omitted is removed; pass
-      \`--role orchestrator=...\` to keep a stored orchestrator.
+      of ROLE_NAMES. One specification is
+      \`pi:<provider>/<model>/<thinking>\` or
+      \`claude:<model>/<effort>/<permission_mode>\`. A value without a leading
+      \`pi:\` or \`claude:\` is read as a legacy Pi specification; the output is
+      always prefixed. A Pi model may contain \`/\` (the provider is the first
+      segment and the thinking level the last one). A Claude model may contain
+      \`/\` too (the permission mode is the last segment and the effort level the
+      one before it). \`write\` replaces the whole profile, so a role that is
+      omitted is removed; pass \`--role orchestrator=...\` to keep a stored
+      orchestrator.
   --pr-fix-shared-with-impl <true|false>
-      required; whether pr-fix reuses the impl agent. When \`true\`, the
-      pr-fix specification must equal the impl specification.
+      required; whether pr-fix reuses the impl agent. When \`true\`, every field
+      of the pr-fix specification must equal the impl specification, including
+      the harness and the Claude permission mode.
 
 If only the legacy pi-issue-pr-workflow asset exists, commands stop with
 \`result=invalid reason=migration-required\`; there is no legacy fallback,
@@ -437,17 +444,37 @@ function resolverPath(options) {
 }
 
 /**
+ * Resolver arguments for one specification. The harness is always explicit, so
+ * the resolver never has to infer it from which options are present.
+ */
+function resolverArgs(spec) {
+  if (spec.harness === "claude") {
+    return [
+      "--harness",
+      "claude",
+      "--model",
+      spec.model,
+      "--effort",
+      spec.effort,
+      "--permission-mode",
+      spec.permission_mode,
+    ];
+  }
+  return ["--harness", "pi", "--provider", spec.provider, "--model", spec.model, "--thinking", spec.thinking];
+}
+
+/**
  * Resolve one specification through the resolver.
  *
  * @returns {{result: string}} the resolver's own result token, or a local
  *   failure token when the resolver could not run or did not report a result
  */
 function runResolver(resolver, spec) {
-  const spawned = spawnSync(
-    resolver,
-    ["--provider", spec.provider, "--model", spec.model, "--thinking", spec.thinking],
-    { encoding: "utf8", timeout: RESOLVER_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
-  );
+  const spawned = spawnSync(resolver, resolverArgs(spec), {
+    encoding: "utf8",
+    timeout: RESOLVER_TIMEOUT_MS,
+    maxBuffer: 4 * 1024 * 1024,
+  });
   if (spawned.error) {
     return { result: spawned.error.code === "ETIMEDOUT" ? "timeout" : "error" };
   }

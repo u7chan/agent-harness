@@ -2,8 +2,10 @@
 # Hermetic tests for the shared development helpers. These tests do not
 # require pi and do not touch the network: the model-spec classification module
 # is imported directly, the wrapper is driven only with an unresolved pi
-# package root, and tests/team-record.sh replaces the model-spec resolver with a
-# stub through --resolver while it exercises the team-profile helper.
+# package root, the Claude paths are validated by shape and enumeration only,
+# the auth preflight runs against a fake `claude` on PATH, and
+# tests/team-record.sh replaces the model-spec resolver with a stub through
+# --resolver while it exercises the team-profile helper.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -151,6 +153,216 @@ out="$("$HELPER" --provider opencode-go --model deepseek-v4.1-flash \
   --thinking "$(printf 'max\012extra')" 2>"$WORK/newline-thinking.err")"
 rc=$?
 check_unknown_record "newline thinking" "$rc" "$out"
+
+# --- harness-aware resolution ----------------------------------------------
+
+# One field of the single output line. A leading space lets the same pattern
+# read a field that comes first (harness).
+kv_line() { # output key
+  printf ' %s\n' "$1" | sed -n "s/.* $2=\([^ ]*\).*/\1/p"
+}
+
+check_contains() {
+  local name="$1" hay="$2" needle="$3"
+  case "$hay" in
+    *"$needle"*) ok "$name" ;;
+    *) ng "$name" "expected to contain: $needle (got: $hay)" ;;
+  esac
+}
+
+# A Pi request keeps every existing field and now names the harness and the
+# verification method. The unresolved-root case exercises the contract without
+# an installed pi.
+out="$("$HELPER" --provider opencode-go --model deepseek-v4.1-flash --thinking high \
+  --pi-root "$empty_root" 2>"$WORK/harness-pi.err")"
+check_eq "pi record names the harness" "$(kv_line "$out" harness)" "pi"
+check_eq "pi record names the exact verification" "$(kv_line "$out" verification)" "exact"
+check_eq "pi record keeps provider" "$(kv_line "$out" provider)" "opencode-go"
+check_not_contains "pi record has no permission mode" "$out" "permission_mode="
+out="$("$HELPER" --harness pi --provider opencode-go --model deepseek-v4.1-flash --thinking high \
+  --pi-root "$empty_root" 2>"$WORK/harness-pi-explicit.err")"
+check_eq "an explicit pi harness matches the default" "$(kv_line "$out" harness)" "pi"
+
+# A Claude request is validated by shape and enumeration only: there is no
+# installed catalog to match against, so the result is postlaunch and the
+# effective values stay empty instead of claiming an exact match.
+out="$("$HELPER" --harness claude --model claude-haiku-5-5 --effort high \
+  --permission-mode auto 2>"$WORK/claude-ok.err")"
+rc=$?
+check_eq "claude ok exits zero" "$rc" "0"
+check_eq "claude ok result" "$(kv_line "$out" result)" "ok"
+check_eq "claude ok names the harness" "$(kv_line "$out" harness)" "claude"
+check_eq "claude ok is postlaunch-verified" "$(kv_line "$out" verification)" "postlaunch"
+check_eq "claude ok model" "$(kv_line "$out" model)" "claude-haiku-5-5"
+check_eq "claude ok requested effort" "$(kv_line "$out" requested)" "high"
+check_eq "claude ok permission mode" "$(kv_line "$out" permission_mode)" "auto"
+check_eq "claude ok provider is empty" "$(kv_line "$out" provider)" ""
+check_eq "claude ok reports no effective model" "$(kv_line "$out" effective)" ""
+check_eq "claude ok prints one line" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" "1"
+check_not_contains "claude record has no thinking map" "$out" "thinking_level_map="
+
+out="$("$HELPER" --harness claude --model haiku --effort max --permission-mode plan \
+  2>"$WORK/claude-alias.err")"
+rc=$?
+check_eq "claude accepts an alias by shape" "$rc" "0"
+check_eq "claude alias result" "$(kv_line "$out" result)" "ok"
+check_eq "claude alias model is kept as given" "$(kv_line "$out" model)" "haiku"
+
+out="$("$HELPER" --harness claude --model anthropic/claude-sonnet-4-5-20250929 \
+  --effort xhigh --permission-mode acceptEdits 2>"$WORK/claude-slash.err")"
+check_eq "claude accepts a slashed model" "$(kv_line "$out" result)" "ok"
+check_eq "claude keeps the slashed model" "$(kv_line "$out" model)" "anthropic/claude-sonnet-4-5-20250929"
+
+# Every rejected Claude request stays one unknown record with the postlaunch
+# verification method, so a consumer never reads a failure as a launchable spec.
+check_claude_invalid() { # name extra-needle cli-args...
+  local name="$1" needle="$2" rc_out out
+  shift 2
+  out="$("$HELPER" "$@" 2>"$WORK/claude-invalid.err")"
+  rc_out=$?
+  check_eq "$name exits nonzero" "$([ "$rc_out" -ne 0 ] && echo yes || echo no)" "yes"
+  check_eq "$name result" "$(kv_line "$out" result)" "unknown"
+  check_eq "$name harness" "$(kv_line "$out" harness)" "claude"
+  check_eq "$name verification" "$(kv_line "$out" verification)" "postlaunch"
+  check_eq "$name prints one line" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" "1"
+  if [ -n "$needle" ]; then
+    check_contains "$name names the field" "$out" "$needle"
+  fi
+}
+
+check_claude_invalid "claude off effort" "permission_mode=auto" \
+  --harness claude --model claude-haiku-5-5 --effort off --permission-mode auto
+check_claude_invalid "claude minimal effort" "" \
+  --harness claude --model claude-haiku-5-5 --effort minimal --permission-mode auto
+check_claude_invalid "claude bogus effort" "" \
+  --harness claude --model claude-haiku-5-5 --effort extreme --permission-mode auto
+check_claude_invalid "claude bypassPermissions" "permission_mode=bypassPermissions" \
+  --harness claude --model claude-haiku-5-5 --effort high --permission-mode bypassPermissions
+check_claude_invalid "claude unknown permission mode" "" \
+  --harness claude --model claude-haiku-5-5 --effort high --permission-mode always
+check_claude_invalid "claude missing permission mode" "" \
+  --harness claude --model claude-haiku-5-5 --effort high
+check_claude_invalid "claude missing model" "" \
+  --harness claude --effort high --permission-mode auto
+out="$("$HELPER" --harness claude --model claude-haiku-5-5 --effort high \
+  --permission-mode auto --provider opencode-go 2>"$WORK/claude-mixed.err")"
+rc=$?
+check_eq "claude rejects a pi provider" "$([ "$rc" -ne 0 ] && echo yes || echo no)" "yes"
+check_eq "claude rejects a pi provider result" "$(kv_line "$out" result)" "unknown"
+out="$("$HELPER" --harness claude --model claude-haiku-5-5 --effort high \
+  --permission-mode auto --thinking max 2>"$WORK/claude-mixed-thinking.err")"
+check_eq "claude rejects a pi thinking level" "$(kv_line "$out" result)" "unknown"
+out="$("$HELPER" --harness claude --model "$(printf 'bad\012model')" --effort high \
+  --permission-mode auto 2>"$WORK/claude-newline-model.err")"
+check_eq "claude rejects an unsafe model" "$(kv_line "$out" result)" "unknown"
+check_eq "claude blanks an unsafe model" "$(kv_line "$out" model)" ""
+out="$("$HELPER" --harness codex --model m 2>"$WORK/harness-unknown.err")"
+rc=$?
+check_eq "an unknown harness exits nonzero" "$([ "$rc" -ne 0 ] && echo yes || echo no)" "yes"
+check_eq "an unknown harness result" "$(kv_line "$out" result)" "unknown"
+check_eq "an unknown harness names no verification" "$(kv_line "$out" verification)" ""
+
+# --- Claude auth preflight -------------------------------------------------
+
+AUTH_HELPER="$SCRIPT_DIR/../claude-auth-status.sh"
+FAKE_BIN="$WORK/fake-claude-bin"
+EMPTY_BIN="$WORK/empty-bin"
+mkdir -p "$FAKE_BIN" "$EMPTY_BIN"
+
+# Each fake is a hermetic stand-in for the real CLI: no network, no session,
+# and the status document carries an email and an organization that must never
+# reach the record.
+fake_claude() { # name json rc
+  local name="$1" document="$2" status="$3"
+  printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' \"\$*\" >> \"\$CLAUDE_AUTH_CALLS\"" "cat <<'JSON'" \
+    "$document" 'JSON' "exit $status" > "$WORK/$name"
+  chmod +x "$WORK/$name"
+}
+
+fake_claude claude-ok '{"loggedIn":true,"authMethod":"claude.ai","configDirectory":"/tmp/agent-harness-fake-claude","email":"leak@example.com","orgId":"leak-org-id","orgName":"Leak Org"}' 0
+fake_claude claude-logged-out '{"loggedIn":false,"authMethod":"none","configDirectory":"/tmp/agent-harness-fake-claude"}' 1
+fake_claude claude-status-failed '{"loggedIn":true,"configDirectory":"/tmp/agent-harness-fake-claude"}' 1
+fake_claude claude-bad-json 'this is not json' 0
+fake_claude claude-no-config '{"loggedIn":true}' 0
+fake_claude claude-relative-config '{"loggedIn":true,"configDirectory":"relative/dir"}' 0
+fake_claude claude-unsafe-config '{"loggedIn":true,"configDirectory":"/tmp/bad\nsecond-line"}' 0
+
+use_fake_claude() { # name
+  cp "$WORK/$1" "$FAKE_BIN/claude"
+  chmod +x "$FAKE_BIN/claude"
+}
+
+auth_record() { # name
+  local out rc_out
+  CLAUDE_AUTH_CALLS="$WORK/claude-auth-calls-$1" \
+    PATH="$FAKE_BIN:$PATH" "$AUTH_HELPER" >"$WORK/auth-$1.out" 2>"$WORK/auth-$1.err"
+  rc_out=$?
+  AUTH_OUT="$(cat "$WORK/auth-$1.out")"
+  AUTH_RC="$rc_out"
+}
+
+auth_field() { # key
+  kv_line "$AUTH_OUT" "$1"
+}
+
+use_fake_claude claude-ok
+auth_record ok
+check_eq "auth ok exits zero" "$AUTH_RC" "0"
+check_eq "auth ok result" "$(auth_field result)" "ok"
+check_eq "auth ok loggedIn" "$(auth_field loggedIn)" "true"
+check_eq "auth ok config directory" "$(auth_field configDirectory)" "/tmp/agent-harness-fake-claude"
+check_eq "auth ok prints one line" "$(printf '%s\n' "$AUTH_OUT" | wc -l | tr -d ' ')" "1"
+check_eq "auth asks for the status subcommand" "$(cat "$WORK/claude-auth-calls-ok")" "auth status"
+check_not_contains "auth output has no email" "$AUTH_OUT" "leak@example.com"
+check_not_contains "auth output has no organization" "$AUTH_OUT" "leak-org-id"
+check_not_contains "auth output has no organization name" "$AUTH_OUT" "Leak Org"
+check_not_contains "auth output has no auth method" "$AUTH_OUT" "claude.ai"
+
+use_fake_claude claude-logged-out
+auth_record logged-out
+check_eq "auth logged-out exits one" "$AUTH_RC" "1"
+check_eq "auth logged-out result" "$(auth_field result)" "unauthenticated"
+check_eq "auth logged-out loggedIn" "$(auth_field loggedIn)" "false"
+check_eq "auth logged-out reason" "$(auth_field reason)" "not-logged-in"
+
+use_fake_claude claude-status-failed
+auth_record status-failed
+check_eq "auth status-failed exits one" "$AUTH_RC" "1"
+check_eq "auth status-failed result" "$(auth_field result)" "error"
+check_eq "auth status-failed reason" "$(auth_field reason)" "status-failed"
+
+use_fake_claude claude-bad-json
+auth_record bad-json
+check_eq "auth bad-json exits one" "$AUTH_RC" "1"
+check_eq "auth bad-json result" "$(auth_field result)" "error"
+check_eq "auth bad-json reason" "$(auth_field reason)" "bad-json"
+
+use_fake_claude claude-no-config
+auth_record no-config
+check_eq "auth without a config directory reason" "$(auth_field reason)" "missing-config-directory"
+check_eq "auth without a config directory reports no path" "$(auth_field configDirectory)" "-"
+
+use_fake_claude claude-relative-config
+auth_record relative-config
+check_eq "auth relative config reason" "$(auth_field reason)" "config-directory-not-absolute"
+
+use_fake_claude claude-unsafe-config
+auth_record unsafe-config
+check_eq "auth unsafe config reason" "$(auth_field reason)" "config-directory-unsafe"
+
+PATH="$EMPTY_BIN" "$BASH" "$AUTH_HELPER" >"$WORK/auth-missing.out" 2>"$WORK/auth-missing.err"
+AUTH_RC=$?
+AUTH_OUT="$(cat "$WORK/auth-missing.out")"
+check_eq "auth without claude exits one" "$AUTH_RC" "1"
+check_eq "auth without claude result" "$(auth_field result)" "error"
+check_eq "auth without claude reason" "$(auth_field reason)" "claude-missing"
+check_eq "auth without claude prints one line" "$(printf '%s\n' "$AUTH_OUT" | wc -l | tr -d ' ')" "1"
+
+"$AUTH_HELPER" --bogus >"$WORK/auth-usage.out" 2>"$WORK/auth-usage.err"
+AUTH_RC=$?
+AUTH_OUT="$(cat "$WORK/auth-usage.out")"
+check_eq "auth rejects an argument" "$AUTH_RC" "2"
+check_eq "auth argument error reason" "$(auth_field reason)" "usage"
 
 # The team-profile helper has its own hermetic suite under the shared CI step.
 printf '\n== team-record helper ==\n'
