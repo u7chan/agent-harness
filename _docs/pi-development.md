@@ -222,12 +222,13 @@ helper cannot run. Omitting `ui-tester` or `orchestrator` removes it. A role in
 the request carries `harness` and the fields of that harness only:
 `provider`/`model`/`thinking` for `pi`, and
 `model`/`effort`/`permission_mode` for `claude`. A field from the other
-harness, an unknown harness, and an incomplete or out-of-vocabulary
-specification are all 400, so nothing is silently dropped. The server renders
-each `--role <role>=<harness>:<...>` from the same reader and formatter as the
-CLI (`readRoleSpec` and `formatRoleSpec`) instead of concatenating a spec
-string itself. `POST /api/models/refresh` runs the refresh helper, answers 200
-with its record, 500 when it fails, and 409 while a refresh is already running.
+harness, an unknown harness, an incomplete or out-of-vocabulary
+specification, and a Claude model that is not a canonical ID are all 400, so
+nothing is silently dropped. The server renders each
+`--role <role>=<harness>:<...>` from the same reader and formatter as the CLI
+(`readRoleSpec` and `formatRoleSpec`) instead of concatenating a spec string
+itself. `POST /api/models/refresh` runs the refresh helper, answers 200 with its
+record, 500 when it fails, and 409 while a refresh is already running.
 
 `GET /api/state` does not run `resolve`: a resolve boots the pi runtime and
 costs seconds per profile, while the file view needs nothing it can add. The
@@ -236,12 +237,21 @@ authoritative record for a profile is the one `PUT` returns from `write`.
 The editor chooses the harness per role. A Pi role keeps the model master and
 the thinking levels; a Claude role takes the canonical full model ID as text,
 plus the effort and permission-mode choices from the same vocabulary module the
-resolver uses, so an alias or an unsupported level cannot be stored. Switching
-a role's harness replaces its fields and clears the values that belonged to the
-other harness. Existing Pi profiles load without an edit and save in their
-existing three-field shape, and a mixed team saves and reloads as one profile.
-A shared `pr-fix` copies the whole role, including the harness and the Claude
-permission mode, so the equality `write` checks holds.
+resolver uses. A saved Claude model must already be canonical (for example
+`claude-haiku-5-5`): an alias such as `haiku`, a provider-prefixed form, and an
+unsupported level are refused with 400, because a profile start compares the
+stored model with the launched `effective:` model and an alias cannot match it.
+The CLI still accepts an alias for a one-off explicit launch; only the editor's
+save path is strict. Switching a role's harness replaces its fields and clears
+the values that belonged to the other harness. Existing Pi profiles load without
+an edit and save in their existing three-field shape, and a mixed team saves and
+reloads as one profile. A shared `pr-fix` copies the whole role, including the
+harness and the Claude permission mode, so the equality `write` checks holds.
+
+`ui-tester` is Pi-only in the workflow, so a save that selects Claude for it is
+refused with 400 (`roles.ui-tester must use pi`). The editor keeps the harness
+selector visible for every role and enforces the rule on save instead of
+changing the layout.
 
 The hash guard detects a change up to the moment it is compared. A `write` from
 another process between the comparison and the rename wins; the CLI contract

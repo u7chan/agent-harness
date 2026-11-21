@@ -220,7 +220,6 @@
     <script>
       "use strict";
 
-      const ALL_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
       const ROLE_ORDER = ["impl", "review", "pr-fix", "ui-tester", "orchestrator"];
       const ROLE_LABELS = {
         impl: "実装",
@@ -349,7 +348,8 @@
         // that only touched another role, so it stays as a selectable option
         // instead of letting the browser fall back to the first level.
         const keepStored = levels.length > 0 && current !== "" && !levels.includes(current);
-        const usable = levels.length > 0 ? (keepStored ? [current, ...levels] : levels) : current ? [current] : ALL_LEVELS;
+        const usable =
+          levels.length > 0 ? (keepStored ? [current, ...levels] : levels) : current ? [current] : vocabularies().pi.thinking;
         for (const level of usable) {
           const option = el("option", { value: level, text: keepStored && level === current ? `${level}（候補外）` : level });
           if (level === current) option.selected = true;
@@ -395,7 +395,7 @@
           modelInput.setAttribute("aria-label", `${role} model`);
           const thinkingSelect = el("select");
           thinkingSelect.setAttribute("aria-label", `${role} thinking`);
-          fillThinking(thinkingSelect, ALL_LEVELS, spec.thinking || "");
+          fillThinking(thinkingSelect, vocabularies().pi.thinking, spec.thinking || "");
           providerInput.addEventListener("input", emit);
           modelInput.addEventListener("input", emit);
           thinkingSelect.addEventListener("change", emit);

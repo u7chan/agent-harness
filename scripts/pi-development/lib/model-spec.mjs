@@ -55,6 +55,21 @@ export function isClaudeModelId(value) {
 }
 
 /**
+ * True when a value is a canonical Claude model ID rather than an alias.
+ *
+ * The launched session reports an ID such as `claude-haiku-5-5`, and a profile
+ * stores one of those: a profile start compares the stored value with the
+ * launched `effective:` model, so an alias (`haiku`) or a provider-prefixed
+ * form would stop the start even though the CLI grammar accepts it for a
+ * one-off explicit launch. This is deliberately narrower than
+ * `isClaudeModelId`, and only the editor's save path applies it; the CLI keeps
+ * accepting an alias as an explicit specification.
+ */
+export function isCanonicalClaudeModelId(value) {
+  return typeof value === "string" && /^claude-[a-z0-9][a-z0-9.-]*$/.test(value);
+}
+
+/**
  * Classify one requested thinking level.
  *
  * - `ok`: the requested level is in the model's supported levels.

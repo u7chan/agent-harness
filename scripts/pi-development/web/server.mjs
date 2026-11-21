@@ -34,6 +34,7 @@ import {
   CLAUDE_PERMISSION_MODES,
   HARNESSES,
   THINKING_LEVELS,
+  isCanonicalClaudeModelId,
 } from "../lib/model-spec.mjs";
 import {
   REQUIRED_ROLE_NAMES,
@@ -139,6 +140,14 @@ function readRequestedRole(value) {
   const spec = readRoleSpec({ ...value, harness });
   if (!spec) {
     return { error: `is not a complete ${harness} specification` };
+  }
+  // A profile is compared with the launched session, so a value that only
+  // resolves as an alias cannot be stored here; the CLI still accepts one for
+  // a one-off explicit launch.
+  if (spec.harness === "claude" && !isCanonicalClaudeModelId(spec.model)) {
+    return {
+      error: `must use a canonical Claude model ID such as claude-haiku-5-5, not an alias or a prefixed model (got '${spec.model}')`,
+    };
   }
   return { spec };
 }
@@ -494,6 +503,11 @@ function validateProfileRequest(body) {
     const requested = readRequestedRole(spec);
     if (requested.error) {
       return `roles.${role} ${requested.error}`;
+    }
+    // The Issue workflow keeps its verifier on Pi and never starts a Claude
+    // ui-tester, so a profile that could only fail at kickoff is refused here.
+    if (role === "ui-tester" && requested.spec.harness !== "pi") {
+      return "roles.ui-tester must use pi";
     }
   }
   for (const role of REQUIRED_ROLE_NAMES) {

@@ -432,6 +432,66 @@ code="$(api PUT /api/profile "$(mixed_request "$bad_harness")")"
 check_eq "an unknown harness returns 400" "$code" "400"
 check_contains "the unknown harness lists the supported ones" "$(cat "$WORK/last")" "harness must be one of pi, claude"
 
+# A stored Claude model is the canonical ID the launched session reports: a
+# profile start compares it with `effective:`, so an alias or a provider-prefixed
+# form is refused before it can be written.
+hash="$(hash_of "$PROFILES/mixed.json")"
+alias_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(claude_role haiku high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role haiku high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$alias_roles")")"
+check_eq "a Claude alias returns 400" "$code" "400"
+check_contains "the alias is reported as non-canonical" "$(cat "$WORK/last")" \
+  "must use a canonical Claude model ID"
+check_eq "the alias rejection leaves the file alone" "$(hash_of "$PROFILES/mixed.json")" "$hash"
+
+prefixed_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(claude_role anthropic/claude-sonnet-4-5-20250929 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role anthropic/claude-sonnet-4-5-20250929 high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$prefixed_roles")")"
+check_eq "a provider-prefixed Claude model returns 400" "$code" "400"
+check_contains "the prefixed model is reported as non-canonical" "$(cat "$WORK/last")" \
+  "must use a canonical Claude model ID"
+
+canonical_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$canonical_roles")")"
+check_eq "a canonical Claude model saves" "$code" "200"
+check_contains "the canonical Claude model is stored" "$(cat "$PROFILES/mixed.json")" \
+  '"model": "claude-haiku-5-5"'
+
+# The workflow keeps its verifier on Pi, so a UI-tester selected as Claude is
+# refused at save time; the editor's harness selector stays in the layout.
+hash="$(hash_of "$PROFILES/claude.json")"
+claude_ui_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s,"ui-tester":%s}' \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)")"
+code="$(api PUT /api/profile "$(profile_body claude "$hash" "$claude_ui_roles")")"
+check_eq "a Claude ui-tester returns 400" "$code" "400"
+check_contains "the Claude ui-tester is reported as Pi-only" "$(cat "$WORK/last")" "roles.ui-tester must use pi"
+check_eq "the rejected ui-tester leaves the file alone" "$(hash_of "$PROFILES/claude.json")" "$hash"
+
+pi_ui_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s,"ui-tester":%s}' \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(pi_role p m high)")"
+code="$(api PUT /api/profile "$(profile_body claude "$hash" "$pi_ui_roles")")"
+check_eq "a Pi ui-tester saves" "$code" "200"
+check_contains "the Pi ui-tester is stored" "$(cat "$PROFILES/claude.json")" '"ui-tester"'
+check_contains "the Pi ui-tester keeps the Pi shape" "$(cat "$PROFILES/claude.json")" \
+  '"ui-tester": {
+      "provider": "p"'
+code="$(api GET /api/state)"
+check_contains "the Pi ui-tester reloads with the Pi harness" "$(cat "$WORK/last")" \
+  '"ui-tester":{"harness":"pi","provider":"p","model":"m","thinking":"high"}'
+
 # A role keeps the harness the request selected even when the request omits it:
 # the editor's older shape is still read as the implicit Pi default.
 hash="$(hash_of "$PROFILES/mixed.json")"
@@ -453,7 +513,8 @@ check_contains "index renders the Claude permission mode field" "$doc" '`${role}
 check_contains "index renders the Claude effort field" "$doc" '`${role} effort`'
 check_contains "index asks for the canonical Claude model" "$doc" 'canonical full model ID'
 check_contains "index reads the Claude vocabulary from the state" "$doc" 'vocabularies().claude.permission_mode'
-check_contains "index keeps the Pi thinking fallback" "$doc" 'ALL_LEVELS'
+check_contains "index reads the Pi thinking vocabulary from the state" "$doc" 'vocabularies().pi.thinking'
+check_not_contains "index keeps no second Pi thinking vocabulary" "$doc" 'const ALL_LEVELS'
 check_contains "index explains the per-role harness" "$doc" 'ハーネスはロールごとに選べます'
 
 # --- host and origin --------------------------------------------------------
