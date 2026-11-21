@@ -10,7 +10,7 @@
  *
  * Routes (three of them, all local):
  *
- *   GET  /api/state            profiles + model master
+ *   GET  /api/state            profiles + model master + harness vocabularies
  *   PUT  /api/profile          one profile, guarded by an expected hash
  *   POST /api/models/refresh   run refresh-models.sh
  *
@@ -30,17 +30,27 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  CLAUDE_EFFORT_LEVELS,
+  CLAUDE_PERMISSION_MODES,
+  HARNESSES,
+  THINKING_LEVELS,
+} from "../lib/model-spec.mjs";
+import {
   REQUIRED_ROLE_NAMES,
   ROLE_NAMES,
+  formatRoleSpec,
   isProfileName,
   profileFileName,
+  readRoleSpec,
 } from "../lib/team-record.mjs";
 
 const HOST = "127.0.0.1";
 const DEFAULT_PORT = 9999;
 const MAX_BODY_BYTES = 64 * 1024;
 const STALE_AFTER_DAYS = 30;
-const ROLE_FIELDS = ["provider", "model", "thinking"];
+const PI_ROLE_FIELDS = ["provider", "model", "thinking"];
+const CLAUDE_ROLE_FIELDS = ["model", "effort", "permission_mode"];
+const DEFAULT_HARNESS = "pi";
 const PROFILE_KEYS = ["pr_fix_shared_with_impl", "roles"];
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -86,9 +96,63 @@ function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** True when a value can be embedded in a `role=provider/model/thinking` spec. */
-function isSafeField(value) {
-  return typeof value === "string" && value !== "" && !/[\s\u0000-\u001f\u007f]/.test(value);
+/** The stored fields one harness owns. The other harness's fields are refused. */
+function harnessFields(harness) {
+  return harness === "claude" ? CLAUDE_ROLE_FIELDS : PI_ROLE_FIELDS;
+}
+
+function isHarness(value) {
+  return HARNESSES.includes(value);
+}
+
+/** The harness a stored role declares, defaulting like `readRoleSpec`. */
+function storedHarness(spec) {
+  return isHarness(spec.harness) ? spec.harness : DEFAULT_HARNESS;
+}
+
+/**
+ * Read one role from a save request.
+ *
+ * The request is the editor's own shape, so it is stricter than a stored
+ * profile: only the selected harness's fields are accepted, and a field that
+ * belongs to the other harness is an error rather than a value the write would
+ * silently drop. The returned specification is the canonical one, so the
+ * `write` arguments are rendered from the same reader and formatter the CLI
+ * uses instead of being concatenated here.
+ *
+ * @returns {{spec: object} | {error: string}}
+ */
+function readRequestedRole(value) {
+  if (!isPlainObject(value)) {
+    return { error: "must be an object" };
+  }
+  const harness = Object.prototype.hasOwnProperty.call(value, "harness") ? value.harness : DEFAULT_HARNESS;
+  if (!isHarness(harness)) {
+    return { error: `harness must be one of ${HARNESSES.join(", ")}` };
+  }
+  const allowed = new Set(["harness", ...harnessFields(harness)]);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      return { error: `field '${key}' is not valid for harness '${harness}'` };
+    }
+  }
+  const spec = readRoleSpec({ ...value, harness });
+  if (!spec) {
+    return { error: `is not a complete ${harness} specification` };
+  }
+  return { spec };
+}
+
+/** The fields the UI needs for one stored role; malformed values stay visible. */
+function storedRoleView(spec) {
+  const harness = storedHarness(spec);
+  const view = { harness };
+  for (const key of harnessFields(harness)) {
+    if (typeof spec[key] === "string") {
+      view[key] = spec[key];
+    }
+  }
+  return view;
 }
 
 function sha256(text) {
@@ -207,15 +271,27 @@ function unknownKeys(raw) {
   }
   if (isPlainObject(raw.roles)) {
     for (const [role, spec] of Object.entries(raw.roles)) {
-      const extra = isPlainObject(spec)
-        ? Object.keys(spec).filter((key) => !ROLE_FIELDS.includes(key))
-        : [];
+      const extra = isPlainObject(spec) ? droppedRoleKeys(spec) : [];
       if (!ROLE_NAMES.includes(role) || extra.length > 0) {
         unknown.roles[role] = extra;
       }
     }
   }
   return unknown;
+}
+
+/**
+ * Keys a save would drop from one stored role: the other harness's fields, an
+ * unknown harness, and anything no harness owns.
+ */
+function droppedRoleKeys(spec) {
+  const harness = storedHarness(spec);
+  const kept = new Set(harnessFields(harness));
+  const extra = Object.keys(spec).filter((key) => key !== "harness" && !kept.has(key));
+  if (Object.prototype.hasOwnProperty.call(spec, "harness") && !isHarness(spec.harness)) {
+    extra.unshift("harness");
+  }
+  return extra;
 }
 
 function storedRoles(raw) {
@@ -228,12 +304,7 @@ function storedRoles(raw) {
     if (!isPlainObject(spec)) {
       continue;
     }
-    roles[role] = {};
-    for (const key of ROLE_FIELDS) {
-      if (typeof spec[key] === "string") {
-        roles[role][key] = spec[key];
-      }
-    }
+    roles[role] = storedRoleView(spec);
   }
   return roles;
 }
@@ -324,6 +395,16 @@ function readState(currentPiVersion) {
   return {
     profiles: listProfileNames().map((name) => readProfile(name)),
     models: readMaster(currentPiVersion),
+    // The editor renders its harness fields from these vocabularies instead of
+    // carrying a second copy, so a save can never offer a value the CLI refuses.
+    harnesses: {
+      pi: { fields: PI_ROLE_FIELDS, thinking: THINKING_LEVELS },
+      claude: {
+        fields: CLAUDE_ROLE_FIELDS,
+        effort: CLAUDE_EFFORT_LEVELS,
+        permission_mode: CLAUDE_PERMISSION_MODES,
+      },
+    },
   };
 }
 
@@ -410,18 +491,9 @@ function validateProfileRequest(body) {
     if (!ROLE_NAMES.includes(role)) {
       return `unknown role '${role}'`;
     }
-    if (!isPlainObject(spec)) {
-      return `roles.${role} must be an object`;
-    }
-    for (const key of Object.keys(spec)) {
-      if (!ROLE_FIELDS.includes(key)) {
-        return `unknown field 'roles.${role}.${key}'`;
-      }
-    }
-    for (const key of ROLE_FIELDS) {
-      if (!isSafeField(spec[key])) {
-        return `roles.${role}.${key} must be a non-empty field`;
-      }
+    const requested = readRequestedRole(spec);
+    if (requested.error) {
+      return `roles.${role} ${requested.error}`;
     }
   }
   for (const role of REQUIRED_ROLE_NAMES) {
@@ -442,11 +514,11 @@ function writeArgs(body, { teamRecord, resolver }) {
     String(body.pr_fix_shared_with_impl),
   ];
   for (const role of ROLE_NAMES) {
-    const spec = body.roles[role];
-    if (!isPlainObject(spec)) {
+    const requested = readRequestedRole(body.roles[role]);
+    if (requested.error) {
       continue;
     }
-    args.push("--role", `${role}=${spec.provider}/${spec.model}/${spec.thinking}`);
+    args.push("--role", `${role}=${formatRoleSpec(requested.spec)}`);
   }
   if (resolver) {
     args.push("--resolver", resolver);
