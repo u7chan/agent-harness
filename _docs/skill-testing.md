@@ -91,6 +91,14 @@ git -C <checkout> rev-parse HEAD   # 想定 revision を記録。テスト中は
 任意(未実測): テストセッションの JSONL を後検証し、read ツール呼び出しの絶対パスが `<checkout>`
 配下を指していることを確認する。設計根拠: pi はセッション JSONL にツール呼び出しを記録する。要実測。
 
+### Claude Code の場合
+
+Claude Code もセッション起動時にスキル一覧を取り込み、`SKILL.md` 本文は必要時に読む。未マージ内容の検証は Pi と同じく絶対パス直読みで行う。
+
+- `claude -p --output-format stream-json --verbose` の init JSON の `skills` は、**インストール済みのスキルが見えていることの証拠**であり、未マージ内容が見えていることの証拠ではない。配布の可視性確認（[_docs/skill-distribution.md](skill-distribution.md#smoke-test) の Smoke test）と、未マージ内容の検証を混同しない。
+- 未マージ版の検証では、検証エージェントに `<checkout>/<skill>/SKILL.md` と参照ファイルの絶対パスを直接読ませ、ロード済みの同名スキルを使わないことを明示する。`/reload-skills` を実行しても配布リリースの内容に戻るだけで、未マージ版の検証にはならない。
+- 対象版の確認は Pi と同じ証跡を要求する。報告に実際に読んだ絶対パスと、旧版からは出せないマーカーの引用を含め、テスト開始前と終了後の `git -C <checkout> rev-parse HEAD` が一致することを確認する。
+
 ## 実機テストの運用ルール
 
 - テスト資産(画像・動画)は**リポジトリ外**(`/tmp/…` 等)に置き、リポジトリへコミットしない

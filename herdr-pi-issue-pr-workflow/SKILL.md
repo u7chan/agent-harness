@@ -1,12 +1,12 @@
 ---
 name: herdr-pi-issue-pr-workflow
 description: >
-  Herdr のペインで役割ごとに Pi エージェントを起動し、GitHub Issue の実装から Draft PR の最終レビューまでを統括する。
-  Pi 専用の Issue→PR ワークフロー（チーム編成、実装、レビュー、修正）を依頼されたときに使う。
+  Herdr のペインで役割ごとに選択したハーネス（Pi または Claude）のエージェントを起動し、GitHub Issue の実装から Draft PR の最終レビューまでを統括する。
+  ハーネスを選べる Issue→PR ワークフロー（チーム編成、実装、レビュー、修正）を依頼されたときに使う。
   Herdr 必須。各役割のエージェントは現在の Herdr ワークスペース内のペインで動作する。
 ---
 
-# Pi Issue PR Workflow
+# Issue PR Workflow
 
 ワークフローの調整だけを行う。orchestrator のペインで Issue の実装・修正はしない。
 
@@ -14,12 +14,12 @@ description: >
 
 既存スキルを読み、その動作を重複実装せず正本に従う。
 
-- ペイン、Pi エージェント起動、非同期委譲、結果返却は [Herdr](../herdr/SKILL.md)。
+- ペイン、ロールエージェントの起動、非同期委譲、結果返却は [Herdr](../herdr/SKILL.md)。
 - GitHub の読み書きはすべて [GH](../gh/SKILL.md)。
 - PR 全体のレビュー、再チェック、会話の Resolve 方針は [Review](../review/SKILL.md)。
 - 人間レビュー用サマリは [_docs/human-brief.md](../_docs/human-brief.md)。PR 本文の証跡節とは分ける。
 
-これらのスキルを安全性と操作ルールの正本とする。すべてのエージェントは現在の Herdr ワークスペースと worktree 内で動かす。ワークフロー専用のランタイム、永続的な実行状態、固定の provider/model 一覧を追加しない。永続化禁止の対象は現在フェーズ、レビューラウンド、レビュー済み head、未解決 Blocker など実行ごとの進行状態である。[チームプロファイル](#team-profiles) だけは Issue の要求に基づく例外で、名前付きのチーム編成のみを保存し、実行の進行状態は保存しない。
+これらのスキルを安全性と操作ルールの正本とする。すべてのエージェントは現在の Herdr ワークスペースと worktree 内で動かす。ワークフロー専用のランタイム、永続的な実行状態、固定のモデル一覧やハーネス別の既定仕様を追加しない。永続化禁止の対象は現在フェーズ、レビューラウンド、レビュー済み head、未解決 Blocker など実行ごとの進行状態である。[チームプロファイル](#team-profiles) だけは Issue の要求に基づく例外で、名前付きのチーム編成のみを保存し、実行の進行状態は保存しない。
 
 ## Local review before filing an Issue
 
@@ -41,7 +41,12 @@ Issue 起票前に次の表を適用する。手順は [`herdr-issue-review`](..
 
 1. 一意に特定できる GitHub Issue 参照を要求する。なければユーザーに尋ねる。
 2. Herdr の事前検証を通し、Herdr スキルの条件に加えて `HERDR_WORKSPACE_ID` を必須とする。
-3. `pi` を必須とし、`pi --list-models` から実際に利用可能なモデル一覧を取得する。
+3. チームで使うハーネスの CLI を必須とする。Pi は `pi` を確認し、`pi --list-models` から実際に利用可能なモデル一覧を取得する。Claude は `claude` と `claude auth status` の `loggedIn=true` を確認し、`~/.claude/skills` からこのリポジトリのスキルをロードできることを確かめる。チームのハーネスがまだ決まっていない場合は、[Kickoff gate](#kickoff-gate) が解決するプロファイルのハーネスで判断し、起動前に同じ確認を行う。trust は共有ランチャーが読み取り専用で確認する。未承認なら次の固定行で停止する。
+
+   ```text
+   claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。
+   ```
+
 4. GH スキルで Issue 本文と会話コメントを読む。本文の `pi:human-brief` 範囲は除く。
 5. 対象リポジトリの指示と Git/worktree の状態を確認する。
 
@@ -51,28 +56,41 @@ orchestrator-first 方式の worktree チームでは、orchestrator へ渡す�
 
 ## Team specification
 
-論理ロールは `impl`、`review`、`pr-fix` で、`ui-tester` は任意の追加ロール。実際に起動するエージェントはすべて Pi とする。物理エージェントの完全な仕様には、次の 3 つを必ず含める。
+論理ロールは `impl`、`review`、`pr-fix` で、`ui-tester` は任意の追加ロール。実際に起動するエージェントのハーネスは、ロールごとにプロファイルまたは今回の明示指定で選ぶ（Pi または Claude）。物理エージェントの完全な仕様には、次の 3 つを必ず含める。
 
-- 正確な provider ID。
-- `pi --list-models` で当該 provider 配下に存在する正確な model ID。
-- そのモデルがサポートする thinking レベル（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` のいずれか）。
+- ハーネス（`pi` または `claude`）。
+- ハーネス固有のモデル指定。Pi は正確な provider ID と、`pi --list-models` で当該 provider 配下に存在する正確な model ID。Claude は canonical な完全 model ID。
+- ハーネス固有の実行パラメータ。Pi はそのモデルがサポートする thinking レベル（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` のいずれか）。Claude は effort（`low`、`medium`、`high`、`xhigh`、`max` のいずれか）と permission_mode（`acceptEdits`、`auto`、`manual`、`dontAsk`、`plan` のいずれか）。
 
-`pr-fix` は独立エージェントではなく `impl` に兼務させてもよい。`review` は必ず別エージェントであり、実装を編集してはならない。`ui-tester` も独立した物理エージェントで、仕様に含まれない場合は起動しない。`ui-tester` を使わない実行には、余分なペインや条件を追加しない。`ui-tester` は実装の編集、コミット、PR 編集、GitHub レビュー投稿、PR コメント投稿を行わない。指摘は orchestrator のトリアージ材料となり、再現可能な機能不具合は必須修正、それ以外は同じ修正ラウンドに含めてよい。一方、Blocker 判定の正本は `review` ロールである。`ui-tester` のタスク文面、再検証、完了、環境分離は [ui-tester ロール参照](references/ui-tester-role.md) に定める。
+`pr-fix` は独立エージェントではなく `impl` に兼務させてもよい。`review` は必ず別エージェントであり、実装を編集してはならない。`ui-tester` も独立した物理エージェントで、仕様に含まれない場合は起動しない。`ui-tester` を使わない実行には、余分なペインや条件を追加しない。`ui-tester` は実装の編集、コミット、PR 編集、GitHub レビュー投稿、PR コメント投稿を行わない。指摘は orchestrator のトリアージ材料となり、再現可能な機能不具合は必須修正、それ以外は同じ修正ラウンドに含めてよい。一方、Blocker 判定の正本は `review` ロールである。`ui-tester` のタスク文面、再検証、完了、環境分離は [ui-tester ロール参照](references/ui-tester-role.md) に定める。PR 1〜4 では `ui-tester` に Claude を選ばず、Pi で実行する。Pi の仕様を用意できない場合は `ui-tester` を起動しない。
 
-明示された provider/model の組は `pi --list-models` で検証する。ただし、その thinking 列の yes/no をレベル検証に使わない。完全な仕様は次のヘルパーで解決する。ヘルパーはインストール済み Pi ランタイムの公開 API から当該モデルと、サポート対象および clamp 後の thinking レベルを確認する。
+PR 1〜4 では Pi と Claude を同じチームに混ぜた構成は実機未検証とする。混在を禁止はしないが、まず単一ハーネスのチームを検証する。混在チームを提案する場合は、その未検証範囲を提案に明記する。
+
+モデルの提案経路はハーネス別に限り、推測で埋めない。
+
+- Pi は `pi --list-models` が返す正確な provider と model ID だけを使い、明示された組を同じカタログで検証する。ただし、その thinking 列の yes/no をレベル検証に使わない。thinking の可否は次のヘルパーがインストール済み Pi ランタイムの公開 API から確認する。
+- Claude の canonical な完全 model ID は、ユーザーが明示した完全 ID、同じハーネス・同じモデルで以前に出力された `effective:` 行、alias を使った一度限りの明示起動の `effective:` 行の 3 経路だけで得る。`claude --help` の alias 一覧だけを canonical の根拠にしない。canonical ID が得られない場合は未解決として停止する。
+- プロファイルには Claude の canonical 完全 ID を保存する。alias は一度限りの明示起動にだけ使い、プロファイルやチーム仕様へ保存しない。
+
+完全な仕様は次のヘルパーで解決する。ハーネス別に引数を分ける。
 
 ```bash
-scripts/pi-development/resolve-model-spec.sh \
+# Pi
+scripts/pi-development/resolve-model-spec.sh --harness pi \
   --provider <provider> --model <model> --thinking <level>
+
+# Claude
+scripts/pi-development/resolve-model-spec.sh --harness claude \
+  --model <model> --effort <level> --permission-mode <mode>
 ```
 
-出力は `provider`、`model`、`requested`、`supported`、`effective`、`result`、`thinking_level_map` を含む 1 行の key=value 形式で、`result=ok` 以外は非 0 終了する。`result=ok`（実効レベルが指定レベルと一致）の場合だけ仕様確定とする。それ以外は未解決として停止する。Pi のデフォルトへの無断切り替え、clamp されたレベルの受け入れ、alias の独自管理、未提供 ID の推測を行わない。指定の一部欠落、不正、曖昧、非対応、clamp 済みの仕様はすべて未解決とする。
+出力は `harness`、`provider`、`model`、`requested`、`supported`、`effective`、`result`、`verification` と、ハーネス固有の語彙フィールド（Pi は `thinking_level_map`、Claude は `permission_mode`）を含む 1 行の key=value 形式で、`result=ok` 以外は非 0 終了する。Pi は `result=ok` かつ `verification=exact`（実効レベルが指定レベルと一致）の場合だけ仕様確定とする。Claude は `result=ok` かつ `verification=postlaunch` で起動を許可し、共有ランチャーの `effective:` 行の `model` と `effort` が確定値と一致した時点で確定する。statusline の `.model.id` と `.effort.level` は probe の入力であり、probe には `model` と `effort` として保存される。それ以外は未解決として停止する。Pi のデフォルトへの無断切り替え、clamp されたレベルの受け入れ、alias の独自管理、未提供 ID の推測を行わない。指定の一部欠落、不正、曖昧、非対応、clamp 済みの仕様はすべて未解決とする。
 
 ## Team profiles
 
 ユーザーが承認したチーム編成は、ユーザーが所有する名前付きプロファイルとして保存する。保存、選択、検証、ヘルパーコマンド、出力契約はスキル外の [Pi Development Profiles](../_docs/pi-development.md) を正本とする。パッケージルートから `scripts/pi-development/team-record.sh` を使う。このワークフローではロール単位の部分投影ではなく、常にチーム全体を解決する。
 
-orchestrator はチームメンバーではない。チーム表・承認・再利用行の対象外であり、キックオフゲートが解決するのはチームロールだけである。orchestrator の仕様は起動時の `launch:` 行で固定済みであり（[Worktree workspace teams](../herdr/references/worktree-workspace-teams.md#orchestrator-first)）、ゲートで再解決しない。`write` は全置換なので、orchestrator を保持するには `--role orchestrator=<provider>/<model>/<thinking>` も渡す。
+orchestrator はチームメンバーではない。チーム表・承認・再利用行の対象外であり、キックオフゲートが解決するのはチームロールだけである。orchestrator の仕様は起動時の `launch:` 行で固定済みであり（[Worktree workspace teams](../herdr/references/worktree-workspace-teams.md#orchestrator-first)）、ゲートで再解決しない。`write` は全置換なので、orchestrator を保持するには `--role orchestrator=<harness>:<...>` も渡す。
 
 通常の実行ではプロファイルを書き換えない。実行限定の上書きや `ui-tester` の除外は保存済み編成を変えない。正本を変更できるのは明示的な `use`/`write` 操作、および次の初期化だけ。
 
@@ -86,7 +104,7 @@ orchestrator はチームメンバーではない。チーム表・承認・再�
 
 初期化では合意した編成を `write --profile default` で保存し、承認待ちは追加しない。`profiles_present=true` なのに選択名だけが存在しない場合、`active` が壊れている場合、明示指定のプロファイルがない場合は初期化しない。これらは提案経路に戻り、ユーザーが明示した場合だけ保存する。`profiles/` や `active` を読み取れない場合も `profiles_present=false` の例外ではない。`result=invalid`（プロファイル集合の `profiles_present` は空）となるため初期化しない。
 
-保存するのはチーム仕様のみ。対象 PR は保存しないため、再利用を妨げるのは対象 PR が未確定の場合だけ。`ui-tester` のタスクも再利用条件にはしない。今回指定がなければ [ui-tester ロール参照の既定タスク](references/ui-tester-role.md#default-task) が使われるため。保存済みの provider、model、thinking、編成の各値は、今回の実行でその値が指定されていない場合だけ再利用する（[Kickoff gate](#kickoff-gate)）。
+保存するのはチーム仕様のみ。対象 PR は保存しないため、再利用を妨げるのは対象 PR が未確定の場合だけ。`ui-tester` のタスクも再利用条件にはしない。今回指定がなければ [ui-tester ロール参照の既定タスク](references/ui-tester-role.md#default-task) が使われるため。保存済みのハーネスと、そのハーネスのモデル指定・実行パラメータ、編成の各値は、今回の実行でその値が指定されていない場合だけ再利用する（[Kickoff gate](#kickoff-gate)）。ただし、保存済み `ui-tester` のハーネスが `claude` の場合は PR 1〜4 では再利用しない。`ui-tester` を含めるには、今回の実行で Pi の完全な仕様を明示してもらい、用意できない場合は `ui-tester` を除外して Claude を起動しない。`impl`、`review`、`pr-fix` の保存済みハーネスはそのまま再利用する。`pr_fix_shared_with_impl` が true のときの `impl` と `pr-fix` の比較には、ハーネスと Claude の permission_mode を含む全フィールドを使う。実行中に保存プロファイルを書き換えない。
 
 未移行の資産は初回起動時の欠落ではなく `migration-required` を返す。その上に初期化しない。継続前にバックアップを伴う手動の [プロファイル移行](../_docs/pi-development-migration.md) を行う。
 
@@ -99,29 +117,31 @@ orchestrator はチームメンバーではない。チーム表・承認・再�
 提案前に [チームプロファイル](#team-profiles) の再利用を検討する。
 
 1. `scripts/pi-development/team-record.sh resolve [--profile <name>]` で実効プロファイルを解決する。`ui-tester` 参加判定がある場合は `--require-role ui-tester` を追加する。「`fallback で`」は今回の実行のプロファイル選択なので `--profile fallback` とし、`active` は変えない。「`fallback に切り替えて`」は別操作の `use fallback`（[Team profiles](#team-profiles)）。`reason=migration-required` なら代替チームを提案せず移行のために停止する。
-2. 次の条件が**すべて**成立する場合だけ、表と承認待ちを省略する。すなわち、`result=ok` で、今回の実行で provider/model/thinking が一切明示されず、`pr-fix` が `impl` を兼務するかどうかや独自の `ui-tester` 構成も指定されていないこと（Issue から導いた参加判定、または同じ返信でユーザーが上書きした参加判定は今回の参加ロールを決めるだけで、編成の明示指定とはみなさない）、そして対象 PR が確定していること。この場合はプロファイルと参加するロールを示す次の**1 行だけ**と参加判定の 1 行を出し、[Start the team](#start-the-team) へ進む。
+2. 次の条件が**すべて**成立する場合だけ、表と承認待ちを省略する。すなわち、`result=ok` で、今回の実行でハーネス別の仕様（Pi は provider/model/thinking、Claude は model/effort/permission_mode）が一切明示されず、`pr-fix` が `impl` を兼務するかどうかや独自の `ui-tester` 構成も指定されていないこと（Issue から導いた参加判定、または同じ返信でユーザーが上書きした参加判定は今回の参加ロールを決めるだけで、編成の明示指定とはみなさない）、そして対象 PR が確定していること。この場合はプロファイルと参加するロールを示す次の**1 行だけ**と参加判定の 1 行を出し、[Start the team](#start-the-team) へ進む。
 
    ```text
-   前回承認編成を使用: profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]
+   前回承認編成を使用: profile=<name> impl=<harness>:<...> review=<harness>:<...> pr-fix=<harness>:<...> [ui-tester=<harness>:<...>]
    ```
 
-   編成はプロファイルに含まれるため、今回の実行で編成が明示されていれば再利用せず、提案と承認待ちへ進む。そうしないと今回の指定より保存済み編成を優先してしまう。参加判定の上書きは編成の明示指定ではないため、再利用経路を維持する。参加判定は出所に関係なく今回のチームだけに適用する。保存済み `ui-tester` を上書きするのは一方向だけ。参加する場合は `--require-role` によりロールのないプロファイルを `unresolved` にする。参加しない場合はロールを除いてプロファイルを再利用するが、保存済み編成から `ui-tester` は削除しない。
+   編成はプロファイルに含まれるため、今回の実行で編成が明示されていれば再利用せず、提案と承認待ちへ進む。そうしないと今回の指定より保存済み編成を優先してしまう。保存済みのロールのハーネスと今回指定されたハーネスが異なる場合も再利用しない。保存済み `ui-tester` が `harness=claude` の場合は再利用せず、今回の実行で Pi の完全な仕様が明示された場合だけ `ui-tester` を含める。明示がない場合は `ui-tester` を除外し、Claude を起動しない。再利用行は正本の `<harness>:<...>` 形式で、`launch:` 行と同じ文字列を出す。参加判定の上書きは編成の明示指定ではないため、再利用経路を維持する。参加判定は出所に関係なく今回のチームだけに適用する。保存済み `ui-tester` を上書きするのは一方向だけ。参加する場合は `--require-role` によりロールのないプロファイルを `unresolved` にする。参加しない場合はロールを除いてプロファイルを再利用するが、保存済み編成から `ui-tester` は削除しない。
 3. それ以外はこの節のルールに従ってチーム全体を提案し、承認を待つ。プロファイルがまったくない場合に限り、合意したチームを [Team profiles](#team-profiles) の条件で `default` として初期化する。それ以外の保存はユーザーの明示指示がある場合だけ。
 
 提案には次の表を使う。
 
-| Role | Assignee | Provider | Model | Thinking | Selection reason |
-|---|---|---|---|---|---|
+| Role | Assignee | Harness | Provider | Model | Thinking/Effort | Permission | Selection reason |
+|---|---|---|---|---|---|---|---|
+
+Pi の Permission は `-`、Claude の Provider は `-` とする。`Model` は Pi が正確な model ID、Claude が canonical な完全 ID。`Thinking/Effort` は Pi が thinking、Claude が effort。Claude の `Permission` は permission_mode であり、チーム仕様の一部として起動引数まで固定する。
 
 この節のチーム表と承認ルールを正本とし、[キックオフ用テンプレート](references/kickoff-task-template.md) は orchestrator に渡すタスク文面の形式だけを規定する。
 
-モデル能力と thinking はタスクに合わせ、必要な複雑さにだけ強い推論能力を割り当てる。不確実性とトレードオフを明示し、価格・クォータ・遅延・能力に関する根拠のない主張をしない。
+モデル能力と thinking/effort はタスクに合わせ、必要な複雑さにだけ強い推論能力を割り当てる。不確実性とトレードオフを明示し、価格・クォータ・遅延・能力に関する根拠のない主張をしない。
 
 標準では `impl` に `pr-fix` を兼務させる。別担当を提案するのは、専門知識が異なる、コンテキスト負荷が見込まれる、独立して理解できる領域に変更がまたがるなど、具体的な引き継ぎ上の利点がある場合だけ。その理由を提案に示す。
 
 Issue 本文とリポジトリ規約から、今回の実行で作る対象 PR を決定して提案に明記する。
 
-- 複数 PR 計画（例：インフラ PR①のブランチを基に UI PR②を作る）がある場合、今回作る PR の位置を `対象 PR: <position>/<total>`（例：`対象 PR: 1/2`）と記載する。1 回の実行で作る PR は必ず 1 件。複数 PR の Issue は連続した実行で完了し、後続の実行では前回のロールペインを再利用する（[Sequential runs](references/sequential-runs.md)）。
+- 複数 PR 計画（例：インフラ PR①のブランチを基に UI PR②を作る）がある場合、今回作る PR の位置を `対象 PR: <position>/<total>`（例：`対象 PR: 1/2`、`対象 PR: 4/4`）と記載する。1 回の実行で作る PR は必ず 1 件。複数 PR の Issue は連続した実行で完了し、後続の実行では前回のロールペインを再利用する（[Sequential runs](references/sequential-runs.md)）。
 - それ以外は `対象 PR: single`。
 - 計画はあるが今回の位置を確定できない場合は、推測せず提案内で対象を未解決のままにし、追加の停止・承認ループを作らず既存の承認を待つ。
 
@@ -131,7 +151,7 @@ GitHub は default ブランチへ到達したコミットメッセージ中の�
 
 **チーム全体の提案についてユーザーの明示的な承認を待つ。** 承認前にはブランチの作成・切り替え、ペイン作成、エージェント起動、GitHub 書き込みを行わない。割当がすべて有効かつ確定し、対象 PR も確定した場合だけ、承認されたチームを要約して追加の承認ラウンドなしに進む。
 
-合意済みチームは今回の実行で使い、保存プロファイルを変更しない。編成は実行限定であり、保存済み `ui-tester` の除外、`pr-fix` の分離、provider/model/thinking の上書きは保存先に反映しない。唯一の自動保存は [Team profiles](#team-profiles) の条件による bootstrap で、`team-record.sh write --profile default` で保存する。それ以外は明示指示がある場合だけ `team-record.sh write --profile <name>` を使い、`--pr-fix-shared-with-impl` や参加ロールの選択を含む合意済みの編成そのものを保存する。今回指定された値はプロファイルより優先し、上書きされた保存値を黙って使わず、未解決の値も保存しない。`編成見せて` の依頼では、`resolve` の出力からチーム表を表示するだけで、承認待ちも変更も行わない。
+合意済みチームは今回の実行で使い、保存プロファイルを変更しない。編成は実行限定であり、保存済み `ui-tester` の除外、`pr-fix` の分離、ハーネス別の仕様値（provider/model/thinking、model/effort/permission_mode）の上書きは保存先に反映しない。唯一の自動保存は [Team profiles](#team-profiles) の条件による bootstrap で、`team-record.sh write --profile default` で保存する。それ以外は明示指示がある場合だけ `team-record.sh write --profile <name>` を使い、`--pr-fix-shared-with-impl` や参加ロールの選択を含む合意済みの編成そのものを保存する。今回指定された値はプロファイルより優先し、上書きされた保存値を黙って使わず、未解決の値も保存しない。`編成見せて` の依頼では、`resolve` の出力からチーム表を表示するだけで、承認待ちも変更も行わない。
 
 ## Start the team
 
@@ -147,15 +167,26 @@ GitHub は default ブランチへ到達したコミットメッセージ中の�
    ```
 
    `--count` は**新規ペイン数だけ**であり、再利用分を含めない。0 の場合は何も作らずプランナーも呼ばない。新規が 1 つの場合、最小数 2 のプランナーは使えないため、Herdr スキルの単一ペイン規則で orchestrator のペインから分割する。
-5. 各新規ペインで検証済みの値を使ってエージェントを起動する。
+5. 各新規ペインで、確定したハーネスの仕様を使って共有ランチャー経由でエージェントを起動する。
 
    ```bash
-   herdr agent start <name> --kind pi --pane <pane-id> -- \
-     --provider <provider> --model <model> --thinking <thinking>
+   herdr/scripts/start-agent.sh <pane-id> <name> \
+     --spec <harness>:<...> \
+     --profile <name|-> --role <role> \
+     --spec-source <profile|explicit> --origin <explicit|active|default>
    ```
 
-6. 新規ペインには責務に基づいたエージェント名とペインラベルを付ける。再利用するペインの既存の名前とラベルは維持する。
-7. 作業を送る前に、起動した各 Pi ペインのランタイム状態を確認し、実効 provider/model/thinking が承認済みの仕様と完全一致することを検証する。不一致・検証不能なら停止する。
+   `--spec` には `team-record.sh resolve` が返す正本の文字列（Pi は `pi:<provider>/<model>/<thinking>`、Claude は `claude:<model>/<effort>/<permission_mode>`）を渡す。プロファイルの仕様をそのまま使う場合は `--spec-source profile`、明示指定を 1 つでも含む場合は `--spec-source explicit` にする。`--profile` は土台にしたプロファイル名（明示 spec だけなら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。Claude の auth と trust の preflight、`probe:`、`launch:`、`effective:` 行はランチャーが所有する。`herdr agent start` をこのスキルから直接組み立てない。
+6. 新規ペインには責務に基づいたエージェント名とペインラベルを付ける。`herdr pane rename <pane-id> <name>` と `herdr pane get <pane-id>` で label を確認する。再利用するペインの既存の名前とラベルは維持する。ランチャーは rename もタスク委譲も行わないため、rename と `herdr/scripts/parent-delegate-async.sh` の呼び出しはこの orchestrator が行う。
+7. 作業を送る前に、起動した各ペインの実効値を確認する。Pi はエージェントに次の `effective:` 行を出させ、`launch:` 行の `spec` と照合する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
+
+   ```bash
+   printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s\n' \
+     "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL" \
+     "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
+   ```
+
+   Claude は共有ランチャーが stderr に出した最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致し、`effort` が確定した effort と一致することを確認する。加えて `spec_source=profile` のときだけ、`model` が保存済みの canonical 完全 ID と一致することを確認する。明示 alias を一度限りで使った起動（`spec_source=explicit`）では、`effective:` の canonical な `model` を今回の実効仕様として報告し、保存済み spec との照合を要求しない。不一致・検証不能なら停止する。
 
 起動するのは参加ロールだけ。`impl`（独立させなければ `pr-fix` を兼務）と `review` は常に参加し、判定により `ui-tester` を追加する。`pane-layout.sh apply --count <new physical agents>` にはチーム総数ではなく新規ペイン数を渡す。再利用なしの場合、兼務チームは 2 つ、別 `pr-fix` または `ui-tester` の片方を追加すると 3 つ、両方あれば 4 つとなる。部分再利用では新規数が減り、全ロール再利用なら 0 になる。プランナーは新規ペインを計画済みグリッドに収め、呼び出し元のタブに収まらない場合はラベル付きの新タブを作る（[pane layout](../herdr/references/pane-layout.md#tab-policy)）。そのため 4 ペインチームが新タブで起動する場合もある。起動結果が失敗・不明の場合、実装を開始せず、作成済みペインも自動で閉じない。観測した状態を報告する。
 
@@ -163,7 +194,7 @@ GitHub は default ブランチへ到達したコミットメッセージ中の�
 
 ## Delegation contract
 
-各タスクでは Herdr スキルの非同期親→子ラッパーを使用する。委譲文にロール、Issue、base/work ブランチ、存在する場合は PR、リポジトリの指示、フェーズ固有の範囲、期待する報告を含める。同じ worktree を共有するからといって会話コンテキストを共有すると仮定しない。再利用したペインでも同様。compact で前回実行の事実は引き継がれないため、タスク文で渡す（[Sequential runs](references/sequential-runs.md)）。
+各タスクでは Herdr スキルの非同期親→子ラッパーを使用する。委譲文にロール、ハーネス、Issue、base/work ブランチ、存在する場合は PR、リポジトリの指示、フェーズ固有の範囲、期待する報告を含める。実効値の確認手段もハーネス別にする（Pi は `$PI_*` の `effective:` 行、Claude は共有ランチャーの `effective:` 行）。同じ worktree を共有するからといって会話コンテキストを共有すると仮定しない。再利用したペインでも同様。compact で前回実行の事実は引き継がれないため、タスク文で渡す（[Sequential runs](references/sequential-runs.md)）。
 
 各ロールは直接の親への結果返却ヘルパーを使い、`completed` または `blocked` を返す。報告には実施内容、検証、関係するコミットまたは PR、未解決条件を含める。プロンプト送信だけでは完了の証拠にならない。次のフェーズへ進む前にエージェントの状態と出力を確認する。orchestrator ペインをブロックせずに返却を待つこと。親がツール呼び出し中は返却がキューに入るため、`sleep` を使った長いフォアグラウンドのポーリングで占有しない（Herdr の非同期委譲ルール参照）。
 

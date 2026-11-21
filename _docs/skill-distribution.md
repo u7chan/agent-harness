@@ -50,16 +50,16 @@ Invariants:
 
 1. The operational skill set is immutable per revision. A release tree is never edited in place; it changes only by installing a different pinned revision.
 2. Only a commit reachable from `origin/main` may be installed as the operational set (rollout gate).
-3. Any agent can confirm the installed revision with one command, from any workspace, and after a reload its loaded skill set matches that revision.
+3. Any agent can confirm the installed revision with one command, from any workspace, and after the harness's reload command (`/reload` in Pi, `/reload-skills` in Claude Code) its loaded skill set matches that revision.
 4. Rollback is the same operation as rollout, targeting a previously verified revision, and it works without network access while that release is still on disk.
 5. Development checkouts and worktrees are never on a skill scan path, and no release tree holds a git working copy.
 6. The served revision is the same for every harness on the machine: they read one set of links into one release, not per-harness copies.
 
-Guarantee scope: a session's skill listing is captured at session startup or `/reload`; `SKILL.md` bodies, references, and scripts are read from the release tree on demand. A switch changes what every later read resolves to, so a session that stays alive across a switch mixes its pre-switch listing with post-switch file content until it reloads. The rollout and rollback procedures close this window by requiring a reload, and installs are applied between tasks.
+Guarantee scope: a session's skill listing is captured at session startup or the harness's reload command (`/reload` in Pi, `/reload-skills` in Claude Code); `SKILL.md` bodies, references, and scripts are read from the release tree on demand. A switch changes what every later read resolves to, so a session that stays alive across a switch mixes its pre-switch listing with post-switch file content until it reloads. The rollout and rollback procedures close this window by requiring a reload, and installs are applied between tasks.
 
 ## Design
 
-Distribution is git plus a symlink switch. It no longer uses the pi package mechanism, and no step calls pi, claude, codex, or another harness CLI.
+Distribution is git plus a symlink switch. It no longer uses the pi package mechanism, and the distribution command itself calls no pi, claude, codex, or another harness CLI. The rollout and smoke-test procedures invoke harness CLIs manually where a harness's own view is the evidence.
 
 Layout of `<dist-root>`:
 
@@ -162,7 +162,7 @@ Take the merged SHA as `<commit-sha>`.
 
    The command fetches `origin/main` into `<dist-root>/git`, gates the requested SHA, checks the link layout of every link directory against the target release, exports and verifies the release, switches `current`, reconciles the per-skill links, verifies them, records the linked directories, and appends `<rollout-record>`. A layout conflict stops before a release is published; any later failure restores the previous revision and its links. Omitting `--sha` serves the current `origin/main` head, which is only what you want when no later merge should be skipped. On the first cutover from the pi package install, add `--replace-links` as described in [Compatibility and migration](#compatibility-and-migration).
 4. Unregister the legacy pi package when it is still registered: after the switch and before the reload, run `pi list` once and, if it names `git:github.com/u7chan/agent-harness`, `pi remove git:github.com/u7chan/agent-harness`. Skipping this leaves two different real paths for the same skill names, which Pi reports as a collision. A machine without pi skips this step; nothing in the distribution path depends on pi.
-5. `/reload` (or restart) every running session. A session reloaded after this step serves the new revision; one that skips it keeps its pre-switch listing until it reloads.
+5. Run the harness's reload command (`/reload` in Pi, `/reload-skills` in Claude Code) or restart every running session. A session reloaded after this step serves the new revision; one that skips it keeps its pre-switch listing until it reloads.
 6. Run the [smoke test](#smoke-test) with the installed SHA, then the session-level listing check.
 7. Report the served revision, the record line, the session check, and the PR. If the session listing disagrees with the verified revision, roll back with the same command and report both revisions instead of leaving the machine in a mixed state.
 
@@ -213,10 +213,10 @@ The command prints `revision=<sha>`, `release=ok|invalid|absent`, `record=<sha|n
 readlink -f "${AGENT_HARNESS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-harness}/current"
 ```
 
-This proves the served tree, not what a long-running session loaded: a session's listing is from its startup or last `/reload`, while its on-demand reads follow `current`. An agent confirms its skill revision as follows:
+This proves the served tree, not what a long-running session loaded: a session's listing is from its startup or last reload (`/reload` in Pi, `/reload-skills` in Claude Code), while its on-demand reads follow `current`. An agent confirms its skill revision as follows:
 
 1. Run the command above at the start of a skill-dependent task.
-2. If the session has not been started or reloaded since the serving path last changed to that revision (the switch), run `/reload` (or restart the session) before relying on skill content; after the reload the loaded set matches the served revision.
+2. If the session has not been started or reloaded since the serving path last changed to that revision (the switch), run the harness's reload command (`/reload` in Pi, `/reload-skills` in Claude Code) or restart the session before relying on skill content; after the reload the loaded set matches the served revision.
 3. Compare the revision against the `sha` of the last line of [the rollout record](#rollout-record) (`tail -1 "<rollout-record>" | jq -r .sha`).
 
 Rollout and rollback make step 2 the normal state by reloading every running session as part of the procedure.
@@ -227,7 +227,7 @@ Rollout and rollback make step 2 the normal state by reloading every running ses
 scripts/skill-distribution/dist.sh rollback <previous-verified-sha> --pr <PR URL>
 ```
 
-The command reuses the exported release and needs no network access; it gates the SHA against the mirror's last fetched `origin/main`, switches `current`, reconciles the links, verifies, and appends the record. Apply between tasks and `/reload` (or restart) every running session, as in rollout. Because the distribution is account-global, running the confirmation from any workspace verifies the state for all of them.
+The command reuses the exported release and needs no network access; it gates the SHA against the mirror's last fetched `origin/main`, switches `current`, reconciles the links, verifies, and appends the record. Apply between tasks and run the harness's reload command (`/reload` in Pi, `/reload-skills` in Claude Code) or restart every running session, as in rollout. Because the distribution is account-global, running the confirmation from any workspace verifies the state for all of them.
 
 A SHA that is no longer on disk is fetched and gated first, so a rollback target must still be reachable from `origin/main`; a release that was pruned and whose commit left `main` cannot be restored. A revision older than `skills.json` cannot be served either, so the first rollout of this design also defines the oldest rollback target.
 
@@ -246,7 +246,15 @@ test -f <link-dir>/<any-served-skill>/../_docs/skill-distribution.md
 
 `verify` re-reads the release's own `skills.json`, checks that every listed skill has a `SKILL.md`, that `current` names the expected SHA, that the record's last line names the same SHA, and that every per-skill link in the linked directories resolves. Without `--link-dir` it uses the directories recorded by the last `update`. It fails when no link directory exists; `--no-link` is the explicit way to verify a release that is not linked yet. Reading the manifest from the served tree rather than from `<checkout>` keeps a rollback validated against the revision being served.
 
-As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills and no collision warning; a session started or reloaded after the switch is consistent by construction. Running sessions verify themselves: after their `/reload`, each runs the confirmation command and compares against the expected SHA.
+As an end-to-end check, start a session in an unrelated workspace and confirm its skill listing contains the expected skills and no collision warning; a session started or reloaded after the switch is consistent by construction. Running sessions verify themselves: after their `/reload` (Pi) or `/reload-skills` (Claude Code), each runs the confirmation command and compares against the expected SHA.
+
+Claude's view has an optional, manual smoke test that requires the network and a logged-in account:
+
+```bash
+claude -p --model haiku --output-format stream-json --verbose
+```
+
+The init JSON's `skills` array shows that the installed skill set is visible to Claude Code. It proves the installed release, not the content of an unmerged branch; use [skill-testing.md](skill-testing.md) for that. This step is never part of the offline contract, and `dist.sh verify` remains the offline confirmation.
 
 ## Compatibility and migration
 
@@ -274,7 +282,7 @@ Order matters: the legacy package and the new links must not serve the same skil
    The command verifies the new release and links before reporting success, and it refuses to replace anything that is not a symlink.
 3. Remove the legacy `agent-harness` leaf link if it exists (`unlink ~/.agents/skills/agent-harness`). It points at the pi clone and would expose a second, differently-resolved copy of every skill to Pi at two levels deep — a collision even when the per-skill links are correct.
 4. Unregister the legacy pi package if `pi list` names it: `pi remove git:github.com/u7chan/agent-harness`. The pi-managed clone may be left in place; nothing serves from it once the registration is gone, and removing its files is optional.
-5. `/reload` (or restart) every running session.
+5. `/reload` (Pi) or `/reload-skills` (Claude Code), or restart every running session.
 6. Run the [smoke test](#smoke-test) with `<merged-sha>`, then check one session's skill listing for the expected names and for the absence of a collision warning.
 7. The command already appended the record line for `<merged-sha>`; verify it with `status` instead of appending another line.
 8. Moved assets: the old record at `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/skill-distribution/rollout.jsonl` is history under the previous layout. Keep it as a record and start the new one under `<dist-root>`; do not append to both.

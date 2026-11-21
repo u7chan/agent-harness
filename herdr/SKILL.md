@@ -68,7 +68,7 @@ herdr pane neighbor \
 - 位置指定あり：解決した隣接ペインが空の対話シェルなら使用する。隣接ペインがなく、方向も指定されていない場合は、`$HERDR_PANE_ID` から明示的に分割して隣のペインを作る。指定方向に安全に作れない場合は別方向を推測せず、ユーザーに確認する。
 - `$HERDR_WORKSPACE_ID` 内に利用可能なペインがなければ、`$HERDR_PANE_ID` から明示的に分割する。
 
-分割とエージェント起動で返る ID はすべて JSON 応答から読む。起動後、委譲前に対話可能な状態と、ユーザー指定の provider、model、thinking 設定を検証する。不明な値を一致とみなさない。起動は [Pane operations](#pane-operations) に従う。「指定エージェントがいない」と「利用可能なペインがない」を同一視しない。エージェント不在時の標準動作が分割というわけではない。
+分割とエージェント起動で返る ID はすべて JSON 応答から読む。起動後、委譲前に対話可能な状態と、ユーザー指定の仕様を検証する。ハーネス別の実効値を読む。Pi はエージェントが `$PI_*` から出す `effective:` 行、Claude は共有ランチャー `start-agent.sh` が出す `effective:` 行を正本とし、不明な値を一致とみなさない。起動は [Pane operations](#pane-operations) に従う。「指定エージェントがいない」と「利用可能なペインがない」を同一視しない。エージェント不在時の標準動作が分割というわけではない。
 
 ## Multi-pane layout
 
@@ -103,7 +103,7 @@ herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<
 
 ラッパーは引数と環境を検証し、既存の `herdr agent prompt` を実行して結果を伝播する。親ラッパーは親の表示名を解決するために読み取り専用の `herdr pane get` も 1 回呼ぶ。取得失敗時はプロンプト内でペイン ID だけを使用する。ラッパーは待機、再試行、キューイング、状態永続化、Herdr リソース作成を行わない。
 
-結果の返却待ちで親をブロックしない。返却は親ペインへプロンプトとして注入され、親がツール呼び出し中なら Pi が steering としてキューへ入れ、現在のアシスタントターンのツール呼び出し完了後に処理する。`sleep` によるポーリングのような長いフォアグラウンドコマンドで親を占有しない。ターンを終了して注入プロンプトに次のターンを開始させるか、フォアグラウンドコマンドを短く保つ。そうしなければ、キュー内の返却はコマンドの終了・タイムアウト・中断まで処理されない。
+結果の返却待ちで親をブロックしない。返却は親ペインへプロンプトとして注入され、親がツール呼び出し中なら Pi は steering として、Claude は queue としてそのプロンプトをキューへ入れ、現在のアシスタントターンのツール呼び出し完了後に処理する。`sleep` によるポーリングのような長いフォアグラウンドコマンドで親を占有しない。ターンを終了して注入プロンプトに次のターンを開始させるか、フォアグラウンドコマンドを短く保つ。そうしなければ、キュー内の返却はコマンドの終了・タイムアウト・中断まで処理されない。
 
 作業中の親への返却でエージェント種別に固有の問題が見つかった場合は、停止して再現手順を記録する。ラッパーへ待機やキューイングを追加しない。
 
@@ -122,7 +122,7 @@ herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<
 `herdr workspace create --cwd <path>` で作成したワークスペースには worktree 情報がないため、形状ルールから辺を導けない。[Workspaces without worktree information](references/async-delegation.md#workspaces-without-worktree-information) を参照する。
 
 ユーザーが worktree ワークスペース内で自己完結するチームを依頼した場合は、[Worktree workspace teams](references/worktree-workspace-teams.md) に従って起動・調整する。
-orchestrator-first 構成では、起動元（starter）が worktree を作成し、`worktree-team-start.sh --role orchestrator` でそのルートペインに orchestrator をちょうど 1 つ起動し、worktree 環境ブロックを渡す。その後 orchestrator がチームを作成・起動する（[Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)）。starter は `herdr-pi-issue-pr-workflow` の親に限らない。同じ `repo_root` から `worktree-team` 辺を導出できる親チェックアウトのペインなら、別の Pi ペインでもよい。ただしそのペインはキックオフゲートを通っていないため、provider/model/thinking をその場で選ばずプロファイルから解決する。起動・`launch:` 行・報告の正本は同節、プロファイル解決の正本は [Pi Development Profiles](../_docs/pi-development.md)。
+orchestrator-first 構成では、起動元（starter）が worktree を作成し、`worktree-team-start.sh --role orchestrator` でそのルートペインに orchestrator をちょうど 1 つ起動し、worktree 環境ブロックを渡す。その後 orchestrator がチームを作成・起動する（[Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)）。starter は `herdr-pi-issue-pr-workflow` の親に限らない。同じ `repo_root` から `worktree-team` 辺を導出できる親チェックアウトのペインなら、別のペイン（Pi または Claude）でもよい。ただしそのペインはキックオフゲートを通っていないため、ハーネス別の仕様をその場で選ばずプロファイルから解決する。起動・`launch:` 行・報告の正本は同節、プロファイル解決の正本は [Pi Development Profiles](../_docs/pi-development.md)。
 
 ### Scope intent and intended crossings
 

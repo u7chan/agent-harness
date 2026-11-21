@@ -63,11 +63,15 @@ Checks that span every skill live at the repository root under `scripts/` rather
 `scripts/check-media-artifacts.sh` guards the same boundary from the other side. UI evidence belongs in the PR body ([pr-evidence.md](pr-evidence.md)), so a screenshot or recording outside `_docs/assets/` is a failure rather than an asset, and an asset under `_docs/assets/` that no document links to is a leftover. A name that only appears in prose is not a link, and the asset directory cannot vouch for itself. `.gitignore` covers the same extensions for the ordinary `git add -A`; the check covers a forced add, a file written by a script, and an extension in upper case.
 
 Small deterministic helpers used by multiple skills also live outside skill
-directories: `scripts/pi-development/` owns development profile I/O, exact Pi
-model validation, and the local profile editor with its model master, and ships
-their tests. Its user-owned settings contract is
+directories: `scripts/pi-development/` owns development profile I/O, the role
+specification grammar shared by both harnesses, Pi's exact catalog validation,
+Claude's shape and enumeration validation, and the local profile editor with
+its model master, and ships their tests. Its user-owned settings contract is
 in [pi-development.md](pi-development.md). Removing a consumer must not remove
 these helpers; this is shared tooling, not a workflow runtime or another skill.
+The `herdr-pi-*` skill names and the `pi-development` asset name predate the
+harness-neutral boundary and are not renamed yet; the renames are tracked
+separately from this contract.
 
 `scripts/skill-distribution/` owns the harness-neutral distribution command,
 and `scripts/check-skill-manifest.sh` validates the neutral skill manifest, the

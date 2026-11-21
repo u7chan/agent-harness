@@ -71,8 +71,26 @@ check_contains "a stopped predecessor builds every pane" "$REFERENCE_TEXT" \
   'より前に停止した'
 check_contains "the idle check reads the agent status" "$REFERENCE_TEXT" \
   '`agent_status: idle`'
+check_contains "a pane from the other harness is not reusable" "$REFERENCE_TEXT" \
+  'ハーネスが異なるペインを、同じロールの再利用先にしない'
 check_contains "the specification check reads the footer" "$REFERENCE_TEXT" \
   '--source visible'
+check_contains "the Claude reuse reads the probe path" "$REFERENCE_TEXT" \
+  'probe: <path>'
+check_contains "reuse treats the recorded effective line as authoritative" "$REFERENCE_TEXT" \
+  '会話に記録された最後の `effective:` 行を正本とし'
+check_contains "the probe nonce stays internal to the launcher" "$REFERENCE_TEXT" \
+  '`nonce` はランチャー内部の起動記録'
+check_contains "the probe line exposes only the path" "$REFERENCE_TEXT" \
+  '`probe:` 行にはパスだけが出る'
+check_contains "the probe check compares model and effort" "$REFERENCE_TEXT" \
+  '`model` と `effort` を比較するだけで'
+check_contains "the statusline fields are the probe input" "$REFERENCE_TEXT" \
+  'statusline の `.model.id` と `.effort.level` は probe の入力'
+check_not_contains "the orchestrator does not gate reuse on the nonce" "$REFERENCE_TEXT" \
+  '`nonce` が一致しない場合'
+check_not_contains "the probe file does not expose statusline dotted fields" "$REFERENCE_TEXT" \
+  'のファイルを読み、`.model.id`'
 check_contains "startup argv is not evidence" "$REFERENCE_TEXT" \
   '起動 argv'
 
@@ -84,8 +102,12 @@ check_contains "the command is not a delegation" "$REFERENCE_TEXT" \
   'これは委譲ではない'
 check_contains "a successful compaction adds its result line" "$REFERENCE_TEXT" \
   'Compacted from <N>'
+check_contains "a successful Claude compaction adds its result line" "$REFERENCE_TEXT" \
+  'Compacted ('
 check_contains "a failed compaction adds an error line" "$REFERENCE_TEXT" \
   'Compaction failed: <reason>'
+check_contains "both harnesses report a compaction failure by prefix" "$REFERENCE_TEXT" \
+  '`Compaction failed` で始まる'
 check_contains "the indicator line is not the completion test" "$REFERENCE_TEXT" \
   'ペインを検索して結果を判定してはならない'
 check_contains "completion compares against the pre-send read" "$REFERENCE_TEXT" \

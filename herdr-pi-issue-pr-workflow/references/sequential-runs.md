@@ -2,7 +2,7 @@
 
 複数 PR の Issue は連続した実行で完了し（[Kickoff gate](../SKILL.md#kickoff-gate)）、後続の実行は新しいチームを組む代わりに前回のロールペインを維持できる。このファイルは、いつ、どのように行うかを定める。[Start the team](../SKILL.md#start-the-team) と [Completion](../SKILL.md#completion) がペインのルールを保持する。
 
-判断には現在の会話だけを使う。ペインは、同じ Issue の以前の実行でこの orchestrator がそのロールのために起動したものであり、それらについてディスクに書き出されるものはない。ラベル、エージェント名、チームプロファイルの名前を理由にペインを再利用することはない。
+判断には現在の会話だけを使う。ペインは、同じ Issue の以前の実行でこの orchestrator がそのロールのために起動したものであり、それらについてディスクに書き出されるものはない。ラベル、エージェント名、チームプロファイルの名前を理由にペインを再利用することはない。ハーネスが異なるペインを、同じロールの再利用先にしない。
 
 ## Scope
 
@@ -17,7 +17,7 @@
 | Same workspace and worktree | ペインが、前回の実行の委譲時と同じ現在の Herdr ワークスペースと worktree にある。 |
 | The pane is this orchestrator's role pane | ペインが、以前の同じ Issue の実行でこの orchestrator がそのロールのために起動し、この会話で名前を挙げたものである。ラベルやエージェント名だけが一致するペインは別のペインである。 |
 | The pane is idle | `herdr agent get <pane-id>` が `agent_status: idle` を返す。 |
-| The effective specification matches | `herdr agent read <pane-id> --source visible` のフッターに、今回の実行で確定したそのロールの provider、model、thinking が表示される。起動 argv とチームプロファイルは、実行中の値の証拠ではない。 |
+| The effective specification matches | ハーネス別の実効値を読む。Pi は `herdr agent read <pane-id> --source visible` のフッターに、今回の実行で確定したそのロールの provider、model、thinking が表示される。Claude は、そのペインについて会話に記録された最後の `effective:` 行を正本とし、`requested=`、`model`、`effort` を今回確定した値と照合する。`effective:` 行は共有ランチャーが probe の nonce を検証した後にだけ出る。probe ファイル（`probe: <path>`）を補助で読む場合も `model` と `effort` を比較するだけで、`nonce` を orchestrator の照合条件にしない。`nonce` はランチャー内部の起動記録であり、`probe:` 行にはパスだけが出る。statusline の `.model.id` と `.effort.level` は probe の入力であり、probe ファイルのフィールドではない。`effective:` 行が記録に無い場合、`probe:` の読み取りに失敗した場合、値が欠けている場合は再利用しない。起動 argv とチームプロファイルは、実行中の値の証拠ではない。 |
 
 条件が成立しない、または確認できない場合、そのロールには新しいペインが必要で、古いペインは開いたままにする。この会話で名前を挙げられないペインを探索したり、一致しない実行中エージェントを修復したり、保存済みチームへフォールバックしたりしない。
 
@@ -33,13 +33,13 @@
 
    これは委譲ではない。結果返却は期待しないため、Herdr スキルの親ラッパーとその返却トランスポートは適用されず、生の `herdr agent prompt` 呼び出しがトランスポートとなる。ペインは同じワークスペースにあり、それは再利用条件がすでに要求している。
 
-2. 結果はペインの出力から判定し、`herdr agent get` では判定しない。コマンドは最後に結果行を 1 行追加する。成功なら `Compacted from <N> tokens`、失敗なら `Compaction failed: <reason>` である。`herdr agent get` は compaction の間ずっと `agent_status: idle` を報告するため、status は完了の信号にならない。コマンド前にすでに表示されていた結果行は、そのコマンドの結果ではない。再利用するペインには、以前の compaction の行が残っていることがある。
+2. 結果はペインの出力から判定し、`herdr agent get` では判定しない。コマンドは最後に結果行を 1 行追加する。成功は Pi が `Compacted from <N> tokens`、Claude が `Compacted (` で始まる行である。失敗はどちらも `Compaction failed` で始まる行であり、Pi は `Compaction failed: <reason>` の形をとる。`herdr agent get` は compaction の間ずっと `agent_status: idle` を報告するため、status は完了の信号にならない。コマンド前にすでに表示されていた結果行は、そのコマンドの結果ではない。再利用するペインには、以前の compaction の行が残っていることがある。
 
 3. コマンド前に取った読み取りを基準にする。その読み取りになかった結果行が表示されるまで、短い有界ステップでペインを読み直し、その後にだけ次のタスクを送る。compaction の実行中は、タスク、返却、その他のコマンドを送らない。また、長い `sleep` ベースのポーリングで orchestrator ペインを占有しない（[Async delegation](../../herdr/SKILL.md#async-delegation)）。
 
 一時的なインジケータ行 `Compacting context... (escape to cancel)` は compaction の実行中に表示されるが、ペインを検索して結果を判定してはならない。ペイン自身のトランスクリプトに、無関係な理由で同じフレーズが含まれることがある。コマンドが追加する結果行が正本である。
 
-`Compaction failed: <reason>` 行で報告される compaction の失敗は、再利用の失敗である。そのペインは今回のタスクを受け取らず、代わりにそのロール用の新しいペインを構築する。どちらの場合もペインは開いたままにする。
+`Compaction failed` で始まる行で報告される compaction の失敗は、再利用の失敗である。そのペインは今回のタスクを受け取らず、代わりにそのロール用の新しいペインを構築する。どちらの場合もペインは開いたままにする。
 
 ## Carry the facts in the task text
 

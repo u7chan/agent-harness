@@ -10,23 +10,27 @@ worktree 環境ブロックと、その ID を Herdr の JSON 応答から取得
 role: orchestrator
 ```
 
-`role` はこのタスク文面を受け取るエージェントの名前であり、プロファイルのロール名ではない。provider/model/thinking はタスク文面に書かない。`worktree-team-start.sh` が `--role orchestrator` でプロファイルから解決し、委譲本文の末尾（返却指示の前）へ `launch:` 行として追記する。タスクファイルにも委譲本文にも `launch:` 行を手で書かない。
+`role` はこのタスク文面を受け取るエージェントの名前であり、プロファイルのロール名ではない。ハーネス別の仕様（Pi の provider/model/thinking、Claude の model/effort/permission_mode）はタスク文面に書かない。`worktree-team-start.sh` が `--role orchestrator` でプロファイルから解決し、委譲本文の末尾（返却指示の前）へ `launch:` 行として追記する。タスクファイルにも委譲本文にも `launch:` 行を手で書かない。
 
 ## Launch check
 
-起動後、orchestrator は bash ツールで次を実行し、実効 spec を `launch:` 行と照合する。
+起動後、orchestrator は自分のハーネスに合った手段で実効 spec を `launch:` 行と照合する。
 
-```bash
-printf 'pi:%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
-```
+`launch:` 行は `harness=<pi|claude>` と、接頭辞付きの `spec=<harness>:<...>` を出す。`spec` は正本の文字列であり、`harness` はその接頭辞と一致しなければならない。`launch:` 行の形式と意味の正本は [Worktree workspace teams — Orchestrator-first](../../herdr/references/worktree-workspace-teams.md#orchestrator-first) である。本文に `launch:` 行が複数ある場合は最後の行を正本とする。
 
-`launch:` 行は `harness=pi` と `spec=pi:<provider>/<model>/<thinking>` を出す。`spec` は `pi:` 接頭辞を含む正本の文字列であり、`harness` はその接頭辞と一致しなければならない。上の `printf` の結果は `spec` の値とそのまま一致する必要があり、接頭辞を落として比較してはいけない。
+- Pi の orchestrator は bash ツールで次を実行し、結果を `spec` の値とそのまま照合する。接頭辞を落として比較してはいけない。自身の起動判定の正本は `PI_*` 環境変数（`$PI_PROVIDER` など）であり、footer（`herdr agent read <pane-id> --source visible`）は起動元による補助確認である。footer だけで一致とみなさない。`effective:` 行も `launch:` 行と照合する。
 
-`launch:` 行の形式と意味の正本は [Worktree workspace teams — Orchestrator-first](../../herdr/references/worktree-workspace-teams.md#orchestrator-first) である。本文に `launch:` 行が複数ある場合は最後の行を正本とする。実行結果が `spec` と一致しない、値が取得できない、または行が曖昧な場合は、作業を始めずに停止して起動元へ報告する。
+  ```bash
+  printf 'pi:%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
+  ```
+
+- Claude の orchestrator は `$PI_*` を使わない。起動元が `worktree-team-start.sh` 経由で転記した `launch:` と、共有ランチャーが stderr に出した `effective:` の行を使う。`effective:` 行の `requested=` が `spec` と一致し、`model` と `effort` が確定値と一致することを確認する。`spec_source=profile` のときだけ、`model` が保存済みの canonical 完全 ID と一致することも確認する。明示 alias を一度限りで使った起動では canonical な `model` を今回の実効仕様として報告し、保存済み spec と比較しない。行がタスク文面に無い、値が取得できない、または照合できない場合は停止する。
+
+実行結果が `spec` と一致しない、または行が曖昧な場合は、作業を始めずに停止して起動元へ報告する。
 
 `profile` が `-` でなければ、その値をこの実行のキックオフゲートの既定プロファイルとして使う。ユーザーが今回の実行で明示した指定を優先し、`launch: profile=-` ならゲートは `active` / `default` を使う。
 
-自身の起動判定の正本は `PI_*` であり、footer（`herdr agent read <pane-id> --source visible`）は起動元による補助確認である。footer だけで一致とみなさない。再利用ペインの footer ルールは [Sequential runs](sequential-runs.md) のまま維持する。
+再利用ペインの footer と `probe:` のルールは [Sequential runs](sequential-runs.md) のまま維持する。
 
 ## Worktree environment block
 
