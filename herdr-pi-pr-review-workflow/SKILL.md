@@ -61,7 +61,7 @@ scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role rev
 
 `review` ロールだけを検証・解決する。使用しないロールや `pr_fix_shared_with_impl` によって起動を妨げてはならない。
 `result=ok` の仕様を再利用し、その profile、harness、spec を報告する。spec は resolve が返す `review=<harness>:<...>` の正本の文字列であり、Pi が `pi:<provider>/<model>/<thinking>`、Claude が `claude:<model>/<effort>/<permission_mode>` である。
-今回の実行で明示指定された値は、プロファイルを自動的に書き換えることなく優先する。明示指定はハーネス別にだけ組み立て、Pi は provider / model / thinking、Claude は model / effort / permission_mode をとる。ハーネスの異なる値を混ぜた場合と、一部だけを指定した場合は、不足を推測で埋めずに停止する。
+今回の実行で明示指定された値は、プロファイルを自動的に書き換えることなく優先する。明示指定はハーネス別にだけ組み立て、Pi は provider / model / thinking、Claude は model / effort / permission_mode をとる。プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う。ハーネスをまたぐ指定（Pi の provider と Claude の effort など）は停止する。プロファイルが使えない場合の部分的に揃った指定は、プロファイルや推測で埋めずに停止する。
 
 明示的な上書きを組み立てる場合はモデル ID を正確に扱い、仕様全体をハーネス別に再検証する。
 
@@ -77,7 +77,7 @@ scripts/pi-development/resolve-model-spec.sh --harness claude \
 Pi は `result=ok` と `verification=exact`、Claude は `result=ok` と `verification=postlaunch` の両方がそろった場合のみ起動する。プロファイルの `review` は canonical な完全モデル ID を前提とし、alias は今回の実行だけの明示指定でだけ許可する。Claude の alias を使った場合は、共有ランチャーの `effective:` 行が返す canonical な `model` を実効値として報告する。
 プロファイルが存在しない、不正、未解決の場合は、次のとおり。
 
-- Pi は実行環境の既定にフォールバックできる。既定は、呼び出し元の Pi セッションが公開する `$PI_PROVIDER` / `$PI_MODEL` / `$PI_REASONING_LEVEL` を `pi:<provider>/<model>/<thinking>` として使い、`resolve-model-spec.sh` で `result=ok` と `verification=exact` を確認する。3 値が揃わない場合はフォールバックせず停止し、フォールバックした場合はその旨を 1 行で報告する。
+- Pi は実行環境の既定にフォールバックできる。既定は、呼び出し元の Pi セッションが公開する `$PI_PROVIDER` / `$PI_MODEL` / `$PI_REASONING_LEVEL` を `pi:<provider>/<model>/<thinking>` として使い、`resolve-model-spec.sh` で `result=ok` と `verification=exact` を確認する。3 値が揃わない場合はフォールバックせず停止し、フォールバックした場合はその旨を 1 行で報告する。ユーザー指定が部分的に揃っている場合は、実行環境の既定で補わずに停止する。
 - Claude はフォールバックしない。model / effort / permission_mode を含む完全な明示 spec がなければ、修復または必要な入力を求めて停止する。
 
 ランタイムのデフォルトや別モデルへ黙って切り替えない。
@@ -102,7 +102,7 @@ herdr pane rename <pane-id> pr-review
 
 `--profile` は土台にしたプロファイル名（完全な明示 spec なら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。`spec_source` と `origin` は別物であり、上書きしても `origin` は土台の由来のままにする。
 
-例: プロファイル `default` の `review` を土台に Claude の effort だけを上書きする場合は `--profile default --role review --spec-source explicit --origin default`、spec 全体がプロファイル由来のままなら `--spec-source profile --origin default` にする。
+例: 土台のプロファイル `default` の `review` が Claude で、model と permission_mode が揃っている場合に限り、effort だけを上書きして `--profile default --role review --spec-source explicit --origin default` にできる。ハーネスをまたぐ指定はこの形にできないため停止する。spec 全体がプロファイル由来のままなら `--spec-source profile --origin default` にする。
 
 起動に使った pane ID をそのまま使い、`herdr pane rename <pane-id> pr-review` と `herdr pane get <pane-id>` で label を確認する。共有ランチャーは JSON を返さず、`launch:` 行（Claude は `probe:` と `effective:` も）を stderr に出す。画面とランタイム状態で対話可能なこと、実効値が確定した仕様に一致することを検証する。起動引数だけでは証拠にならない。
 

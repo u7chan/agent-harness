@@ -150,7 +150,11 @@ check_contains "the reviewer section names the Claude canonical form" "$REVIEWER
 check_contains "the reviewer section overlays only the user values per harness" "$REVIEWER_TEXT" \
   'ユーザー指定はハーネス別にだけ上書きする'
 check_contains "the reviewer section refuses mixed harness values" "$REVIEWER_TEXT" \
-  'ハーネスの異なる値を混ぜた場合'
+  'ハーネスをまたぐ指定'
+check_contains "the reviewer section allows a same-harness partial override" "$REVIEWER_TEXT" \
+  'プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う'
+check_contains "the reviewer section stops a partial override without a profile" "$REVIEWER_TEXT" \
+  'プロファイルが使えない場合の部分的に揃った指定は、プロファイルや推測で埋めずに停止する'
 check_contains "the reviewer section re-validates per harness" "$REVIEWER_TEXT" \
   'scripts/pi-development/resolve-model-spec.sh --harness <pi|claude>'
 check_contains "the reviewer section passes the Pi specification flags" "$REVIEWER_TEXT" \
@@ -207,6 +211,10 @@ check_contains "the reviewer section separates spec_source from origin" "$REVIEW
   '`spec_source` と `origin` は別物'
 check_contains "the reviewer section keeps the profile origin on an override" "$REVIEWER_TEXT" \
   '--profile default --role review --spec-source explicit --origin default'
+check_contains "the reviewer section pins the partial-override precondition" "$REVIEWER_TEXT" \
+  '土台のプロファイル `default` の `review` が Claude で、model と permission_mode が揃っている場合に限り'
+check_contains "the reviewer section refuses a cross-harness example" "$REVIEWER_TEXT" \
+  'ハーネスをまたぐ指定はこの形にできないため停止する'
 check_contains "the reviewer section keeps the full-profile example" "$REVIEWER_TEXT" \
   '--spec-source profile --origin default'
 check_contains "the reviewer section reuses the launch pane ID" "$REVIEWER_TEXT" \

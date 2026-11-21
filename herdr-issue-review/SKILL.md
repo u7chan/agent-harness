@@ -56,7 +56,7 @@ description: >
 - `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` で空きの対話シェルを探し、あれば使う。無ければ `herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus`（再利用するペインの cwd は親と同じとは限らないため、レビュアーへ渡すリポジトリのルートはプロンプト側で指定する）
 - 実効プロファイルの `review` を土台にして起動 spec を合成する（[Pi Development Profiles](../_docs/pi-development.md)）。スクリプトのパスは対象リポジトリではなく、このスキルの親（パッケージルート）から解決する。
   1. `scripts/pi-development/team-record.sh resolve --only-role review` で実効プロファイルを解決し、`result=ok` なら `review=<harness>:<...>` を土台にする。正本の文字列は Pi が `pi:<provider>/<model>/<thinking>`、Claude が `claude:<model>/<effort>/<permission_mode>` である。
-  2. ユーザー指定はハーネス別にだけ上書きする。Pi は provider / model / thinking、Claude は model / effort / permission_mode である。ハーネスの異なる値を混ぜた場合と、一部だけが揃った場合は、不足をプロファイルや推測で埋めずに停止して確認する。上書きは今回の実行だけに使い、プロファイルを自動で書き換えない。
+  2. ユーザー指定はハーネス別にだけ上書きする。Pi は provider / model / thinking、Claude は model / effort / permission_mode である。プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う。ハーネスをまたぐ指定（Pi の provider と Claude の effort など）は停止する。プロファイルが使えない場合の部分的に揃った指定は、プロファイルや推測で埋めずに停止する。上書きは今回の実行だけに使い、プロファイルを自動で書き換えない。
   3. 合成後の完全な spec をハーネス別の形で `scripts/pi-development/resolve-model-spec.sh --harness <pi|claude> ...` に再検証する。Pi は `--provider <provider> --model <model> --thinking <thinking>` を渡し、`result=ok` と `verification=exact` の両方を確認する。Claude は `--model <model> --effort <effort> --permission-mode <permission_mode>` を渡し、`result=ok` と `verification=postlaunch` の両方を確認する。ユーザー指定が完全でも、再検証が `result=ok` でなければ停止する。
 - `reason=migration-required` の場合は既定へのフォールバックに進まず、[設定移行](../_docs/pi-development-migration.md)のため停止する。
 - プロファイルが `ok` でない場合（`result=missing` / `invalid` / `unresolved`）は、ユーザー指定の揃い方で決める。
@@ -91,7 +91,7 @@ description: >
 
   `--profile` は土台にしたプロファイル名（完全な明示 spec なら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。`spec_source` と `origin` は別物であり、上書きしても `origin` は土台の由来のままにする。
 
-  例: プロファイル `default` の `review` を土台に Claude の effort だけを上書きする場合は `--profile default --role review --spec-source explicit --origin default`、spec 全体がプロファイル由来のままなら `--spec-source profile --origin default` にする。
+  例: 土台のプロファイル `default` の `review` が Claude で、model と permission_mode が揃っている場合に限り、effort だけを上書きして `--profile default --role review --spec-source explicit --origin default` にできる。ハーネスをまたぐ指定はこの形にできないため停止する。spec 全体がプロファイル由来のままなら `--spec-source profile --origin default` にする。
 - 起動確認:
   - Pi は、レビュアーへ渡すタスク文面に次のコマンドを含め、`effective:` 行を出させる。`launch:` 行と照合し、`requested=` が起動した `spec` と一致することを確認する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
 
