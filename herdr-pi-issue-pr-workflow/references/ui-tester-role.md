@@ -121,7 +121,7 @@ fallback: video -> screenshots; <reason>
 
 ## Environment separation
 
-PR 1〜4 では `ui-tester` を Claude で起動せず、Pi のエージェントとして実行する。Claude 用の専用 config dir を用意する手順は別 Issue とする。Pi の仕様を用意できない場合は `ui-tester` を起動しない。
+PR 1〜4 では `ui-tester` を Claude で起動せず、Pi のエージェントとして実行する。保存済みプロファイルの `ui-tester` が `claude` でも再利用しない。Claude 用の専用 config dir を用意する手順は別 Issue とする。今回の実行で Pi の完全な仕様が明示された場合だけ `ui-tester` を含め、用意できない場合は起動しない。
 
 値は対象リポジトリの規約から取得する。ui-tester の状態を実装エージェントの状態から分離する。
 

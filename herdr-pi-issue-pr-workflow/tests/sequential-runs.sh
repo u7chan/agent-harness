@@ -77,8 +77,15 @@ check_contains "the specification check reads the footer" "$REFERENCE_TEXT" \
   '--source visible'
 check_contains "the Claude specification check reads the probe file" "$REFERENCE_TEXT" \
   'probe: <path>'
-check_contains "the Claude probe holds the model" "$REFERENCE_TEXT" '.model.id'
-check_contains "the Claude probe holds the effort" "$REFERENCE_TEXT" '.effort.level'
+check_contains "the Claude probe records its launch nonce" "$REFERENCE_TEXT" '`nonce`'
+check_contains "the Claude probe holds model and effort" "$REFERENCE_TEXT" \
+  '`model` と `effort`'
+check_contains "the Claude probe compares the confirmed values" "$REFERENCE_TEXT" \
+  'が今回確定した model と effort に一致'
+check_contains "the statusline fields are the probe input" "$REFERENCE_TEXT" \
+  'statusline の `.model.id` と `.effort.level` は probe の入力'
+check_not_contains "the probe file does not expose statusline dotted fields" "$REFERENCE_TEXT" \
+  'のファイルを読み、`.model.id`'
 check_contains "startup argv is not evidence" "$REFERENCE_TEXT" \
   '起動 argv'
 

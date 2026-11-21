@@ -23,7 +23,7 @@ The profile format holds the full team plus the optional orchestrator:
 
 ```json
 {
-  "pr_fix_shared_with_impl": true,
+  "pr_fix_shared_with_impl": false,
   "roles": {
     "impl": {"provider": "<provider>", "model": "<model>", "thinking": "<level>"},
     "review": {"harness": "claude", "model": "<model>", "effort": "<level>", "permission_mode": "<mode>"},
@@ -37,7 +37,10 @@ The profile format holds the full team plus the optional orchestrator:
 keys are ignored. Full-team validation requires `impl`, `review`, `pr-fix`, a
 boolean shared flag, and equal `impl`/`pr-fix` specifications when that flag is
 true: every field is compared, so the harness and the Claude permission mode
-are part of the equality. Writes are atomic (temporary file plus rename), mode
+are part of the equality. The example sets the flag to `false` because `impl`
+and `pr-fix` use different harnesses; with `true`, `write` and `resolve` answer
+`result=invalid reason=bad-shared` unless every field matches. Writes are atomic
+(temporary file plus rename), mode
 `0600`, for both profiles and `active`.
 
 `harness` is optional and defaults to `pi`, so a profile written before the

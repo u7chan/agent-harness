@@ -177,6 +177,18 @@ check_contains "completion never ignores a passed item" "$SKILL_TEXT" \
 # directory separation yet, so a Claude ui-tester is never started.
 check_contains "the workflow runs ui-tester on Pi only" "$SKILL_TEXT" \
   'PR 1〜4 では `ui-tester` に Claude を選ばず、Pi で実行する'
+check_contains "a saved Claude ui-tester is never reused" "$SKILL_TEXT" \
+  '保存済み `ui-tester` のハーネスが `claude` の場合は PR 1〜4 では再利用しない'
+check_contains "a saved Claude ui-tester is never reused in the gate" "$SKILL_TEXT" \
+  '保存済み `ui-tester` が `harness=claude` の場合は再利用せず'
+check_contains "ui-tester needs an explicit Pi specification" "$SKILL_TEXT" \
+  '今回の実行で Pi の完全な仕様を明示'
+check_contains "ui-tester without a Pi specification is excluded" "$SKILL_TEXT" \
+  '用意できない場合は `ui-tester` を除外して Claude を起動しない'
+check_contains "the gate excludes ui-tester without a Pi specification" "$SKILL_TEXT" \
+  '明示がない場合は `ui-tester` を除外し、Claude を起動しない'
+check_contains "the reference marks a saved Claude ui-tester as unreusable" "$ROLE_TEXT" \
+  '保存済みプロファイルの `ui-tester` が `claude` でも再利用しない'
 check_contains "the reference runs ui-tester on Pi only" "$ROLE_TEXT" \
   '`ui-tester` を Claude で起動せず、Pi のエージェントとして実行する'
 check_contains "the Pi session store stays separated" "$ROLE_TEXT" \

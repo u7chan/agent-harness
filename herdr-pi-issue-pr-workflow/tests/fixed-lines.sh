@@ -61,6 +61,7 @@ ROLE_TEXT="$(cat "$ROLE_REFERENCE")"
 PARTICIPATION_TEXT="$(section_text "$ROLE_REFERENCE" "Participation")"
 CLEANUP_TEXT="$(section_text "$ROLE_REFERENCE" "Completion cleanup")"
 KICKOFF_TEXT="$(section_text "$SKILL_MD" "Kickoff gate")"
+TEAM_TEXT="$(section_text "$SKILL_MD" "Start the team")"
 
 # --- participation lines (authority: references/ui-tester-role.md) ---------
 
@@ -102,6 +103,20 @@ check_contains "target PR form states a single-PR run" "$KICKOFF_TEXT" \
   '`対象 PR: single`'
 check_contains "target PR form covers a final stacked position" "$KICKOFF_TEXT" \
   '`対象 PR: 4/4`'
+
+# --- effective value check (authority: SKILL.md Start the team) -------------
+
+# The Pi role prints its own line; Claude's line comes from the shared launcher.
+# A stored canonical model is a promise only for profile starts, so an explicit
+# alias start reports the launched canonical model instead of matching it.
+check_contains "the Pi effective line reports its own harness" "$TEAM_TEXT" \
+  'effective: harness=pi provider='
+check_contains "the Claude effective check compares requested with the launch spec" \
+  "$TEAM_TEXT" '`requested=` が `launch:` 行の `spec` と一致'
+check_contains "the stored model is compared only for profile starts" "$TEAM_TEXT" \
+  '`spec_source=profile` のときだけ、`model` が保存済みの canonical 完全 ID'
+check_contains "an explicit alias start reports the canonical model" "$TEAM_TEXT" \
+  'canonical な `model` を今回の実効仕様として報告し'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

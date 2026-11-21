@@ -19,8 +19,12 @@ for value in (
     'pr_fix_shared_with_impl',
     'ハーネスと Claude の permission_mode を含む全フィールドを使う',
     '実行中に保存プロファイルを書き換えない',
+    '保存済み `ui-tester` のハーネスが `claude` の場合は PR 1〜4 では再利用しない',
+    '`impl`、`review`、`pr-fix` の保存済みハーネスはそのまま再利用する',
 ):
     assert value in team, value
+assert '同じチームに混ぜた構成は実機未検証' in text
+assert 'まず単一ハーネスのチームを検証する' in text
 for value in (
     'scripts/pi-development/team-record.sh resolve',
     '編成が明示されていれば再利用せず',
@@ -30,6 +34,7 @@ for value in (
     'team-record.sh write --profile default',
     '前回承認編成を使用: profile=<name> impl=<harness>:<...> review=<harness>:<...> pr-fix=<harness>:<...> [ui-tester=<harness>:<...>]',
     '保存済みのロールのハーネスと今回指定されたハーネスが異なる場合も再利用しない',
+    '保存済み `ui-tester` が `harness=claude` の場合は再利用せず',
     '`対象 PR: 4/4`',
 ):
     assert value in gate, value
@@ -58,6 +63,8 @@ assert '`PI_*`' in template
 assert 'Claude の orchestrator は `$PI_*` を使わない' in template
 assert '`.model.id`' in template and '`.effort.level`' in template
 assert '`harness=<pi|claude>`' in template
+assert '`spec_source=profile` のときだけ' in template
+assert '明示 alias を一度限りで使った起動では canonical な `model`' in template
 # Route 2 has no approved team from the starter, so the handoff enters the
 # canonical gate instead of assuming one. Route 1 may start at Start the team
 # only after confirming the approved composition.

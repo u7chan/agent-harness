@@ -64,6 +64,8 @@ orchestrator-first 方式の worktree チームでは、orchestrator へ渡す�
 
 `pr-fix` は独立エージェントではなく `impl` に兼務させてもよい。`review` は必ず別エージェントであり、実装を編集してはならない。`ui-tester` も独立した物理エージェントで、仕様に含まれない場合は起動しない。`ui-tester` を使わない実行には、余分なペインや条件を追加しない。`ui-tester` は実装の編集、コミット、PR 編集、GitHub レビュー投稿、PR コメント投稿を行わない。指摘は orchestrator のトリアージ材料となり、再現可能な機能不具合は必須修正、それ以外は同じ修正ラウンドに含めてよい。一方、Blocker 判定の正本は `review` ロールである。`ui-tester` のタスク文面、再検証、完了、環境分離は [ui-tester ロール参照](references/ui-tester-role.md) に定める。PR 1〜4 では `ui-tester` に Claude を選ばず、Pi で実行する。Pi の仕様を用意できない場合は `ui-tester` を起動しない。
 
+PR 1〜4 では Pi と Claude を同じチームに混ぜた構成は実機未検証とする。混在を禁止はしないが、まず単一ハーネスのチームを検証する。混在チームを提案する場合は、その未検証範囲を提案に明記する。
+
 モデルの提案経路はハーネス別に限り、推測で埋めない。
 
 - Pi は `pi --list-models` が返す正確な provider と model ID だけを使い、明示された組を同じカタログで検証する。ただし、その thinking 列の yes/no をレベル検証に使わない。thinking の可否は次のヘルパーがインストール済み Pi ランタイムの公開 API から確認する。
@@ -102,7 +104,7 @@ orchestrator はチームメンバーではない。チーム表・承認・再�
 
 初期化では合意した編成を `write --profile default` で保存し、承認待ちは追加しない。`profiles_present=true` なのに選択名だけが存在しない場合、`active` が壊れている場合、明示指定のプロファイルがない場合は初期化しない。これらは提案経路に戻り、ユーザーが明示した場合だけ保存する。`profiles/` や `active` を読み取れない場合も `profiles_present=false` の例外ではない。`result=invalid`（プロファイル集合の `profiles_present` は空）となるため初期化しない。
 
-保存するのはチーム仕様のみ。対象 PR は保存しないため、再利用を妨げるのは対象 PR が未確定の場合だけ。`ui-tester` のタスクも再利用条件にはしない。今回指定がなければ [ui-tester ロール参照の既定タスク](references/ui-tester-role.md#default-task) が使われるため。保存済みのハーネスと、そのハーネスのモデル指定・実行パラメータ、編成の各値は、今回の実行でその値が指定されていない場合だけ再利用する（[Kickoff gate](#kickoff-gate)）。`pr_fix_shared_with_impl` が true のときの `impl` と `pr-fix` の比較には、ハーネスと Claude の permission_mode を含む全フィールドを使う。実行中に保存プロファイルを書き換えない。
+保存するのはチーム仕様のみ。対象 PR は保存しないため、再利用を妨げるのは対象 PR が未確定の場合だけ。`ui-tester` のタスクも再利用条件にはしない。今回指定がなければ [ui-tester ロール参照の既定タスク](references/ui-tester-role.md#default-task) が使われるため。保存済みのハーネスと、そのハーネスのモデル指定・実行パラメータ、編成の各値は、今回の実行でその値が指定されていない場合だけ再利用する（[Kickoff gate](#kickoff-gate)）。ただし、保存済み `ui-tester` のハーネスが `claude` の場合は PR 1〜4 では再利用しない。`ui-tester` を含めるには、今回の実行で Pi の完全な仕様を明示してもらい、用意できない場合は `ui-tester` を除外して Claude を起動しない。`impl`、`review`、`pr-fix` の保存済みハーネスはそのまま再利用する。`pr_fix_shared_with_impl` が true のときの `impl` と `pr-fix` の比較には、ハーネスと Claude の permission_mode を含む全フィールドを使う。実行中に保存プロファイルを書き換えない。
 
 未移行の資産は初回起動時の欠落ではなく `migration-required` を返す。その上に初期化しない。継続前にバックアップを伴う手動の [プロファイル移行](../_docs/pi-development-migration.md) を行う。
 
@@ -121,7 +123,7 @@ orchestrator はチームメンバーではない。チーム表・承認・再�
    前回承認編成を使用: profile=<name> impl=<harness>:<...> review=<harness>:<...> pr-fix=<harness>:<...> [ui-tester=<harness>:<...>]
    ```
 
-   編成はプロファイルに含まれるため、今回の実行で編成が明示されていれば再利用せず、提案と承認待ちへ進む。そうしないと今回の指定より保存済み編成を優先してしまう。保存済みのロールのハーネスと今回指定されたハーネスが異なる場合も再利用しない。再利用行は正本の `<harness>:<...>` 形式で、`launch:` 行と同じ文字列を出す。参加判定の上書きは編成の明示指定ではないため、再利用経路を維持する。参加判定は出所に関係なく今回のチームだけに適用する。保存済み `ui-tester` を上書きするのは一方向だけ。参加する場合は `--require-role` によりロールのないプロファイルを `unresolved` にする。参加しない場合はロールを除いてプロファイルを再利用するが、保存済み編成から `ui-tester` は削除しない。
+   編成はプロファイルに含まれるため、今回の実行で編成が明示されていれば再利用せず、提案と承認待ちへ進む。そうしないと今回の指定より保存済み編成を優先してしまう。保存済みのロールのハーネスと今回指定されたハーネスが異なる場合も再利用しない。保存済み `ui-tester` が `harness=claude` の場合は再利用せず、今回の実行で Pi の完全な仕様が明示された場合だけ `ui-tester` を含める。明示がない場合は `ui-tester` を除外し、Claude を起動しない。再利用行は正本の `<harness>:<...>` 形式で、`launch:` 行と同じ文字列を出す。参加判定の上書きは編成の明示指定ではないため、再利用経路を維持する。参加判定は出所に関係なく今回のチームだけに適用する。保存済み `ui-tester` を上書きするのは一方向だけ。参加する場合は `--require-role` によりロールのないプロファイルを `unresolved` にする。参加しない場合はロールを除いてプロファイルを再利用するが、保存済み編成から `ui-tester` は削除しない。
 3. それ以外はこの節のルールに従ってチーム全体を提案し、承認を待つ。プロファイルがまったくない場合に限り、合意したチームを [Team profiles](#team-profiles) の条件で `default` として初期化する。それ以外の保存はユーザーの明示指示がある場合だけ。
 
 提案には次の表を使う。
@@ -184,7 +186,7 @@ GitHub は default ブランチへ到達したコミットメッセージ中の�
      "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
    ```
 
-   Claude は共有ランチャーが stderr に出した最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致し、`model` が保存済みの canonical 完全 ID、`effort` が確定した effort と一致することを確認する。不一致・検証不能なら停止する。
+   Claude は共有ランチャーが stderr に出した最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致し、`effort` が確定した effort と一致することを確認する。加えて `spec_source=profile` のときだけ、`model` が保存済みの canonical 完全 ID と一致することを確認する。明示 alias を一度限りで使った起動（`spec_source=explicit`）では、`effective:` の canonical な `model` を今回の実効仕様として報告し、保存済み spec との照合を要求しない。不一致・検証不能なら停止する。
 
 起動するのは参加ロールだけ。`impl`（独立させなければ `pr-fix` を兼務）と `review` は常に参加し、判定により `ui-tester` を追加する。`pane-layout.sh apply --count <new physical agents>` にはチーム総数ではなく新規ペイン数を渡す。再利用なしの場合、兼務チームは 2 つ、別 `pr-fix` または `ui-tester` の片方を追加すると 3 つ、両方あれば 4 つとなる。部分再利用では新規数が減り、全ロール再利用なら 0 になる。プランナーは新規ペインを計画済みグリッドに収め、呼び出し元のタブに収まらない場合はラベル付きの新タブを作る（[pane layout](../herdr/references/pane-layout.md#tab-policy)）。そのため 4 ペインチームが新タブで起動する場合もある。起動結果が失敗・不明の場合、実装を開始せず、作成済みペインも自動で閉じない。観測した状態を報告する。
 

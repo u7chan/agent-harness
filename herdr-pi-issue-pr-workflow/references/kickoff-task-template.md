@@ -24,7 +24,7 @@ role: orchestrator
   printf 'pi:%s/%s/%s\n' "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
   ```
 
-- Claude の orchestrator は `$PI_*` を使わない。起動元が `worktree-team-start.sh` 経由で転記した `launch:` と、共有ランチャーが stderr に出した `effective:` の行を使う。`effective:` 行の `requested=` が `spec` と一致し、`model`（statusline の `.model.id`）が保存済みの canonical 完全 ID と一致し、`effort` が statusline の `.effort.level` と一致することを確認する。行がタスク文面に無い、値が取得できない、または照合できない場合は停止する。
+- Claude の orchestrator は `$PI_*` を使わない。起動元が `worktree-team-start.sh` 経由で転記した `launch:` と、共有ランチャーが stderr に出した `effective:` の行を使う。`effective:` 行の `requested=` が `spec` と一致し、`effort` が statusline の `.effort.level` と一致することを確認する。`spec_source=profile` のときだけ、`model`（statusline の `.model.id`）が保存済みの canonical 完全 ID と一致することも確認する。明示 alias を一度限りで使った起動では canonical な `model` を今回の実効仕様として報告し、保存済み spec と比較しない。行がタスク文面に無い、値が取得できない、または照合できない場合は停止する。
 
 実行結果が `spec` と一致しない、または行が曖昧な場合は、作業を始めずに停止して起動元へ報告する。
 
