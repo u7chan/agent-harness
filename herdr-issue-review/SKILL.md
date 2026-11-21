@@ -85,7 +85,13 @@ description: >
     --spec-source <profile|explicit> --origin <explicit|active|default>
   ```
 
-  プロファイルの `review` を土台にした場合は、`team-record.sh resolve` が返した profile と source を `--profile` と `--origin` に渡し、`--spec-source profile` にする。今回の実行だけの明示 spec（Pi の実行環境既定を含む）を使う場合は `--profile -`、`--spec-source explicit`、`--origin explicit` にする。
+  プロファイルの `review` を土台にした場合は、`team-record.sh resolve` が返した profile と source を `--profile` と `--origin` に渡す。`--spec-source` は spec の由来を示し、`review` の spec をそのまま使う場合だけ `--spec-source profile` にする。
+
+  明示上書きを 1 つでも適用した場合と、完全な明示 spec（Pi の実行環境既定を含む）を使う場合は `--spec-source explicit` にする。
+
+  `--profile` は土台にしたプロファイル名（完全な明示 spec なら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。`spec_source` と `origin` は別物であり、上書きしても `origin` は土台の由来のままにする。
+
+  例: プロファイル `default` の `review` を土台に Claude の effort だけを上書きする場合は `--profile default --role review --spec-source explicit --origin default`、spec 全体がプロファイル由来のままなら `--spec-source profile --origin default` にする。
 - 起動確認:
   - Pi は、レビュアーへ渡すタスク文面に次のコマンドを含め、`effective:` 行を出させる。`launch:` 行と照合し、`requested=` が起動した `spec` と一致することを確認する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
 
@@ -97,7 +103,7 @@ description: >
 
   - Claude は共有ランチャーが stderr に出す最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。起動引数だけを証拠にしない。
   - `effective:` 行が得られない、または `launch:` 行と一致しない場合は、レビュー結果を採用せずに停止する。
-- 応答の `pane_id` を読み、`herdr pane rename <pane-id> herdr-issue-review` と `herdr pane get <pane-id>` で label を確認する
+- 起動に使った pane ID をそのまま使い、`herdr pane rename <pane-id> herdr-issue-review` と `herdr pane get <pane-id>` で label を確認する。共有ランチャーは JSON を返さず、`launch:` 行（Claude は `probe:` と `effective:` も）を stderr に出す。
 - 収束まで同じペインを使い回す（レビューのたびに増やさない）
 
 ### 2. 1 回目を委譲する

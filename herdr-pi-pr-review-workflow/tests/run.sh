@@ -32,6 +32,13 @@ for value in (
     'herdr/scripts/start-agent.sh <pane-id> pr-review',
     '--spec <harness>:<...>', '--profile <name|-> --role review',
     '--spec-source <profile|explicit> --origin <explicit|active|default>',
+    '`review` の spec をそのまま使う場合だけ `--spec-source profile` にする',
+    '明示上書きを 1 つでも適用した場合',
+    '`spec_source` と `origin` は別物',
+    '--profile default --role review --spec-source explicit --origin default',
+    '--spec-source profile --origin default',
+    '起動に使った pane ID をそのまま使い',
+    '共有ランチャーは JSON を返さず',
     'resolve-model-spec.sh --harness pi', 'resolve-model-spec.sh --harness claude',
     'verification=exact', 'verification=postlaunch',
     'claude auth status', '~/.claude/skills',
@@ -94,10 +101,13 @@ assert 'Pi の起動' not in text
 assert '`pi` も必須とする' not in text
 assert '--kind pi' not in text
 assert 'herdr agent start' not in text
+assert 'JSON 応答' not in text
 reviewer = text.split('## Reviewer Setup\n', 1)[1].split('## Review and Fixes', 1)[0]
 assert 'herdr/scripts/start-agent.sh' in reviewer
 assert '--role review' in reviewer
 assert 'herdr pane rename <pane-id> pr-review' in reviewer
+assert '起動に使った pane ID をそのまま使い' in reviewer
+assert '共有ランチャーは JSON を返さず' in reviewer
 assert 'effective:' in reviewer
 preflight = text.split('## Preflight\n', 1)[1].split('## Reviewer Setup', 1)[0]
 assert 'レビュアーに使うハーネスの CLI も必須とする' in preflight

@@ -96,9 +96,15 @@ herdr/scripts/start-agent.sh <pane-id> pr-review \
 herdr pane rename <pane-id> pr-review
 ```
 
-`--spec` には正本の文字列を渡す。プロファイルの `review` を土台にした場合は、`team-record.sh resolve` が返した profile と source を `--profile` と `--origin` に渡し、`--spec-source profile` にする。今回の実行だけの明示 spec（Pi の実行環境既定を含む）を使う場合は `--profile -`、`--spec-source explicit`、`--origin explicit` にする。
+`--spec` には正本の文字列を渡す。プロファイルの `review` を土台にした場合は、`team-record.sh resolve` が返した profile と source を `--profile` と `--origin` に渡す。`--spec-source` は spec の由来を示し、`review` の spec をそのまま使う場合だけ `--spec-source profile` にする。
 
-JSON 応答から ID を読み取り、ラベルを確認する。画面とランタイム状態で対話可能なこと、実効値が確定した仕様に一致することを検証する。起動引数だけでは証拠にならない。
+明示上書きを 1 つでも適用した場合と、完全な明示 spec（Pi の実行環境既定を含む）を使う場合は `--spec-source explicit` にする。
+
+`--profile` は土台にしたプロファイル名（完全な明示 spec なら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。`spec_source` と `origin` は別物であり、上書きしても `origin` は土台の由来のままにする。
+
+例: プロファイル `default` の `review` を土台に Claude の effort だけを上書きする場合は `--profile default --role review --spec-source explicit --origin default`、spec 全体がプロファイル由来のままなら `--spec-source profile --origin default` にする。
+
+起動に使った pane ID をそのまま使い、`herdr pane rename <pane-id> pr-review` と `herdr pane get <pane-id>` で label を確認する。共有ランチャーは JSON を返さず、`launch:` 行（Claude は `probe:` と `effective:` も）を stderr に出す。画面とランタイム状態で対話可能なこと、実効値が確定した仕様に一致することを検証する。起動引数だけでは証拠にならない。
 
 - Claude は共有ランチャーが stderr に出す最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。不明または不一致の場合は委譲前に停止する。
 - Pi は、レビュアーへ渡すタスク文面に次のコマンドを含め、`effective:` 行を出させる。`launch:` 行と照合してからレビュー結果を採用する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。

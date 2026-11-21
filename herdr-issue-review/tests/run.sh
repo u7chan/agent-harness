@@ -199,6 +199,24 @@ check_contains "the reviewer section passes the launch context" "$REVIEWER_TEXT"
   '--profile <name|-> --role review'
 check_contains "the reviewer section passes the source and origin" "$REVIEWER_TEXT" \
   '--spec-source <profile|explicit> --origin <explicit|active|default>'
+check_contains "the reviewer section reserves spec-source profile for an unmodified spec" "$REVIEWER_TEXT" \
+  '`review` の spec をそのまま使う場合だけ `--spec-source profile` にする'
+check_contains "the reviewer section marks any override as explicit" "$REVIEWER_TEXT" \
+  '明示上書きを 1 つでも適用した場合'
+check_contains "the reviewer section separates spec_source from origin" "$REVIEWER_TEXT" \
+  '`spec_source` と `origin` は別物'
+check_contains "the reviewer section keeps the profile origin on an override" "$REVIEWER_TEXT" \
+  '--profile default --role review --spec-source explicit --origin default'
+check_contains "the reviewer section keeps the full-profile example" "$REVIEWER_TEXT" \
+  '--spec-source profile --origin default'
+check_contains "the reviewer section reuses the launch pane ID" "$REVIEWER_TEXT" \
+  '起動に使った pane ID をそのまま使い'
+check_contains "the reviewer section states the launcher does not return JSON" "$REVIEWER_TEXT" \
+  '共有ランチャーは JSON を返さず'
+check_contains "the reviewer section states the launcher stderr lines" "$REVIEWER_TEXT" \
+  '`launch:` 行（Claude は `probe:` と `effective:` も）を stderr に出す'
+check_not_contains "the reviewer section does not depend on a JSON response" "$REVIEWER_TEXT" \
+  'JSON 応答'
 check_contains "the reviewer section keeps the caller-side rename" "$REVIEWER_TEXT" \
   'herdr pane rename <pane-id> herdr-issue-review'
 check_not_contains "the reviewer section does not start agents directly" "$REVIEWER_TEXT" \
