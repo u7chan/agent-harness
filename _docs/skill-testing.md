@@ -60,6 +60,11 @@ pi --provider opencode-go --model deepseek-v4-flash --thinking max \
 - <checkout>/gh/actions.json
 - <checkout>/gh/scripts/gh.sh(引数: <アクション名> <入力JSONファイル>)
 ```
+
+   ワークフロースキルを検証する場合は、改名後のディレクトリ名(`herdr-issue-pr-workflow`、
+   `herdr-pr-review-workflow`)で絶対パスを渡す。ロールアウト前のセッションは起動時の一覧に
+   旧名を保持しているため、一覧に表示される名前と読み取りパスが一致しないことを前提にする。
+
 4. 検証の完了条件に「対象版の確認(証跡)」を含める(下記)。実際に読むパスと revision を
    確認せずに検証完了としない
 

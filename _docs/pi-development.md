@@ -205,28 +205,53 @@ scripts/pi-development/refresh-models.sh [--pi-root <pi-package>] [--out <file>]
 ```
 
 `GET /` serves the document. `GET /api/state` returns every profile with its
-hash, stored roles, and unknown keys, plus the master with
-`status` (`ok`, `missing`, `invalid`), `stale`, `stale_reason`, and its
-candidates. The editor shows an optional-role toggle for `ui-tester` and
-`orchestrator`: a profile without the role starts with the toggle off, and a
-save that leaves it off omits the role (a full replacement removes it).
+hash, stored roles, and unknown keys, the harness vocabularies the editor
+renders from, and the master with `status` (`ok`, `missing`, `invalid`),
+`stale`, `stale_reason`, and its candidates. A stored role reports its
+`harness` (`pi` when the key is absent) and only that harness's fields, so a
+mixed team reads as one profile. The editor shows an optional-role toggle for
+`ui-tester` and `orchestrator`: a profile without the role starts with the
+toggle off, and a save that leaves it off omits the role (a full replacement
+removes it).
+
 `PUT /api/profile` takes `profile`, `expected_hash`,
 `pr_fix_shared_with_impl`, and `roles`; it answers 200 with the write record,
 400 for an invalid request, 404 for an unknown profile, 409 when the hash moved
 (the file is untouched), 422 when `write` rejects the team, and 502 when the
-helper cannot run. Omitting `ui-tester` or `orchestrator` removes it.
-`POST /api/models/refresh` runs the refresh helper, answers 200 with its
+helper cannot run. Omitting `ui-tester` or `orchestrator` removes it. A role in
+the request carries `harness` and the fields of that harness only:
+`provider`/`model`/`thinking` for `pi`, and
+`model`/`effort`/`permission_mode` for `claude`. A field from the other
+harness, an unknown harness, an incomplete or out-of-vocabulary
+specification, and a Claude model that is not a canonical ID are all 400, so
+nothing is silently dropped. The server renders each
+`--role <role>=<harness>:<...>` from the same reader and formatter as the CLI
+(`readRoleSpec` and `formatRoleSpec`) instead of concatenating a spec string
+itself. `POST /api/models/refresh` runs the refresh helper, answers 200 with its
 record, 500 when it fails, and 409 while a refresh is already running.
 
 `GET /api/state` does not run `resolve`: a resolve boots the pi runtime and
 costs seconds per profile, while the file view needs nothing it can add. The
 authoritative record for a profile is the one `PUT` returns from `write`.
 
-The editor does not support Claude roles yet. Its role fields admit only
-`provider`, `model`, and `thinking`, so a role carrying `harness`, `effort`, or
-`permission_mode` is answered with 400, and a Claude model entered as a Pi role
-is rejected by `write` with 422. Editing a profile that contains Claude roles
-is a separate Issue (PR 5 of #318); the CLI helpers already accept those roles.
+The editor chooses the harness per role. A Pi role keeps the model master and
+the thinking levels; a Claude role takes the canonical full model ID as text,
+plus the effort and permission-mode choices from the same vocabulary module the
+resolver uses. A saved Claude model must already be canonical (for example
+`claude-haiku-5-5`): an alias such as `haiku`, a provider-prefixed form, and an
+unsupported level are refused with 400, because a profile start compares the
+stored model with the launched `effective:` model and an alias cannot match it.
+The CLI still accepts an alias for a one-off explicit launch; only the editor's
+save path is strict. Switching a role's harness replaces its fields and clears
+the values that belonged to the other harness. Existing Pi profiles load without
+an edit and save in their existing three-field shape, and a mixed team saves and
+reloads as one profile. A shared `pr-fix` copies the whole role, including the
+harness and the Claude permission mode, so the equality `write` checks holds.
+
+`ui-tester` is Pi-only in the workflow, so a save that selects Claude for it is
+refused with 400 (`roles.ui-tester must use pi`). The editor keeps the harness
+selector visible for every role and enforces the rule on save instead of
+changing the layout.
 
 The hash guard detects a change up to the moment it is compared. A `write` from
 another process between the comparison and the rename wins; the CLI contract
@@ -344,6 +369,10 @@ location is authoritative.
 
 ## Launch and effective lines
 
+This section is the single authoritative definition of both lines. The start
+scripts, workflow skills, and references state which step reads a line; they do
+not define its fields again.
+
 A start script prints one `launch:` line before it starts an agent and appends
 the same line to the delegated body. The canonical line names the harness
 explicitly:
@@ -352,12 +381,16 @@ explicitly:
 launch: profile=<name|-> role=<role|-> harness=<pi|claude> spec=<harness>:<...> spec_source=<profile|explicit> origin=<explicit|active|default>
 ```
 
-`harness` must equal the prefix of `spec`. A mismatch stops the start instead of
-launching an agent whose specification cannot be verified. The shared launcher
-`herdr/scripts/start-agent.sh` prints the line and starts the agent;
-`herdr/scripts/worktree-team-start.sh` appends the lines the launcher reported.
-A canonical value keeps its prefix, and a legacy unprefixed value is read as Pi
-and printed with the `pi:` prefix.
+Two invariants decide whether a line is usable:
+
+- `harness` must equal the prefix of `spec`. A mismatch stops the start instead
+  of launching an agent whose specification cannot be verified.
+- When a body holds several `launch:` lines, the last one is authoritative.
+
+The shared launcher `herdr/scripts/start-agent.sh` prints the line and starts
+the agent; `herdr/scripts/worktree-team-start.sh` appends the lines the launcher
+reported. An accepted input without a prefix is read as Pi and printed in the
+canonical `pi:` form, so every printed value is prefixed.
 
 The effective values are reported once after launch:
 
@@ -366,7 +399,7 @@ effective: harness=<pi|claude> provider=<provider|-> model=<canonical model> eff
 ```
 
 A Pi agent prints this line from its own `$PI_*` variables. For Claude, the
-shared launcher prints it from the launched session, and
+shared launcher prints it from the launched session's statusline, and
 `permission_requested` is the value passed in argv, not a value read back
 (Claude does not expose the merged permission mode). `requested=` must equal the
 `spec` of the `launch:` line, and a stored canonical model ID must match

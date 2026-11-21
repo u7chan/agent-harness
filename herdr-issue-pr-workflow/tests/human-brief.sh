@@ -5,7 +5,7 @@
 #
 # These tests read the skill's Markdown and the shared contract only: no pi,
 # no Herdr, no network, no browser.
-# herdr-pi-issue-pr-workflow/tests/run.sh runs this file as part of the suite.
+# herdr-issue-pr-workflow/tests/run.sh runs this file as part of the suite.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

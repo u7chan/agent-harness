@@ -5,7 +5,7 @@
 # optional, and reflecting the evidence in the PR body belongs to the orchestrator.
 #
 # These tests read the skill's Markdown only: no pi, no network, no browser.
-# herdr-pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
+# herdr-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -176,9 +176,9 @@ check_contains "completion never ignores a passed item" "$SKILL_TEXT" \
 # ui-tester stays on Pi for this stack: the Claude path has no dedicated config
 # directory separation yet, so a Claude ui-tester is never started.
 check_contains "the workflow runs ui-tester on Pi only" "$SKILL_TEXT" \
-  'PR 1〜4 では `ui-tester` に Claude を選ばず、Pi で実行する'
+  '`ui-tester` は Pi で実行し、Claude では起動しない'
 check_contains "a saved Claude ui-tester is never reused" "$SKILL_TEXT" \
-  '保存済み `ui-tester` のハーネスが `claude` の場合は PR 1〜4 では再利用しない'
+  '保存済み `ui-tester` のハーネスが `claude` の場合は再利用しない'
 check_contains "a saved Claude ui-tester is never reused in the gate" "$SKILL_TEXT" \
   '保存済み `ui-tester` が `harness=claude` の場合は再利用せず'
 check_contains "ui-tester needs an explicit Pi specification" "$SKILL_TEXT" \

@@ -165,7 +165,7 @@ code="$(api GET /api/state)"
 state="$(cat "$WORK/last")"
 check_eq "state returns 200" "$code" "200"
 check_contains "state lists the profile" "$state" '"name":"default"'
-check_contains "state keeps the stored roles" "$state" '"roles":{"impl":{"provider":"p"'
+check_contains "state keeps the stored roles" "$state" '"roles":{"impl":{"harness":"pi","provider":"p"'
 check_contains "state returns the hash for the save guard" "$state" '"hash":"'
 check_not_contains "state does not spend a resolve per profile" "$state" '"record"'
 check_contains "state reports an unknown top-level key" "$state" '"top":["legacy_comment"]'
@@ -258,7 +258,7 @@ check_contains "save stores the orchestrator" "$(cat "$PROFILES/default.json")" 
 check_contains "save stores the orchestrator model" "$(cat "$PROFILES/default.json")" '"orchestrator-a"'
 
 code="$(api GET /api/state)"
-check_contains "state reports the stored orchestrator" "$(cat "$WORK/last")" '"orchestrator":{"provider":"p","model":"orchestrator-a"'
+check_contains "state reports the stored orchestrator" "$(cat "$WORK/last")" '"orchestrator":{"harness":"pi","provider":"p","model":"orchestrator-a"'
 check_not_contains "state reports no unknown keys for the orchestrator" "$(cat "$WORK/last")" '"orchestrator":[]'
 
 # The editor's role toggle for the orchestrator is labelled as outside the team.
@@ -285,6 +285,237 @@ check_eq "invalid profile name returns 400" "$code" "400"
 
 code="$(api PUT /api/profile "{\"profile\":\"default\",\"expected_hash\":\"$after\",\"pr_fix_shared_with_impl\":true,\"extra\":1,\"roles\":{}}")"
 check_eq "unknown field returns 400" "$code" "400"
+
+# --- harness-aware roles ----------------------------------------------------
+
+# A harness is part of a role: the editor reads both harnesses from one profile
+# set and stores each role in the shape the CLI expects.
+cat > "$PROFILES/claude.json" <<'JSON'
+{
+  "pr_fix_shared_with_impl": false,
+  "roles": {
+    "impl": {"harness": "claude", "model": "claude-haiku-5-5", "effort": "high", "permission_mode": "auto"},
+    "review": {"harness": "claude", "model": "claude-haiku-5-5", "effort": "high", "permission_mode": "auto"},
+    "pr-fix": {"harness": "claude", "model": "claude-haiku-5-5", "effort": "high", "permission_mode": "auto"}
+  }
+}
+JSON
+
+cat > "$PROFILES/mixed.json" <<'JSON'
+{
+  "pr_fix_shared_with_impl": false,
+  "roles": {
+    "impl": {"provider": "p", "model": "m", "thinking": "high"},
+    "review": {"harness": "claude", "model": "claude-haiku-5-5", "effort": "max", "permission_mode": "plan"},
+    "pr-fix": {"provider": "p", "model": "m", "thinking": "high"}
+  }
+}
+JSON
+
+code="$(api GET /api/state)"
+state="$(cat "$WORK/last")"
+check_eq "state still returns 200 with harness-aware roles" "$code" "200"
+check_contains "state reports a stored Claude role" "$state" \
+  '"impl":{"harness":"claude","model":"claude-haiku-5-5","effort":"high","permission_mode":"auto"}'
+check_contains "state keeps a Pi role and a Claude role in one team" "$state" \
+  '"review":{"harness":"claude","model":"claude-haiku-5-5","effort":"max","permission_mode":"plan"}'
+check_contains "state fills the implicit Pi harness" "$state" '"impl":{"harness":"pi","provider":"p"'
+check_contains "state returns the harness vocabularies" "$state" '"permission_mode":["acceptEdits"'
+check_contains "state returns the effort vocabulary" "$state" '"effort":["low","medium","high","xhigh","max"]'
+check_not_contains "a complete role is not reported as unknown" "$state" '"review":[]'
+check_not_contains "a complete Claude role drops no field" "$state" '"impl":["provider"'
+
+# A Pi role, a Claude role, and a mixed team all save and reload through the
+# canonical `--role <role>=<harness>:<...>` argument the CLI's own reader and
+# formatter produce.
+profile_body() { # profile hash roles-json [shared]
+  printf '{"profile":"%s","expected_hash":"%s","pr_fix_shared_with_impl":%s,"roles":%s}' \
+    "$1" "$2" "${4:-false}" "$3"
+}
+
+claude_role() { # model effort mode
+  printf '{"harness":"claude","model":"%s","effort":"%s","permission_mode":"%s"}' "$1" "$2" "$3"
+}
+pi_role() { # provider model thinking
+  printf '{"harness":"pi","provider":"%s","model":"%s","thinking":"%s"}' "$1" "$2" "$3"
+}
+
+hash="$(hash_of "$PROFILES/claude.json")"
+roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(claude_role claude-sonnet-4-5 max dontAsk)" \
+  "$(claude_role claude-sonnet-4-5 max dontAsk)" \
+  "$(claude_role claude-sonnet-4-5 max dontAsk)")"
+code="$(api PUT /api/profile "$(profile_body claude "$hash" "$roles")")"
+check_eq "a Claude profile saves" "$code" "200"
+check_contains "the saved Claude role keeps its harness" "$(cat "$PROFILES/claude.json")" '"harness": "claude"'
+check_contains "the saved Claude role keeps its effort" "$(cat "$PROFILES/claude.json")" '"effort": "max"'
+check_contains "the saved Claude role keeps its permission mode" "$(cat "$PROFILES/claude.json")" '"permission_mode": "dontAsk"'
+check_not_contains "the saved Claude role carries no Pi provider" "$(cat "$PROFILES/claude.json")" '"provider"'
+check_contains "the write record accepts the Claude specification" "$(cat "$WORK/last")" 'roles=impl,review,pr-fix'
+
+code="$(api GET /api/state)"
+check_contains "the saved Claude profile reloads with its values" "$(cat "$WORK/last")" \
+  '"impl":{"harness":"claude","model":"claude-sonnet-4-5","effort":"max","permission_mode":"dontAsk"}'
+
+hash="$(hash_of "$PROFILES/mixed.json")"
+roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(pi_role p m high)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(pi_role p m high)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$roles")")"
+check_eq "a mixed team saves" "$code" "200"
+check_contains "the mixed team keeps the Pi impl" "$(cat "$PROFILES/mixed.json")" '"provider": "p"'
+check_contains "the mixed team keeps the Claude review" "$(cat "$PROFILES/mixed.json")" '"harness": "claude"'
+check_contains "the mixed team stores the Pi role without a harness key" "$(cat "$PROFILES/mixed.json")" \
+  '"impl": {
+      "provider": "p"'
+code="$(api GET /api/state)"
+check_contains "the mixed team reloads both harnesses" "$(cat "$WORK/last")" \
+  '"impl":{"harness":"pi","provider":"p","model":"m","thinking":"high"}'
+
+# pr-fix shared with impl compares the whole role, harness included.
+hash="$(hash_of "$PROFILES/mixed.json")"
+roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(pi_role p m high)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$roles" true)")"
+check_eq "a cross-harness shared pr-fix returns 422" "$code" "422"
+check_contains "the cross-harness shared pr-fix reports bad-shared" "$(cat "$WORK/last")" 'reason=bad-shared'
+check_eq "the rejected shared team leaves the file alone" "$(hash_of "$PROFILES/mixed.json")" "$hash"
+
+roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(pi_role p m high)" \
+  "$(claude_role claude-haiku-5-5 high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$roles" true)")"
+check_eq "a shared pr-fix with equal fields saves" "$code" "200"
+check_contains "the shared pr-fix stores the same Claude role" "$(cat "$PROFILES/mixed.json")" \
+  '"pr-fix": {
+      "harness": "claude"'
+
+# A field from the other harness is refused before the write, so a mixed role
+# never reaches the CLI as a silently dropped value.
+mixed_request() { # roles-json
+  profile_body mixed "$(hash_of "$PROFILES/mixed.json")" "$1"
+}
+bad_pi="$(printf '{"impl":{"harness":"pi","provider":"p","model":"m","thinking":"high","effort":"high"},"review":%s,"pr-fix":%s}' \
+  "$(pi_role p m high)" "$(pi_role p m high)")"
+code="$(api PUT /api/profile "$(mixed_request "$bad_pi")")"
+check_eq "a Pi role with effort returns 400" "$code" "400"
+check_contains "the Pi role names the rejected field" "$(cat "$WORK/last")" "field 'effort' is not valid for harness 'pi'"
+
+bad_claude="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  '{"harness":"claude","model":"claude-haiku-5-5","effort":"high","permission_mode":"auto","provider":"p"}' \
+  "$(pi_role p m high)" "$(pi_role p m high)")"
+code="$(api PUT /api/profile "$(mixed_request "$bad_claude")")"
+check_eq "a Claude role with provider returns 400" "$code" "400"
+check_contains "the Claude role names the rejected field" "$(cat "$WORK/last")" "field 'provider' is not valid for harness 'claude'"
+
+bad_thinking="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  '{"harness":"claude","model":"claude-haiku-5-5","effort":"high","permission_mode":"auto","thinking":"high"}' \
+  "$(pi_role p m high)" "$(pi_role p m high)")"
+code="$(api PUT /api/profile "$(mixed_request "$bad_thinking")")"
+check_eq "a Claude role with thinking returns 400" "$code" "400"
+
+bad_effort="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  '{"harness":"claude","model":"claude-haiku-5-5","effort":"off","permission_mode":"auto"}' \
+  "$(pi_role p m high)" "$(pi_role p m high)")"
+code="$(api PUT /api/profile "$(mixed_request "$bad_effort")")"
+check_eq "a Claude role with an unsupported effort returns 400" "$code" "400"
+check_contains "the unsupported effort is reported as an incomplete specification" "$(cat "$WORK/last")" \
+  "is not a complete claude specification"
+
+bad_harness="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  '{"harness":"codex","model":"m"}' "$(pi_role p m high)" "$(pi_role p m high)")"
+code="$(api PUT /api/profile "$(mixed_request "$bad_harness")")"
+check_eq "an unknown harness returns 400" "$code" "400"
+check_contains "the unknown harness lists the supported ones" "$(cat "$WORK/last")" "harness must be one of pi, claude"
+
+# A stored Claude model is the canonical ID the launched session reports: a
+# profile start compares it with `effective:`, so an alias or a provider-prefixed
+# form is refused before it can be written.
+hash="$(hash_of "$PROFILES/mixed.json")"
+alias_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(claude_role haiku high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role haiku high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$alias_roles")")"
+check_eq "a Claude alias returns 400" "$code" "400"
+check_contains "the alias is reported as non-canonical" "$(cat "$WORK/last")" \
+  "must use a canonical Claude model ID"
+check_eq "the alias rejection leaves the file alone" "$(hash_of "$PROFILES/mixed.json")" "$hash"
+
+prefixed_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(claude_role anthropic/claude-sonnet-4-5-20250929 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role anthropic/claude-sonnet-4-5-20250929 high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$prefixed_roles")")"
+check_eq "a provider-prefixed Claude model returns 400" "$code" "400"
+check_contains "the prefixed model is reported as non-canonical" "$(cat "$WORK/last")" \
+  "must use a canonical Claude model ID"
+
+canonical_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s}' \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$canonical_roles")")"
+check_eq "a canonical Claude model saves" "$code" "200"
+check_contains "the canonical Claude model is stored" "$(cat "$PROFILES/mixed.json")" \
+  '"model": "claude-haiku-5-5"'
+
+# The workflow keeps its verifier on Pi, so a UI-tester selected as Claude is
+# refused at save time; the editor's harness selector stays in the layout.
+hash="$(hash_of "$PROFILES/claude.json")"
+claude_ui_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s,"ui-tester":%s}' \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)")"
+code="$(api PUT /api/profile "$(profile_body claude "$hash" "$claude_ui_roles")")"
+check_eq "a Claude ui-tester returns 400" "$code" "400"
+check_contains "the Claude ui-tester is reported as Pi-only" "$(cat "$WORK/last")" "roles.ui-tester must use pi"
+check_eq "the rejected ui-tester leaves the file alone" "$(hash_of "$PROFILES/claude.json")" "$hash"
+
+pi_ui_roles="$(printf '{"impl":%s,"review":%s,"pr-fix":%s,"ui-tester":%s}' \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(claude_role claude-haiku-5-5 high auto)" \
+  "$(pi_role p m high)")"
+code="$(api PUT /api/profile "$(profile_body claude "$hash" "$pi_ui_roles")")"
+check_eq "a Pi ui-tester saves" "$code" "200"
+check_contains "the Pi ui-tester is stored" "$(cat "$PROFILES/claude.json")" '"ui-tester"'
+check_contains "the Pi ui-tester keeps the Pi shape" "$(cat "$PROFILES/claude.json")" \
+  '"ui-tester": {
+      "provider": "p"'
+code="$(api GET /api/state)"
+check_contains "the Pi ui-tester reloads with the Pi harness" "$(cat "$WORK/last")" \
+  '"ui-tester":{"harness":"pi","provider":"p","model":"m","thinking":"high"}'
+
+# A role keeps the harness the request selected even when the request omits it:
+# the editor's older shape is still read as the implicit Pi default.
+hash="$(hash_of "$PROFILES/mixed.json")"
+legacy_roles="$(printf '{"impl":{"provider":"p","model":"m","thinking":"high"},"review":%s,"pr-fix":{"provider":"p","model":"m","thinking":"high"}}' \
+  "$(claude_role claude-haiku-5-5 high auto)")"
+code="$(api PUT /api/profile "$(profile_body mixed "$hash" "$legacy_roles")")"
+check_eq "a Pi role without a harness still saves" "$code" "200"
+check_contains "the harness-less Pi role is stored in the existing shape" "$(cat "$PROFILES/mixed.json")" \
+  '"impl": {
+      "provider": "p"'
+
+# The UI builds the harness switch and renders each harness's fields from the
+# same server vocabulary, so it cannot offer a value the CLI refuses.
+code="$(api GET /)"
+doc="$(cat "$WORK/last")"
+check_eq "index is still served for the harness editor" "$code" "200"
+check_contains "index offers a harness choice per role" "$doc" '`${role} harness`'
+check_contains "index renders the Claude permission mode field" "$doc" '`${role} permission_mode`'
+check_contains "index renders the Claude effort field" "$doc" '`${role} effort`'
+check_contains "index asks for the canonical Claude model" "$doc" 'canonical full model ID'
+check_contains "index reads the Claude vocabulary from the state" "$doc" 'vocabularies().claude.permission_mode'
+check_contains "index reads the Pi thinking vocabulary from the state" "$doc" 'vocabularies().pi.thinking'
+check_not_contains "index keeps no second Pi thinking vocabulary" "$doc" 'const ALL_LEVELS'
+check_contains "index explains the per-role harness" "$doc" 'ハーネスはロールごとに選べます'
 
 # --- host and origin --------------------------------------------------------
 

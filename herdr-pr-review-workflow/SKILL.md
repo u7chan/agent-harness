@@ -1,5 +1,5 @@
 ---
-name: herdr-pi-pr-review-workflow
+name: herdr-pr-review-workflow
 description: >
   PR の作成から、別ペインの独立したレビュアー（選択したハーネス）によるレビュー・修正ループ、検証済み LGTM、Ready までを統括する。
   「PR作ったらレビューおねがい」「PR作ってレビューして」のように PR 作成とレビューをまとめて依頼されたら使う。
@@ -86,7 +86,7 @@ Pi は `result=ok` と `verification=exact`、Claude は `result=ok` と `verifi
 
 Herdr の単一ペイン手順に従う。現在のワークスペースにある空の対話シェルを優先し、なければ現在のペインから `--direction right` で分割する。右に分割できない場合は、別方向を推測せずユーザーに確認する。ワークスペース、worktree、タブは作成しない。
 
-起動は共有ランチャー `herdr/scripts/start-agent.sh` を使う。共有ランチャー以外の起動経路を使わない。引数検証、認証と trust の preflight、起動、実効値確認、`launch:` / `effective:` 行はランチャーが所有する。
+起動は共有ランチャー `herdr/scripts/start-agent.sh` を使う。共有ランチャー以外の起動経路を使わない。引数検証、認証と trust の preflight、起動、実効値確認、`launch:` / `effective:` 行はランチャーが所有する。行の形式と不変条件は [Launch and effective lines](../_docs/pi-development.md#launch-and-effective-lines) を正本とする。
 
 ```bash
 herdr/scripts/start-agent.sh <pane-id> pr-review \

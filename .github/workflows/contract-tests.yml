@@ -61,11 +61,11 @@ jobs:
       - name: Run shared development model-spec and team-profile tests
         run: scripts/pi-development/tests/run.sh
 
-      - name: Run herdr-pi-issue-pr-workflow documentation contracts
-        run: herdr-pi-issue-pr-workflow/tests/run.sh
+      - name: Run herdr-issue-pr-workflow documentation contracts
+        run: herdr-issue-pr-workflow/tests/run.sh
 
-      - name: Run herdr-pi-pr-review-workflow documentation contracts
-        run: herdr-pi-pr-review-workflow/tests/run.sh
+      - name: Run herdr-pr-review-workflow documentation contracts
+        run: herdr-pr-review-workflow/tests/run.sh
 
       # The start-gate suite reads herdr-issue-review/SKILL.md only; it needs neither
       # Herdr nor pi, so it runs in the same hermetic job.

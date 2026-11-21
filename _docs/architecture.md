@@ -69,9 +69,13 @@ Claude's shape and enumeration validation, and the local profile editor with
 its model master, and ships their tests. Its user-owned settings contract is
 in [pi-development.md](pi-development.md). Removing a consumer must not remove
 these helpers; this is shared tooling, not a workflow runtime or another skill.
-The `herdr-pi-*` skill names and the `pi-development` asset name predate the
-harness-neutral boundary and are not renamed yet; the renames are tracked
-separately from this contract.
+The two workflow skills are instruction-only and named for what they coordinate
+rather than for one harness: [herdr-issue-pr-workflow](../herdr-issue-pr-workflow/SKILL.md)
+owns the Issue-to-PR team workflow and
+[herdr-pr-review-workflow](../herdr-pr-review-workflow/SKILL.md) owns the PR
+review workflow; their harness selection is profile data, not a skill name. The
+`pi-development` asset name predates the harness-neutral boundary and stays
+because it names the existing user asset, not a harness.
 
 `scripts/skill-distribution/` owns the harness-neutral distribution command,
 and `scripts/check-skill-manifest.sh` validates the neutral skill manifest, the

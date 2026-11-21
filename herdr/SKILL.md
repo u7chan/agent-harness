@@ -122,7 +122,7 @@ herdr/scripts/child-return-result.sh <direct-parent-pane> <completed|blocked> "<
 `herdr workspace create --cwd <path>` で作成したワークスペースには worktree 情報がないため、形状ルールから辺を導けない。[Workspaces without worktree information](references/async-delegation.md#workspaces-without-worktree-information) を参照する。
 
 ユーザーが worktree ワークスペース内で自己完結するチームを依頼した場合は、[Worktree workspace teams](references/worktree-workspace-teams.md) に従って起動・調整する。
-orchestrator-first 構成では、起動元（starter）が worktree を作成し、`worktree-team-start.sh --role orchestrator` でそのルートペインに orchestrator をちょうど 1 つ起動し、worktree 環境ブロックを渡す。その後 orchestrator がチームを作成・起動する（[Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)）。starter は `herdr-pi-issue-pr-workflow` の親に限らない。同じ `repo_root` から `worktree-team` 辺を導出できる親チェックアウトのペインなら、別のペイン（Pi または Claude）でもよい。ただしそのペインはキックオフゲートを通っていないため、ハーネス別の仕様をその場で選ばずプロファイルから解決する。起動・`launch:` 行・報告の正本は同節、プロファイル解決の正本は [Pi Development Profiles](../_docs/pi-development.md)。
+orchestrator-first 構成では、起動元（starter）が worktree を作成し、`worktree-team-start.sh --role orchestrator` でそのルートペインに orchestrator をちょうど 1 つ起動し、worktree 環境ブロックを渡す。その後 orchestrator がチームを作成・起動する（[Orchestrator-first](references/worktree-workspace-teams.md#orchestrator-first)）。starter は `herdr-issue-pr-workflow` の親に限らない。同じ `repo_root` から `worktree-team` 辺を導出できる親チェックアウトのペインなら、別のペイン（Pi または Claude）でもよい。ただしそのペインはキックオフゲートを通っていないため、ハーネス別の仕様をその場で選ばずプロファイルから解決する。起動・`launch:` 行・報告の正本は同節、プロファイル解決の正本は [Pi Development Profiles](../_docs/pi-development.md)。
 
 ### Scope intent and intended crossings
 
@@ -151,5 +151,5 @@ herdr pane get <pane-id>
 
 - 共有作業は現在のワークスペースと worktree 内で行う。
 - Herdr の worktree ワークスペースはユーザーの明示依頼がある場合だけ作成する。通常の独立ブランチでの作業は、現在のワークスペースと worktree に留める（[Worktree workspaces](#worktree-workspaces)）。
-- 明示依頼がない限り、ペインのクローズ、エージェントの強制終了、Herdr サーバーの停止、生の Git worktree 管理を行わない。例外は 1 つだけ。`herdr-pi-issue-pr-workflow` は完了時に自身が作成し、一度も委譲していない `ui-tester` ペインを `herdr pane close <pane-id>` で閉じる（[herdr-pi-issue-pr-workflow](../herdr-pi-issue-pr-workflow/SKILL.md#completion)）。
+- 明示依頼がない限り、ペインのクローズ、エージェントの強制終了、Herdr サーバーの停止、生の Git worktree 管理を行わない。例外は 1 つだけ。`herdr-issue-pr-workflow` は完了時に自身が作成し、一度も委譲していない `ui-tester` ペインを `herdr pane close <pane-id>` で閉じる（[herdr-issue-pr-workflow](../herdr-issue-pr-workflow/SKILL.md#completion)）。
 - ワークスペース境界を越えてエージェントを直接起動したりプロンプトを送ったりしない。まず辺を分類するラッパーまたは `herdr/scripts/worktree-team-start.sh` を使い、`scope-reject` なら迂回や再試行をせず停止する（[Scope intent and intended crossings](#scope-intent-and-intended-crossings)）。

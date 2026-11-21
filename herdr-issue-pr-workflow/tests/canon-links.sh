@@ -9,7 +9,7 @@
 # still pass after the section moved or was renamed.
 #
 # These tests read the skill's Markdown only: no pi, no network.
-# herdr-pi-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
+# herdr-issue-pr-workflow/tests/run.sh runs this file as part of the skill suite.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

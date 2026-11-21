@@ -213,12 +213,13 @@
     <p id="status" class="status" role="status" aria-live="polite"></p>
     <main id="profiles" class="profiles"></main>
     <footer>
-      保存は <code>team-record.sh write</code> を経由します。変更はこのマシンのプロファイルにだけ反映され、実行中のセッションには影響しません。
+      保存は <code>team-record.sh write</code> を経由します。変更はこのマシンのプロファイルにだけ反映され、実行中のセッションには影響しません。<br />
+      ハーネスはロールごとに選べます。Pi は provider / model / thinking、Claude は canonical な完全 model ID と
+      effort / permission_mode を保存します。Pi と Claude の混在チームも保存できます。
     </footer>
     <script>
       "use strict";
 
-      const ALL_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
       const ROLE_ORDER = ["impl", "review", "pr-fix", "ui-tester", "orchestrator"];
       const ROLE_LABELS = {
         impl: "実装",
@@ -281,10 +282,46 @@
         return candidate?.model?.supported_thinking || [];
       }
 
+      /** The harness vocabularies come from the server, which owns their module. */
+      function vocabularies() {
+        return state.harnesses;
+      }
+
+      function roleHarness(spec) {
+        return spec?.harness === "claude" ? "claude" : "pi";
+      }
+
+      function defaultRoleSpec(harness) {
+        return harness === "claude"
+          ? { harness: "claude", model: "", effort: "", permission_mode: "" }
+          : { harness: "pi", provider: "", model: "", thinking: "" };
+      }
+
+      function roleComplete(spec) {
+        if (!spec) return false;
+        return roleHarness(spec) === "claude"
+          ? Boolean(spec.model && spec.effort && spec.permission_mode)
+          : Boolean(spec.provider && spec.model && spec.thinking);
+      }
+
       function draftFor(profile) {
         const roles = {};
         for (const [role, spec] of Object.entries(profile.roles || {})) {
-          roles[role] = { provider: spec.provider || "", model: spec.model || "", thinking: spec.thinking || "" };
+          const harness = roleHarness(spec);
+          roles[role] =
+            harness === "claude"
+              ? {
+                  harness,
+                  model: spec.model || "",
+                  effort: spec.effort || "",
+                  permission_mode: spec.permission_mode || "",
+                }
+              : {
+                  harness,
+                  provider: spec.provider || "",
+                  model: spec.model || "",
+                  thinking: spec.thinking || "",
+                };
         }
         const optional = {};
         for (const role of OPTIONAL_ROLES) optional[role] = Boolean(roles[role]);
@@ -311,7 +348,8 @@
         // that only touched another role, so it stays as a selectable option
         // instead of letting the browser fall back to the first level.
         const keepStored = levels.length > 0 && current !== "" && !levels.includes(current);
-        const usable = levels.length > 0 ? (keepStored ? [current, ...levels] : levels) : current ? [current] : ALL_LEVELS;
+        const usable =
+          levels.length > 0 ? (keepStored ? [current, ...levels] : levels) : current ? [current] : vocabularies().pi.thinking;
         for (const level of usable) {
           const option = el("option", { value: level, text: keepStored && level === current ? `${level}（候補外）` : level });
           if (level === current) option.selected = true;
@@ -322,47 +360,49 @@
         select.disabled = levels.length === 0;
       }
 
-      /** Build one role row and return the handles needed to sync it later. */
-      function createRoleRow(draft, role, index, models, onChange) {
-        const row = el("div", { className: "role" });
-        const label = el("label", { text: ROLE_LABELS[role] || role });
-        const controls = el("div", { className: "controls" });
-        row.append(label, controls);
+      /**
+       * Fill a Claude vocabulary select. An empty choice keeps a role the user
+       * has not finished visible as incomplete instead of picking a level, and
+       * a stored value outside the vocabulary stays selectable so a save that
+       * only touched another role does not rewrite it.
+       */
+      function fillVocabulary(select, values, current) {
+        select.replaceChildren();
+        const placeholder = el("option", { value: "", text: "（未選択）" });
+        placeholder.selected = current === "";
+        select.append(placeholder);
+        for (const value of values) {
+          const option = el("option", { value, text: value });
+          if (value === current) option.selected = true;
+          select.append(option);
+        }
+        if (current !== "" && !values.includes(current)) {
+          const kept = el("option", { value: current, text: `${current}（候補外）` });
+          kept.selected = true;
+          select.append(kept);
+        }
+      }
 
+      /** Pi fields: a catalog select when the master is usable, free text otherwise. */
+      function piFields(role, index, spec, emit) {
+        const harness = "pi";
         if (index.size === 0) {
-          const spec = draft.roles[role] || { provider: "", model: "", thinking: "" };
-          const providerInput = el("input", { type: "text", value: spec.provider });
+          const providerInput = el("input", { type: "text", value: spec.provider || "" });
           providerInput.placeholder = "provider";
           providerInput.setAttribute("aria-label", `${role} provider`);
-          const modelInput = el("input", { type: "text", value: spec.model });
+          const modelInput = el("input", { type: "text", value: spec.model || "" });
           modelInput.placeholder = "model id";
-          modelInput.id = `role-${draft.name}-${role}`;
-          label.htmlFor = modelInput.id;
+          modelInput.setAttribute("aria-label", `${role} model`);
           const thinkingSelect = el("select");
-          fillThinking(thinkingSelect, ALL_LEVELS, spec.thinking);
-          providerInput.addEventListener("input", () => {
-            draft.roles[role] = { ...draft.roles[role], provider: providerInput.value.trim() };
-            onChange(role);
-          });
-          modelInput.addEventListener("input", () => {
-            draft.roles[role] = { ...draft.roles[role], model: modelInput.value.trim() };
-            onChange(role);
-          });
-          thinkingSelect.addEventListener("change", () => {
-            draft.roles[role] = { ...draft.roles[role], thinking: thinkingSelect.value };
-            onChange(role);
-          });
-          controls.append(providerInput, modelInput, thinkingSelect);
+          thinkingSelect.setAttribute("aria-label", `${role} thinking`);
+          fillThinking(thinkingSelect, vocabularies().pi.thinking, spec.thinking || "");
+          providerInput.addEventListener("input", emit);
+          modelInput.addEventListener("input", emit);
+          thinkingSelect.addEventListener("change", emit);
+          const nodes = [providerInput, modelInput, thinkingSelect];
           return {
-            row,
-            setSpec(next) {
-              providerInput.value = next.provider || "";
-              modelInput.value = next.model || "";
-              thinkingSelect.value = next.thinking || thinkingSelect.value;
-            },
-            setDisabled(disabled) {
-              for (const node of [providerInput, modelInput, thinkingSelect]) node.disabled = disabled;
-            },
+            harness,
+            nodes,
             getSpec() {
               return {
                 provider: providerInput.value.trim(),
@@ -370,13 +410,19 @@
                 thinking: thinkingSelect.value,
               };
             },
+            setSpec(next) {
+              providerInput.value = next.provider || "";
+              modelInput.value = next.model || "";
+              thinkingSelect.value = next.thinking || thinkingSelect.value;
+            },
+            setDisabled(disabled) {
+              for (const node of nodes) node.disabled = disabled;
+            },
           };
         }
 
-        const spec = draft.roles[role] || { provider: "", model: "", thinking: "" };
         const modelSelect = el("select");
-        modelSelect.id = `role-${draft.name}-${role}`;
-        label.htmlFor = modelSelect.id;
+        modelSelect.setAttribute("aria-label", `${role} model`);
         const byProvider = new Map();
         for (const candidate of index.values()) {
           if (!byProvider.has(candidate.provider)) byProvider.set(candidate.provider, []);
@@ -392,6 +438,9 @@
           }
           modelSelect.append(group);
         }
+
+        const thinkingSelect = el("select");
+        thinkingSelect.setAttribute("aria-label", `${role} thinking`);
 
         /**
          * A stored spec outside the master must stay selectable. Otherwise the
@@ -424,40 +473,146 @@
           fillThinking(thinkingSelect, levelsFor(index.get(key)), thinking);
         };
 
-        const thinkingSelect = el("select");
-        thinkingSelect.setAttribute("aria-label", `${role} thinking`);
-        selectModel(spec.model ? `${spec.provider}\u0000${spec.model}` : "", spec.thinking);
+        selectModel(spec.model ? `${spec.provider}\u0000${spec.model}` : "", spec.thinking || "");
 
         const readModel = () => {
           const [provider, model] = modelSelect.value.split("\u0000");
           return { provider, model };
         };
         modelSelect.addEventListener("change", () => {
-          const next = readModel();
-          draft.roles[role] = { ...next, thinking: "" };
           fillThinking(thinkingSelect, levelsFor(index.get(modelSelect.value)), "");
-          draft.roles[role].thinking = thinkingSelect.value;
-          onChange(role);
+          emit();
         });
-        thinkingSelect.addEventListener("change", () => {
-          draft.roles[role] = { ...draft.roles[role], thinking: thinkingSelect.value };
-          onChange(role);
-        });
-        controls.append(modelSelect, thinkingSelect);
+        thinkingSelect.addEventListener("change", emit);
 
         return {
-          row,
+          harness,
+          nodes: [modelSelect, thinkingSelect],
+          getSpec() {
+            const next = readModel();
+            return { ...next, thinking: thinkingSelect.value };
+          },
           setSpec(next) {
-            selectModel(next.model ? `${next.provider}\u0000${next.model}` : "", next.thinking);
+            selectModel(next.model ? `${next.provider}\u0000${next.model}` : "", next.thinking || "");
           },
           setDisabled(disabled) {
             modelSelect.disabled = disabled;
             thinkingSelect.disabled = disabled || thinkingSelect.dataset.baseDisabled === "1";
           },
+        };
+      }
+
+      /**
+       * Claude fields. The model is the canonical full ID the user states or
+       * copies from a previous `effective:` line; the UI never offers an alias
+       * as a stored value. Effort and the permission mode come from the shared
+       * vocabularies, so an invalid value cannot be selected.
+       */
+      function claudeFields(role, spec, emit) {
+        const harness = "claude";
+        const modelInput = el("input", { type: "text", value: spec.model || "" });
+        modelInput.placeholder = "canonical full model ID";
+        modelInput.setAttribute("aria-label", `${role} model`);
+        const effortSelect = el("select");
+        effortSelect.setAttribute("aria-label", `${role} effort`);
+        fillVocabulary(effortSelect, vocabularies().claude.effort, spec.effort || "");
+        const permissionSelect = el("select");
+        permissionSelect.setAttribute("aria-label", `${role} permission_mode`);
+        fillVocabulary(permissionSelect, vocabularies().claude.permission_mode, spec.permission_mode || "");
+        modelInput.addEventListener("input", emit);
+        effortSelect.addEventListener("change", emit);
+        permissionSelect.addEventListener("change", emit);
+        const nodes = [modelInput, effortSelect, permissionSelect];
+        return {
+          harness,
+          nodes,
           getSpec() {
-            const next = readModel();
-            return { ...next, thinking: thinkingSelect.value };
+            return {
+              model: modelInput.value.trim(),
+              effort: effortSelect.value,
+              permission_mode: permissionSelect.value,
+            };
           },
+          setSpec(next) {
+            modelInput.value = next.model || "";
+            fillVocabulary(effortSelect, vocabularies().claude.effort, next.effort || "");
+            fillVocabulary(permissionSelect, vocabularies().claude.permission_mode, next.permission_mode || "");
+          },
+          setDisabled(disabled) {
+            for (const node of nodes) node.disabled = disabled;
+          },
+        };
+      }
+
+      /**
+       * Build one role row: the harness choice plus that harness's fields. The
+       * harness is part of the role, so switching it replaces the fields and
+       * clears the values that belonged to the other harness instead of
+       * sending a mixed role.
+       */
+      function createRoleRow(draft, role, index, onChange) {
+        const row = el("div", { className: "role" });
+        const label = el("label", { text: ROLE_LABELS[role] || role });
+        const controls = el("div", { className: "controls" });
+        row.append(label, controls);
+
+        const harnessSelect = el("select");
+        harnessSelect.id = `harness-${draft.name}-${role}`;
+        harnessSelect.setAttribute("aria-label", `${role} harness`);
+        for (const harness of ["pi", "claude"]) {
+          const option = el("option", { value: harness, text: harness === "claude" ? "Claude" : "Pi" });
+          if (roleHarness(draft.roles[role]) === harness) option.selected = true;
+          harnessSelect.append(option);
+        }
+        label.htmlFor = harnessSelect.id;
+        controls.append(harnessSelect);
+
+        let disabled = false;
+        let widget = null;
+
+        function getSpec() {
+          return { harness: harnessSelect.value, ...widget.getSpec() };
+        }
+
+        const emit = () => {
+          draft.roles[role] = getSpec();
+          onChange(role);
+        };
+
+        function build(harness, spec) {
+          for (const node of widget?.nodes || []) node.remove();
+          widget = harness === "claude" ? claudeFields(role, spec, emit) : piFields(role, index, spec, emit);
+          controls.append(...widget.nodes);
+          widget.setDisabled(disabled);
+        }
+
+        harnessSelect.addEventListener("change", () => {
+          const next = defaultRoleSpec(harnessSelect.value);
+          draft.roles[role] = next;
+          build(harnessSelect.value, next);
+          onChange(role);
+        });
+
+        build(roleHarness(draft.roles[role]), draft.roles[role] || {});
+
+        return {
+          row,
+          setSpec(next) {
+            const harness = roleHarness(next);
+            if (harness !== widget.harness) {
+              harnessSelect.value = harness;
+              build(harness, next);
+            } else {
+              widget.setSpec(next);
+            }
+            draft.roles[role] = { harness, ...widget.getSpec() };
+          },
+          setDisabled(value) {
+            disabled = value;
+            harnessSelect.disabled = value;
+            widget?.setDisabled(value);
+          },
+          getSpec,
         };
       }
 
@@ -471,7 +626,7 @@
         return parts.join(" / ");
       }
 
-      function createCard(draft, index, models) {
+      function createCard(draft, index) {
         const card = el("section", { className: "card" });
         const head = el("div", { className: "head" });
         head.append(el("h2", { text: draft.name }));
@@ -497,15 +652,16 @@
 
         const controls = {};
         const refreshNote = () => {
-          const missing = ["impl", "review", "pr-fix"].filter((role) => !draft.roles[role]?.model);
+          const missing = ["impl", "review", "pr-fix"].filter((role) => !roleComplete(draft.roles[role]));
           note.textContent = missing.length ? `未設定: ${missing.join(", ")}` : "";
         };
 
         const syncShared = () => {
           if (!controls["pr-fix"]) return;
           if (draft.prFixShared) {
-            draft.roles["pr-fix"] = { ...draft.roles.impl };
-            controls["pr-fix"].setSpec(draft.roles.impl);
+            const impl = draft.roles.impl || defaultRoleSpec("pi");
+            draft.roles["pr-fix"] = { ...impl };
+            controls["pr-fix"].setSpec(impl);
             controls["pr-fix"].setDisabled(true);
           } else {
             controls["pr-fix"].setDisabled(false);
@@ -534,13 +690,13 @@
             const box = el("input", { type: "checkbox", checked: draft.optional[role] });
             box.addEventListener("change", () => {
               draft.optional[role] = box.checked;
-              if (box.checked && !draft.roles[role]?.model) {
-                // ui-tester starts from the impl spec as before; the
-                // orchestrator starts empty because it is not a team member.
+              if (box.checked && !roleComplete(draft.roles[role])) {
+                // ui-tester starts from the full impl spec (harness included);
+                // the orchestrator starts empty because it is not a team member.
                 draft.roles[role] =
                   role === "orchestrator"
-                    ? { provider: "", model: "", thinking: "" }
-                    : { ...(draft.roles.impl || { provider: "", model: "", thinking: "" }) };
+                    ? defaultRoleSpec("pi")
+                    : { ...(draft.roles.impl || defaultRoleSpec("pi")) };
                 controls[role]?.setSpec(draft.roles[role]);
               }
               controls[role].row.hidden = !box.checked;
@@ -549,7 +705,7 @@
             toggle.append(box, document.createTextNode(` ${ROLE_LABELS[role]} を使う`));
             card.append(toggle);
           }
-          controls[role] = createRoleRow(draft, role, index, models, onChange);
+          controls[role] = createRoleRow(draft, role, index, onChange);
           if (OPTIONAL_ROLES.has(role)) controls[role].row.hidden = !draft.optional[role];
           card.append(controls[role].row);
         }
@@ -565,7 +721,7 @@
             for (const role of ROLE_ORDER) {
               if (OPTIONAL_ROLES.has(role) && !draft.optional[role]) continue;
               const spec = controls[role]?.getSpec() || draft.roles[role];
-              if (!spec || !spec.provider || !spec.model || !spec.thinking) continue;
+              if (!roleComplete(spec)) continue;
               roles[role] = spec;
             }
             const response = await fetch("/api/profile", {
@@ -604,7 +760,7 @@
         const index = candidateIndex(state.models);
         for (const profile of state.profiles) {
           const draft = drafts.get(profile.name) || draftFor(profile);
-          elements.profiles.append(createCard(draft, index, state.models));
+          elements.profiles.append(createCard(draft, index));
         }
       }
 
