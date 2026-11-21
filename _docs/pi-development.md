@@ -172,7 +172,9 @@ the canonical model and effort from the launched session. A record that is not
 `claude-auth-status.sh` runs `claude auth status`, which needs no network, and
 prints only the login state and the config directory. It never prints the
 account email, the organization, or the rest of the status document, and it
-writes no file.
+writes no file. It parses the status document with `node`, so `node` must be on
+PATH; without it the helper answers `result=error reason=node-missing` and
+exits 1.
 
 A request such as `fallback で` selects `--profile fallback` for this run only.
 `fallback に切り替えて` is `use fallback` and persists for both consumers.

@@ -68,7 +68,7 @@ claude:
   --model <id-or-alias> --effort <level> --permission-mode <mode>
   Verifies the model shape and the effort/permission vocabularies only and
   reports result=ok verification=postlaunch. The effective model and effort
-  are confirmed after launch, so supported/ and effective/ stay empty here.
+  are confirmed after launch, so supported= and effective= stay empty here.
   --effort is one of ${CLAUDE_EFFORT_LEVELS.join(", ")}.
   --permission-mode is one of ${CLAUDE_PERMISSION_MODES.join(", ")}.`;
 

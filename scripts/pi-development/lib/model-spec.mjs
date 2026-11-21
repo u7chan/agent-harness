@@ -6,7 +6,11 @@
  * clamp results itself; the caller passes the values that Pi's public API
  * (`getSupportedThinkingLevels`, `clampThinkingLevel`) produced, and this
  * module only classifies them. It also holds the harness vocabularies that the
- * role-spec grammar and the resolver share, so neither keeps a second copy.
+ * role-spec grammar and the resolver share: the harness names, the Claude
+ * effort and permission modes, and the Claude model shape. The harness-prefix
+ * pattern and the default harness stay next to each parser that applies them,
+ * because the grammar's split rules and the resolver's argument rules are
+ * separate, so those two constants have one definition per site.
  */
 
 /** Thinking levels accepted by Pi (`ModelThinkingLevel`). */
