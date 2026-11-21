@@ -153,21 +153,26 @@ team. The orchestrator spec is resolved when it is started
 required role, so `--require-role orchestrator` checks and resolves the stored
 orchestrator on top of the team roles. `write` resolves every role it is given.
 
-Use `pi --list-models` to inspect the live catalog; thinking-level validation
-comes from the installed runtime's public API, never a static model table. If `pi`
-on PATH is a launcher shim rather than the installed executable, expose the
-real executable on PATH or pass the resolver's `--pi-root` option. Do not
-interpret its catalog's thinking yes/no column as a supported-level list.
-Only `result=ok` resolves a spec; never accept a clamped level silently.
+**Pi.** Use `pi --list-models` to inspect the live catalog; thinking-level
+validation comes from the installed runtime's public API, never a static model
+table. If `pi` on PATH is a launcher shim rather than the installed executable,
+expose the real executable on PATH or pass the resolver's `--pi-root` option. Do
+not interpret its catalog's thinking yes/no column as a supported-level list.
+A Pi request must match an installed model exactly, and only `result=ok` with
+`verification=exact` resolves it; never accept a clamped level silently.
 
-`--harness` selects what the resolver verifies and defaults to `pi`. A Pi
-request must match an installed model exactly and answers `result=ok` with
-`verification=exact`. A Claude request is checked by model shape and by the
-effort and permission-mode vocabularies and answers `result=ok` with
+**Claude.** A Claude request is checked by model shape and by the effort and
+permission-mode vocabularies and answers `result=ok` with
 `verification=postlaunch`: the model exists only after launch, so the resolver
-keeps no alias table and reports no effective value, and the launcher confirms
-the canonical model and effort from the launched session. A record that is not
-`result=ok` is unresolved for either harness.
+keeps no alias table and reports no effective value. The launcher confirms the
+canonical model and effort from the launched session, and the spec is settled
+only when its `effective:` line matches. A canonical full model ID comes from
+exactly three routes: a full ID the user states, a previous `effective:` line
+for the same harness and model, or the canonical ID reported by an explicit
+alias launch. Never infer one from the `claude --help` alias list.
+
+`--harness` selects what the resolver verifies and defaults to `pi`. A record
+that is not `result=ok` is unresolved for either harness.
 
 `claude-auth-status.sh` runs `claude auth status`, which needs no network, and
 prints only the login state and the config directory. It never prints the
@@ -213,6 +218,12 @@ record, 500 when it fails, and 409 while a refresh is already running.
 `GET /api/state` does not run `resolve`: a resolve boots the pi runtime and
 costs seconds per profile, while the file view needs nothing it can add. The
 authoritative record for a profile is the one `PUT` returns from `write`.
+
+The editor does not support Claude roles yet. Its role fields admit only
+`provider`, `model`, and `thinking`, so a role carrying `harness`, `effort`, or
+`permission_mode` is answered with 400, and a Claude model entered as a Pi role
+is rejected by `write` with 422. Editing a profile that contains Claude roles
+is a separate Issue (PR 5 of #318); the CLI helpers already accept those roles.
 
 The hash guard detects a change up to the moment it is compared. A `write` from
 another process between the comparison and the rename wins; the CLI contract

@@ -100,6 +100,8 @@ check_contains "target PR form states a position within the plan" "$KICKOFF_TEXT
   '`対象 PR: <position>/<total>`'
 check_contains "target PR form states a single-PR run" "$KICKOFF_TEXT" \
   '`対象 PR: single`'
+check_contains "target PR form covers a final stacked position" "$KICKOFF_TEXT" \
+  '`対象 PR: 4/4`'
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

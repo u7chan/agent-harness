@@ -16,6 +16,9 @@ for value in (
     '../_docs/pi-development.md',
     'result=missing', 'reason=no-profiles', 'profiles_present=false', 'source=default',
     'となるため初期化しない', 'migration-required',
+    'pr_fix_shared_with_impl',
+    'ハーネスと Claude の permission_mode を含む全フィールドを使う',
+    '実行中に保存プロファイルを書き換えない',
 ):
     assert value in team, value
 for value in (
@@ -25,7 +28,9 @@ for value in (
     '編成は実行限定であり',
     'それ以外は明示指示がある場合だけ',
     'team-record.sh write --profile default',
-    '前回承認編成を使用: profile=<name> impl=<provider>/<model>/<thinking> review=<provider>/<model>/<thinking> pr-fix=<provider>/<model>/<thinking> [ui-tester=<provider>/<model>/<thinking>]',
+    '前回承認編成を使用: profile=<name> impl=<harness>:<...> review=<harness>:<...> pr-fix=<harness>:<...> [ui-tester=<harness>:<...>]',
+    '保存済みのロールのハーネスと今回指定されたハーネスが異なる場合も再利用しない',
+    '`対象 PR: 4/4`',
 ):
     assert value in gate, value
 assert '--only-role' not in gate, 'the Issue workflow must still validate the full team'
@@ -35,7 +40,9 @@ assert '--only-role' not in gate, 'the Issue workflow must still validate the fu
 assert 'orchestrator はチームメンバーではない' in text
 assert 'チーム表・承認・再利用行の対象外' in text
 assert 'launch:' in team
-assert '| Role | Assignee | Provider | Model | Thinking | Selection reason |' in gate
+assert '| Role | Assignee | Harness | Provider | Model | Thinking/Effort | Permission | Selection reason |' in gate
+assert '| Role | Assignee | Provider | Model | Thinking | Selection reason |' not in gate
+assert 'Pi の Permission は `-`、Claude の Provider は `-`' in gate
 assert 'orchestrator=' not in gate, 'the reuse line stays on team roles'
 assert '| orchestrator |' not in gate, 'the team table stays on team roles'
 template = (root / 'references' / 'kickoff-task-template.md').read_text()
@@ -48,6 +55,9 @@ assert '--role orchestrator' in template
 assert 'launch:' in template
 assert 'PI_PROVIDER' in template and 'PI_MODEL' in template and 'PI_REASONING_LEVEL' in template
 assert '`PI_*`' in template
+assert 'Claude の orchestrator は `$PI_*` を使わない' in template
+assert '`.model.id`' in template and '`.effort.level`' in template
+assert '`harness=<pi|claude>`' in template
 # Route 2 has no approved team from the starter, so the handoff enters the
 # canonical gate instead of assuming one. Route 1 may start at Start the team
 # only after confirming the approved composition.

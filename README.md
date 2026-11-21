@@ -8,6 +8,7 @@
 [![Playwright](https://badgen.net/static/Browser/Playwright/2EAD33)](https://playwright.dev/)
 [![Herdr](https://badgen.net/static/Agent%20Runtime/Herdr/4A9EFF)](https://herdr.dev/)
 [![Pi](https://badgen.net/static/Agent/Pi/6A9FCC)](https://pi.dev/)
+[![Claude Code](https://badgen.net/static/Agent/Claude%20Code/D97757)](https://claude.com/claude-code)
 
 Minimal, reusable skills and constrained tool harnesses for coding agents.
 
@@ -18,17 +19,25 @@ A skill may consist only of instructions or include a small, purpose-built harne
 Each top-level skill directory contains a `SKILL.md` file that describes when and how to use that skill.
 
 - [Issue-to-PR workflow](herdr-pi-issue-pr-workflow/SKILL.md): delegate a defined
-  Issue to an implementation team; finish with a reviewed Draft PR.
+  Issue to an implementation team; finish with a reviewed Draft PR. Each role
+  agent runs on Pi or Claude.
 - [PR review workflow](herdr-pi-pr-review-workflow/SKILL.md): create a Draft PR
-  when the request includes it, keep the current agent as developer, add only a
-  Pi Reviewer, and review/fix for at most three rounds plus up to two polish
+  when the request includes it, keep the current agent as developer, add only an
+  independent reviewer on the harness the profile or the request selects (Pi or
+  Claude), and review/fix for at most three rounds plus up to two polish
   rounds before verified LGTM, eligible Resolve, and Ready. Merge remains a
   human decision. Triggered by "PR作ったらレビューおねがい".
 
-Both use the user-owned [development profiles](_docs/pi-development.md) under
-`pi-development/`; the shared helpers do not belong to either skill. Existing
-users migrate with [the backed-up procedure](_docs/pi-development-migration.md)
-as part of rollout, not by installing unmerged skill changes.
+Both workflows start every role agent through
+[the Herdr launcher](herdr/scripts/start-agent.sh) and read
+[development profiles](_docs/pi-development.md) under `pi-development/`; the
+shared helpers do not belong to either skill. A role's harness is part of its
+specification: Pi validates the exact model against the installed catalog,
+while Claude validates the model shape, effort, and permission mode before the
+start and confirms the canonical model from a post-launch `effective:` line.
+Existing users migrate with
+[the backed-up procedure](_docs/pi-development-migration.md) as part of
+rollout, not by installing unmerged skill changes.
 
 UI evidence for both workflows follows [PR body evidence](_docs/pr-evidence.md):
 the evidence belongs in the PR body, not in PR comments.
@@ -51,8 +60,8 @@ Commands used by the harnesses and by this repository's documented procedures:
 | git | fetching, gating, exporting, and switching the served revision; the merge checks | the distribution command in `scripts/skill-distribution/` and the procedures in `_docs/skill-distribution.md` |
 | jq | JSON parsing and validation | the gh and review harness scripts, the herdr launcher and its Claude statusline probe, the skill manifest check, and the distribution command |
 | gh CLI | GitHub API access (`gh api`, `gh auth status`) | the gh skill dispatcher; version 2.99.0 or later for attachments |
-| pi | agent runtime (`pi remove`, `pi list`) | the Pi runtime and the Pi-only workflows; the distribution command never calls it |
-| claude | Claude Code CLI 2.1.328; `claude auth status` reports the login state and the config directory without a network call, and the CLI loads skills from `~/.claude/skills` | the Claude role agents that [the Herdr launcher](herdr/scripts/start-agent.sh) starts; the distribution command never calls it |
+| pi | agent runtime (`pi remove`, `pi list`) | the Pi role agents that the workflows and [the Herdr launcher](herdr/scripts/start-agent.sh) start; the distribution command never calls it |
+| claude | Claude Code CLI 2.1.328; `claude auth status` reports the login state and the config directory without a network call, and the CLI loads skills from `~/.claude/skills` | the Claude role agents that the workflows and [the Herdr launcher](herdr/scripts/start-agent.sh) start; the distribution command never calls it |
 | herdr | delegating prompts to other panes (`herdr agent prompt`) | the herdr skill scripts |
 | python3 | the review skill's recheck harness (`review/scripts/recheck-state.sh`); optional for the herdr delegation scripts, which use it only for a cosmetic pane label and fall back gracefully without it | the review skill; optional for the herdr skill |
 | playwright-cli | browser automation for the playwright skill through its `scripts/pw.sh` wrapper (installed separately, e.g. `npm install -g @playwright/cli`; `PW_BIN` can point at an equivalent binary such as `npx @playwright/cli`) | the playwright skill |

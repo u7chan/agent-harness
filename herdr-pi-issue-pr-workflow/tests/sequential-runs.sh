@@ -71,8 +71,14 @@ check_contains "a stopped predecessor builds every pane" "$REFERENCE_TEXT" \
   'より前に停止した'
 check_contains "the idle check reads the agent status" "$REFERENCE_TEXT" \
   '`agent_status: idle`'
+check_contains "a pane from the other harness is not reusable" "$REFERENCE_TEXT" \
+  'ハーネスが異なるペインを、同じロールの再利用先にしない'
 check_contains "the specification check reads the footer" "$REFERENCE_TEXT" \
   '--source visible'
+check_contains "the Claude specification check reads the probe file" "$REFERENCE_TEXT" \
+  'probe: <path>'
+check_contains "the Claude probe holds the model" "$REFERENCE_TEXT" '.model.id'
+check_contains "the Claude probe holds the effort" "$REFERENCE_TEXT" '.effort.level'
 check_contains "startup argv is not evidence" "$REFERENCE_TEXT" \
   '起動 argv'
 
@@ -84,8 +90,12 @@ check_contains "the command is not a delegation" "$REFERENCE_TEXT" \
   'これは委譲ではない'
 check_contains "a successful compaction adds its result line" "$REFERENCE_TEXT" \
   'Compacted from <N>'
+check_contains "a successful Claude compaction adds its result line" "$REFERENCE_TEXT" \
+  'Compacted ('
 check_contains "a failed compaction adds an error line" "$REFERENCE_TEXT" \
   'Compaction failed: <reason>'
+check_contains "both harnesses report a compaction failure by prefix" "$REFERENCE_TEXT" \
+  '`Compaction failed` で始まる'
 check_contains "the indicator line is not the completion test" "$REFERENCE_TEXT" \
   'ペインを検索して結果を判定してはならない'
 check_contains "completion compares against the pre-send read" "$REFERENCE_TEXT" \
