@@ -20,13 +20,24 @@ for value in (
     '右に分割できない場合は、別方向を推測せずユーザーに確認する',
     'Round 4/5', 'round_kind=polish',
     'Issue は必須ではない', '現在のエージェント',
-    'provider、model、thinking は変更しない',
+    '現在のエージェントの起動仕様は変更しない',
     '別の coordinator、`impl`、`pr-fix`、`ui-tester` を起動しない',
     '../herdr/SKILL.md', '../gh/SKILL.md', '../review/SKILL.md',
     '../review/references/recheck.md', '../_docs/pi-development.md',
     '../_docs/skill-distribution.md#merge--rollout', '../_docs/human-brief.md',
     'pi:human-brief', '人間レビュー用サマリ',
     'scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role review',
+    'review=<harness>:<...>', 'pi:<provider>/<model>/<thinking>',
+    'claude:<model>/<effort>/<permission_mode>',
+    'herdr/scripts/start-agent.sh <pane-id> pr-review',
+    '--spec <harness>:<...>', '--profile <name|-> --role review',
+    '--spec-source <profile|explicit> --origin <explicit|active|default>',
+    'resolve-model-spec.sh --harness pi', 'resolve-model-spec.sh --harness claude',
+    'verification=exact', 'verification=postlaunch',
+    'claude auth status', '~/.claude/skills',
+    'claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。',
+    'effective: harness=pi provider=', '$PI_PROVIDER', '$PI_MODEL', '$PI_REASONING_LEVEL',
+    'footer だけで一致とみなさない',
     'ランタイムのデフォルトや別モデルへ黙って切り替えない', 'migration-required',
     'プロファイルや `active` を自動作成・保存・変更しない', '起動引数だけでは証拠にならない',
     'parent-delegate-async.sh', 'child-return-result.sh', '委譲後はターンを終了',
@@ -75,6 +86,23 @@ for value in (
     assert value in human_brief, value
 assert '本文の `pi:human-brief` 範囲は除く' in text
 assert 'PR 本文の `pi:human-brief` 範囲は読まないことも伝える' in text
+# The workflow is harness-neutral: the reviewer is whichever harness the
+# profile or the explicit override selects, and it starts only through the
+# shared launcher.
+assert 'Pi レビュアー' not in text
+assert 'Pi の起動' not in text
+assert '`pi` も必須とする' not in text
+assert '--kind pi' not in text
+assert 'herdr agent start' not in text
+reviewer = text.split('## Reviewer Setup\n', 1)[1].split('## Review and Fixes', 1)[0]
+assert 'herdr/scripts/start-agent.sh' in reviewer
+assert '--role review' in reviewer
+assert 'herdr pane rename <pane-id> pr-review' in reviewer
+assert 'effective:' in reviewer
+preflight = text.split('## Preflight\n', 1)[1].split('## Reviewer Setup', 1)[0]
+assert 'レビュアーに使うハーネスの CLI も必須とする' in preflight
+assert 'claude auth status' in preflight
+assert 'claude-trust:' in preflight
 assert '人間レビュー用サマリが必要な場合' in text
 assert '行頭の HTML コメントのマーカーが 1 対だけ' in text
 assert '証跡の代わりにならない' in evidence

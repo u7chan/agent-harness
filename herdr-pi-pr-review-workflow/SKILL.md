@@ -1,23 +1,23 @@
 ---
 name: herdr-pi-pr-review-workflow
 description: >
-  PR の作成から、別ペインの独立 Pi レビュアーによるレビュー・修正ループ、検証済み LGTM、Ready までを統括する。
+  PR の作成から、別ペインの独立したレビュアー（選択したハーネス）によるレビュー・修正ループ、検証済み LGTM、Ready までを統括する。
   「PR作ったらレビューおねがい」「PR作ってレビューして」のように PR 作成とレビューをまとめて依頼されたら使う。
   PR が既にある場合はレビュー・修正ループだけを行う。単発レビューだけなら review を使う。Herdr 必須。
 ---
 
 # PR Review Workflow
 
-現在のエージェントがユーザーからのフィードバック対応、実装、修正、調整を担当し、別ペインでは独立した Pi レビュアーだけを実行する。
+現在のエージェントがユーザーからのフィードバック対応、実装、修正、調整を担当し、別ペインでは独立したレビュアー（選択したハーネス）だけを実行する。
 Issue は必須ではない。PR がまだない場合は Draft PR の作成から始め、PR が既にある場合はそのレビューから始める。
 単発レビューには代わりに [review](../review/SKILL.md) を使う。PR 作成を含まない依頼で PR を勝手に作らない。
 
 ## Boundaries
 
-- ペイン、Pi の起動、委譲、非同期の結果返却は [Herdr](../herdr/SKILL.md) に従う。
+- ペイン、エージェントの起動、委譲、非同期の結果返却は [Herdr](../herdr/SKILL.md) に従う。
 - GitHub の読み書きはすべて [GH](../gh/SKILL.md) のディスパッチャーを使う。
 - レビュー基準、再チェック、LGTM 検証、Resolve の方針は [Review](../review/SKILL.md)、特に [再チェック手順](../review/references/recheck.md) を正本とする。ここではルールを重複定義しない。
-- 現在のエージェントの provider、model、thinking は変更しない。別の coordinator、`impl`、`pr-fix`、`ui-tester` を起動しない。
+- 現在のエージェントの起動仕様は変更しない。別の coordinator、`impl`、`pr-fix`、`ui-tester` を起動しない。
 - レビュアーは実装・コミット・push を行わない。レビューイベントは `COMMENT` だけを使い、`APPROVE`、マージ、Issue のクローズは行わない。
 - Ready は AI レビュー通過後の最終状態であり、最終ゲートは人間である。マージは行わない。ユーザーが確認後に明示的に指示した場合だけ、別操作として扱い、手順は [_docs/skill-distribution.md](../_docs/skill-distribution.md#merge--rollout) に従う。
 - 人間レビュー用サマリは [_docs/human-brief.md](../_docs/human-brief.md) を正本とし、PR 本文の証跡節とは分ける。サマリは証跡の代わりにならない。
@@ -27,7 +27,7 @@ Issue は必須ではない。PR がまだない場合は Draft PR の作成か�
 
 副作用のある操作に入る前に、次のすべてを確認する。失敗、不明な結果、曖昧な対象は推測せず停止する。
 
-1. Herdr の Preflight と Caller pinning を満たし、現在のワークスペースとペインを固定する。`pi` も必須とする。
+1. Herdr の Preflight と Caller pinning を満たし、現在のワークスペースとペインを固定する。レビュアーに使うハーネスの CLI も必須とする（Pi は `pi`、Claude は `claude`）。
 2. リポジトリの指示と Git 状態を読む。チェックアウト、作業ブランチ、HEAD を固定し、想定外の作業ツリー変更がないことを確認する。保護された base へ直接 push しない。
 3. 現在の head で必須のテスト、チェック、フォーマッター、リンターをすべて成功させる。必須検証の失敗・スキップ・実行不能は `blocked` として停止する。既存の検証結果を再利用するのは、head と検証範囲を確認できた場合だけとする。
 4. 対象 PR を 1 件特定する。PR が既にある場合はその PR を対象にする。PR がまだない場合、依頼が PR 作成を含むときだけ「PR 作成」節の順で Draft PR を作成する。含まない場合は停止して PR の URL または番号を求める。
@@ -35,6 +35,12 @@ Issue は必須ではない。PR がまだない場合は Draft PR の作成か�
 6. PR 本文と合意済みの依頼から、変更目的、完了条件、維持すべき契約、運用・互換性要件を抽出する。本文の `pi:human-brief` 範囲は除く。口頭のフィードバック条件も委譲文に含める。重要な未決事項をレビュアーに創作させない。
 7. ユーザー可視のサーフェスを変更する場合、またはリポジトリが証跡を要求する場合、[証跡契約](references/evidence.md) に従って現在の head の証跡を PR 本文の証跡節へ更新する。不要と判断した場合は理由を記録する。
 8. 人間レビュー用サマリが必要な場合、[_docs/human-brief.md](../_docs/human-brief.md) に従って現在の head のサマリを用意し、PR 本文の先頭に節を置く。PR 作成経路では `pr.create` の本文と `attachments` に含める。間に合わない場合は `pr.update` で挿入する。
+
+レビュアーに使うハーネスが Claude の場合は、`claude auth status` が `loggedIn=true` と `configDirectory` を返し、`~/.claude/skills` からこのリポジトリのスキルをロードでき、起動するディレクトリが trust 承認済みであることも確認する。trust は共有ランチャーが読み取り専用で確認する。未承認の場合は次の固定行で停止する。
+
+```text
+claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。
+```
 
 ### PR 作成
 
@@ -54,29 +60,55 @@ scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role rev
 ```
 
 `review` ロールだけを検証・解決する。使用しないロールや `pr_fix_shared_with_impl` によって起動を妨げてはならない。
-`result=ok` の仕様を再利用し、その profile、provider、model、thinking を報告する。
-今回の実行で明示指定された値は、プロファイルを自動的に書き換えることなく優先する。
+`result=ok` の仕様を再利用し、その profile、harness、spec を報告する。spec は resolve が返す `review=<harness>:<...>` の正本の文字列であり、Pi が `pi:<provider>/<model>/<thinking>`、Claude が `claude:<model>/<effort>/<permission_mode>` である。
+今回の実行で明示指定された値は、プロファイルを自動的に書き換えることなく優先する。明示指定はハーネス別にだけ組み立て、Pi は provider / model / thinking、Claude は model / effort / permission_mode をとる。ハーネスの異なる値を混ぜた場合と、一部だけを指定した場合は、不足を推測で埋めずに停止する。
 
-明示的な上書きを組み立てる場合は `pi --list-models` の正確な ID を使い、仕様全体を再検証する。
+明示的な上書きを組み立てる場合はモデル ID を正確に扱い、仕様全体をハーネス別に再検証する。
 
 ```bash
-scripts/pi-development/resolve-model-spec.sh \
+# Pi
+scripts/pi-development/resolve-model-spec.sh --harness pi \
   --provider <provider> --model <model> --thinking <level>
+# Claude
+scripts/pi-development/resolve-model-spec.sh --harness claude \
+  --model <model> --effort <level> --permission-mode <mode>
 ```
 
-`result=ok` の場合のみ起動する。プロファイルが存在しない、不正、未解決の場合は、有効な完全明示指定がない限り、修復または必要な入力を求めて停止する。ランタイムのデフォルトや別モデルへ黙って切り替えない。
+Pi は `result=ok` と `verification=exact`、Claude は `result=ok` と `verification=postlaunch` の両方がそろった場合のみ起動する。プロファイルの `review` は canonical な完全モデル ID を前提とし、alias は今回の実行だけの明示指定でだけ許可する。Claude の alias を使った場合は、共有ランチャーの `effective:` 行が返す canonical な `model` を実効値として報告する。
+プロファイルが存在しない、不正、未解決の場合は、次のとおり。
+
+- Pi は実行環境の既定にフォールバックできる。既定は、呼び出し元の Pi セッションが公開する `$PI_PROVIDER` / `$PI_MODEL` / `$PI_REASONING_LEVEL` を `pi:<provider>/<model>/<thinking>` として使い、`resolve-model-spec.sh` で `result=ok` と `verification=exact` を確認する。3 値が揃わない場合はフォールバックせず停止し、フォールバックした場合はその旨を 1 行で報告する。
+- Claude はフォールバックしない。model / effort / permission_mode を含む完全な明示 spec がなければ、修復または必要な入力を求めて停止する。
+
+ランタイムのデフォルトや別モデルへ黙って切り替えない。
 `reason=migration-required` なら、明示指定があっても [移行手順](../_docs/pi-development-migration.md) のために停止する。
 プロファイルや `active` を自動作成・保存・変更しない。
 
 Herdr の単一ペイン手順に従う。現在のワークスペースにある空の対話シェルを優先し、なければ現在のペインから `--direction right` で分割する。右に分割できない場合は、別方向を推測せずユーザーに確認する。ワークスペース、worktree、タブは作成しない。
 
+起動は共有ランチャー `herdr/scripts/start-agent.sh` を使う。共有ランチャー以外の起動経路を使わない。引数検証、認証と trust の preflight、起動、実効値確認、`launch:` / `effective:` 行はランチャーが所有する。
+
 ```bash
-herdr agent start pr-review --kind pi --pane <pane-id> -- \
-  --provider <provider> --model <model> --thinking <thinking>
+herdr/scripts/start-agent.sh <pane-id> pr-review \
+  --spec <harness>:<...> \
+  --profile <name|-> --role review \
+  --spec-source <profile|explicit> --origin <explicit|active|default>
 herdr pane rename <pane-id> pr-review
 ```
 
-JSON 応答から ID を読み取り、ラベルを確認する。画面とランタイム状態で対話可能なこと、実効 provider・model・thinking が確定した仕様に一致することを検証する。起動引数だけでは証拠にならない。不明または不一致の場合は委譲前に停止する。
+`--spec` には正本の文字列を渡す。プロファイルの `review` を土台にした場合は、`team-record.sh resolve` が返した profile と source を `--profile` と `--origin` に渡し、`--spec-source profile` にする。今回の実行だけの明示 spec（Pi の実行環境既定を含む）を使う場合は `--profile -`、`--spec-source explicit`、`--origin explicit` にする。
+
+JSON 応答から ID を読み取り、ラベルを確認する。画面とランタイム状態で対話可能なこと、実効値が確定した仕様に一致することを検証する。起動引数だけでは証拠にならない。
+
+- Claude は共有ランチャーが stderr に出す最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。不明または不一致の場合は委譲前に停止する。
+- Pi は、レビュアーへ渡すタスク文面に次のコマンドを含め、`effective:` 行を出させる。`launch:` 行と照合してからレビュー結果を採用する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
+
+  ```bash
+  printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s\n' \
+    "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL" \
+    "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
+  ```
+
 この実行の全ラウンドで同じレビュアーを使う。
 
 ## Review and Fixes
