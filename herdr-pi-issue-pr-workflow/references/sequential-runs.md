@@ -17,7 +17,7 @@
 | Same workspace and worktree | ペインが、前回の実行の委譲時と同じ現在の Herdr ワークスペースと worktree にある。 |
 | The pane is this orchestrator's role pane | ペインが、以前の同じ Issue の実行でこの orchestrator がそのロールのために起動し、この会話で名前を挙げたものである。ラベルやエージェント名だけが一致するペインは別のペインである。 |
 | The pane is idle | `herdr agent get <pane-id>` が `agent_status: idle` を返す。 |
-| The effective specification matches | ハーネス別の実効値を読む。Pi は `herdr agent read <pane-id> --source visible` のフッターに、今回の実行で確定したそのロールの provider、model、thinking が表示される。Claude は共有ランチャーが stderr に出した `probe: <path>` の JSON を読み、`nonce` がその起動の記録であること、`model` と `effort` が今回確定した model と effort に一致することを確認する。statusline の `.model.id` と `.effort.level` は probe の入力であり、probe ファイルのフィールドではない。`probe:` の読み取りに失敗した場合、ファイルが無い場合、`nonce` が一致しない場合、値が欠けている場合は再利用しない。起動 argv とチームプロファイルは、実行中の値の証拠ではない。 |
+| The effective specification matches | ハーネス別の実効値を読む。Pi は `herdr agent read <pane-id> --source visible` のフッターに、今回の実行で確定したそのロールの provider、model、thinking が表示される。Claude は、そのペインについて会話に記録された最後の `effective:` 行を正本とし、`requested=`、`model`、`effort` を今回確定した値と照合する。`effective:` 行は共有ランチャーが probe の nonce を検証した後にだけ出る。probe ファイル（`probe: <path>`）を補助で読む場合も `model` と `effort` を比較するだけで、`nonce` を orchestrator の照合条件にしない。`nonce` はランチャー内部の起動記録であり、`probe:` 行にはパスだけが出る。statusline の `.model.id` と `.effort.level` は probe の入力であり、probe ファイルのフィールドではない。`effective:` 行が記録に無い場合、`probe:` の読み取りに失敗した場合、値が欠けている場合は再利用しない。起動 argv とチームプロファイルは、実行中の値の証拠ではない。 |
 
 条件が成立しない、または確認できない場合、そのロールには新しいペインが必要で、古いペインは開いたままにする。この会話で名前を挙げられないペインを探索したり、一致しない実行中エージェントを修復したり、保存済みチームへフォールバックしたりしない。
 

@@ -191,6 +191,8 @@ check_contains "the reference marks a saved Claude ui-tester as unreusable" "$RO
   '保存済みプロファイルの `ui-tester` が `claude` でも再利用しない'
 check_contains "the reference runs ui-tester on Pi only" "$ROLE_TEXT" \
   '`ui-tester` を Claude で起動せず、Pi のエージェントとして実行する'
+check_contains "the README marks a Claude ui-tester as unsupported" "$README_TEXT" \
+  '`ui-tester` is Pi-only; a Claude `ui-tester` is not supported yet'
 check_contains "the Pi session store stays separated" "$ROLE_TEXT" \
   '`PI_CODING_AGENT_SESSION_DIR`'
 check_not_contains "the reference does not configure a Claude config dir" "$ROLE_TEXT" \

@@ -75,15 +75,20 @@ check_contains "a pane from the other harness is not reusable" "$REFERENCE_TEXT"
   'ハーネスが異なるペインを、同じロールの再利用先にしない'
 check_contains "the specification check reads the footer" "$REFERENCE_TEXT" \
   '--source visible'
-check_contains "the Claude specification check reads the probe file" "$REFERENCE_TEXT" \
+check_contains "the Claude reuse reads the probe path" "$REFERENCE_TEXT" \
   'probe: <path>'
-check_contains "the Claude probe records its launch nonce" "$REFERENCE_TEXT" '`nonce`'
-check_contains "the Claude probe holds model and effort" "$REFERENCE_TEXT" \
-  '`model` と `effort`'
-check_contains "the Claude probe compares the confirmed values" "$REFERENCE_TEXT" \
-  'が今回確定した model と effort に一致'
+check_contains "reuse treats the recorded effective line as authoritative" "$REFERENCE_TEXT" \
+  '会話に記録された最後の `effective:` 行を正本とし'
+check_contains "the probe nonce stays internal to the launcher" "$REFERENCE_TEXT" \
+  '`nonce` はランチャー内部の起動記録'
+check_contains "the probe line exposes only the path" "$REFERENCE_TEXT" \
+  '`probe:` 行にはパスだけが出る'
+check_contains "the probe check compares model and effort" "$REFERENCE_TEXT" \
+  '`model` と `effort` を比較するだけで'
 check_contains "the statusline fields are the probe input" "$REFERENCE_TEXT" \
   'statusline の `.model.id` と `.effort.level` は probe の入力'
+check_not_contains "the orchestrator does not gate reuse on the nonce" "$REFERENCE_TEXT" \
+  '`nonce` が一致しない場合'
 check_not_contains "the probe file does not expose statusline dotted fields" "$REFERENCE_TEXT" \
   'のファイルを読み、`.model.id`'
 check_contains "startup argv is not evidence" "$REFERENCE_TEXT" \

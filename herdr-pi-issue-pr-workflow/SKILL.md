@@ -84,7 +84,7 @@ scripts/pi-development/resolve-model-spec.sh --harness claude \
   --model <model> --effort <level> --permission-mode <mode>
 ```
 
-出力は `harness`、`provider`、`model`、`requested`、`supported`、`effective`、`result`、`verification` と、ハーネス固有の語彙フィールド（Pi は `thinking_level_map`、Claude は `permission_mode`）を含む 1 行の key=value 形式で、`result=ok` 以外は非 0 終了する。Pi は `result=ok` かつ `verification=exact`（実効レベルが指定レベルと一致）の場合だけ仕様確定とする。Claude は `result=ok` かつ `verification=postlaunch` で起動を許可し、共有ランチャーの `effective:` 行が `.model.id` と `.effort.level` を返した時点で確定する。それ以外は未解決として停止する。Pi のデフォルトへの無断切り替え、clamp されたレベルの受け入れ、alias の独自管理、未提供 ID の推測を行わない。指定の一部欠落、不正、曖昧、非対応、clamp 済みの仕様はすべて未解決とする。
+出力は `harness`、`provider`、`model`、`requested`、`supported`、`effective`、`result`、`verification` と、ハーネス固有の語彙フィールド（Pi は `thinking_level_map`、Claude は `permission_mode`）を含む 1 行の key=value 形式で、`result=ok` 以外は非 0 終了する。Pi は `result=ok` かつ `verification=exact`（実効レベルが指定レベルと一致）の場合だけ仕様確定とする。Claude は `result=ok` かつ `verification=postlaunch` で起動を許可し、共有ランチャーの `effective:` 行の `model` と `effort` が確定値と一致した時点で確定する。statusline の `.model.id` と `.effort.level` は probe の入力であり、probe には `model` と `effort` として保存される。それ以外は未解決として停止する。Pi のデフォルトへの無断切り替え、clamp されたレベルの受け入れ、alias の独自管理、未提供 ID の推測を行わない。指定の一部欠落、不正、曖昧、非対応、clamp 済みの仕様はすべて未解決とする。
 
 ## Team profiles
 

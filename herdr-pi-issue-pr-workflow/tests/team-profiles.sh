@@ -61,7 +61,8 @@ assert 'launch:' in template
 assert 'PI_PROVIDER' in template and 'PI_MODEL' in template and 'PI_REASONING_LEVEL' in template
 assert '`PI_*`' in template
 assert 'Claude の orchestrator は `$PI_*` を使わない' in template
-assert '`.model.id`' in template and '`.effort.level`' in template
+assert '`effective:` 行の `requested=` が `spec` と一致し、`model` と `effort` が確定値と一致' in template
+assert '.model.id' not in template and '.effort.level' not in template
 assert '`harness=<pi|claude>`' in template
 assert '`spec_source=profile` のときだけ' in template
 assert '明示 alias を一度限りで使った起動では canonical な `model`' in template
