@@ -150,17 +150,23 @@ check_contains "the reviewer section names the Claude canonical form" "$REVIEWER
 check_contains "the reviewer section overlays only the user values per harness" "$REVIEWER_TEXT" \
   'ユーザー指定はハーネス別にだけ上書きする'
 check_contains "the reviewer section refuses mixed harness values" "$REVIEWER_TEXT" \
-  'ハーネスをまたぐ指定'
+  'ハーネスをまたぐフィールドの混在'
 check_contains "the reviewer section allows a same-harness partial override" "$REVIEWER_TEXT" \
   'プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う'
-check_contains "the reviewer section stops a partial override without a profile" "$REVIEWER_TEXT" \
-  'プロファイルが使えない場合の部分的に揃った指定は、プロファイルや推測で埋めずに停止する'
+check_contains "the reviewer section drops a profile of another harness" "$REVIEWER_TEXT" \
+  'プロファイルと異なるハーネスを名指しした場合は、プロファイルを土台にせず'
+check_contains "the reviewer section fills an omitted Claude permission mode" "$REVIEWER_TEXT" \
+  'Claude の permission_mode の省略は'
+check_contains "the reviewer section links the authoritative order" "$REVIEWER_TEXT" \
+  '../_docs/pi-development.md#selection-and-commands'
+check_contains "the reviewer section stops a partial Pi specification" "$REVIEWER_TEXT" \
+  'Pi の部分的に揃った指定は、プロファイルや推測で埋めずに停止する'
 check_contains "the reviewer section re-validates per harness" "$REVIEWER_TEXT" \
   'scripts/pi-development/resolve-model-spec.sh --harness <pi|claude>'
 check_contains "the reviewer section passes the Pi specification flags" "$REVIEWER_TEXT" \
   '--provider <provider> --model <model> --thinking <thinking>'
 check_contains "the reviewer section passes the Claude specification flags" "$REVIEWER_TEXT" \
-  '--model <model> --effort <effort> --permission-mode <permission_mode>'
+  '--model <model> --effort <effort> [--permission-mode <permission_mode>]'
 check_contains "the reviewer section requires the exact Pi verification" "$REVIEWER_TEXT" \
   'verification=exact'
 check_contains "the reviewer section requires the Claude postlaunch verification" "$REVIEWER_TEXT" \
@@ -181,9 +187,11 @@ check_contains "the reviewer section reads all three Pi runtime values" "$REVIEW
   '"$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"'
 check_contains "the reviewer section stops on an incomplete Pi fallback" "$REVIEWER_TEXT" \
   '3 値が揃わない場合はフォールバックせず停止する'
-check_contains "the reviewer section never falls back for Claude" "$REVIEWER_TEXT" \
-  'Claude は既定へフォールバックしない'
-check_contains "the reviewer section stops on a partial specification" "$REVIEWER_TEXT" \
+check_contains "the reviewer section never falls back for Claude to the runtime default" "$REVIEWER_TEXT" \
+  'Claude は実行環境の既定へフォールバックしない'
+check_contains "the reviewer section needs an explicit Claude model and effort" "$REVIEWER_TEXT" \
+  'model と effort が明示されていない場合は停止して確認する'
+check_contains "the reviewer section stops on an incomplete specification" "$REVIEWER_TEXT" \
   '不足をプロファイルや推測で埋めずに停止して確認する'
 check_contains "the reviewer section validates a complete user specification" "$REVIEWER_TEXT" \
   'ユーザー指定が完全なら'
@@ -211,10 +219,12 @@ check_contains "the reviewer section separates spec_source from origin" "$REVIEW
   '`spec_source` と `origin` は別物'
 check_contains "the reviewer section keeps the profile origin on an override" "$REVIEWER_TEXT" \
   '--profile default --role review --spec-source explicit --origin default'
+check_contains "the reviewer section drops the profile for another harness" "$REVIEWER_TEXT" \
+  '--profile - --role review --spec-source explicit --origin explicit'
 check_contains "the reviewer section pins the partial-override precondition" "$REVIEWER_TEXT" \
   '土台のプロファイル `default` の `review` が Claude で、model と permission_mode が揃っている場合に限り'
 check_contains "the reviewer section refuses a cross-harness example" "$REVIEWER_TEXT" \
-  'ハーネスをまたぐ指定はこの形にできないため停止する'
+  'ハーネスをまたぐフィールドの混在はこの形にできないため停止する'
 check_contains "the reviewer section keeps the full-profile example" "$REVIEWER_TEXT" \
   '--spec-source profile --origin default'
 check_contains "the reviewer section reuses the launch pane ID" "$REVIEWER_TEXT" \

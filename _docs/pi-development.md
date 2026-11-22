@@ -128,11 +128,31 @@ scripts/pi-development/resolve-model-spec.sh \
 
 # claude: shape and enumeration only; the model is confirmed after launch.
 scripts/pi-development/resolve-model-spec.sh --harness claude \
-  --model <model> --effort <level> --permission-mode <mode>
+  --model <model> --effort <level> [--permission-mode <mode>]
 
 # Authentication preflight: login state and config directory only.
 scripts/pi-development/claude-auth-status.sh
 ```
+
+**Claude permission mode.** A Claude request may omit `--permission-mode`. The
+resolver then fills `CLAUDE_DEFAULT_PERMISSION_MODE` (`auto`), which is defined
+only in `scripts/pi-development/lib/model-spec.mjs`; that module refuses to load
+if the default is not in `CLAUDE_PERMISSION_MODES`. A caller that starts from a
+profile applies a permission mode in this order:
+
+1. the mode the user states,
+2. the `permission_mode` of the same-harness resolved profile the run is based
+   on,
+3. `CLAUDE_DEFAULT_PERMISSION_MODE`.
+
+Only step 3 fills an omitted value, and only when the harness is Claude and the
+model and effort are present and valid. A missing or invalid model or effort
+still stops the run. An
+explicit empty `--permission-mode ""` is a usage error, not an omission. Naming
+a harness other than the profile's replaces the profile base instead of mixing
+fields, so a Pi profile never supplies a Claude value. Stored profiles still
+require all three fields, and the launcher still requires a complete `--spec`:
+the default exists at the resolver only.
 
 A save that omits `orchestrator` removes a stored one, because `write` is a
 full replacement. Pass `--role orchestrator=...` to keep it, and never drop a
@@ -169,7 +189,10 @@ permission-mode vocabularies and answers `result=ok` with
 `verification=postlaunch`: the model exists only after launch, so the resolver
 keeps no alias table and reports no effective value. The launcher confirms the
 canonical model and effort from the launched session, and the spec is settled
-only when its `effective:` line matches. A canonical full model ID comes from
+only when its `effective:` line matches. A request may omit `--permission-mode`;
+the resolver fills the shared default, and the order under [Selection and
+commands](#selection-and-commands) decides the value. An explicit empty value is
+a usage error, never an omission. A canonical full model ID comes from
 exactly three routes: a full ID the user states, a previous `effective:` line
 for the same harness and model, or the canonical ID reported by an explicit
 alias launch. Never infer one from the `claude --help` alias list.
