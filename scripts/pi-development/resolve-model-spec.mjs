@@ -40,6 +40,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  CLAUDE_DEFAULT_PERMISSION_MODE,
   CLAUDE_EFFORT_LEVELS,
   CLAUDE_PERMISSION_MODES,
   HARNESSES,
@@ -65,12 +66,14 @@ pi (default):
   reports result=ok verification=exact.
 
 claude:
-  --model <id-or-alias> --effort <level> --permission-mode <mode>
+  --model <id-or-alias> --effort <level> [--permission-mode <mode>]
   Verifies the model shape and the effort/permission vocabularies only and
   reports result=ok verification=postlaunch. The effective model and effort
   are confirmed after launch, so supported= and effective= stay empty here.
   --effort is one of ${CLAUDE_EFFORT_LEVELS.join(", ")}.
-  --permission-mode is one of ${CLAUDE_PERMISSION_MODES.join(", ")}.`;
+  --permission-mode is one of ${CLAUDE_PERMISSION_MODES.join(", ")}; when it
+  is omitted the resolver uses ${CLAUDE_DEFAULT_PERMISSION_MODE}.
+  An explicit empty value is a usage error, not an omission.`;
 
 /**
  * True when a value can be embedded in the one-line record. Whitespace and
@@ -152,6 +155,7 @@ function parseArgs(argv) {
     thinking: "",
     effort: "",
     permissionMode: "",
+    permissionModeGiven: false,
     piRoot: "",
     piAIRoot: "",
   };
@@ -179,6 +183,9 @@ function parseArgs(argv) {
       return { options, error: `${argument} requires a value` };
     }
     options[key] = argv[i];
+    if (key === "permissionMode") {
+      options.permissionModeGiven = true;
+    }
   }
   return { options };
 }
@@ -200,8 +207,11 @@ function resolveClaudeSpec(options) {
   if (options.provider !== "" || options.thinking !== "") {
     unresolved(record, "--provider and --thinking are not Claude options", 2);
   }
-  if (!options.model || !options.effort || !options.permissionMode) {
-    unresolved(record, "--model, --effort, and --permission-mode are required", 2);
+  if (!options.model || !options.effort) {
+    unresolved(record, "--model and --effort are required", 2);
+  }
+  if (options.permissionModeGiven && options.permissionMode === "") {
+    unresolved(record, "--permission-mode requires a non-empty value", 2);
   }
   if (!isClaudeModelId(options.model)) {
     unresolved(record, `'${options.model}' is not a Claude model ID or alias`, 2);
@@ -209,8 +219,15 @@ function resolveClaudeSpec(options) {
   if (!CLAUDE_EFFORT_LEVELS.includes(options.effort)) {
     unresolved(record, `unknown effort '${options.effort}'`, 2);
   }
-  if (!CLAUDE_PERMISSION_MODES.includes(options.permissionMode)) {
-    unresolved(record, `unsupported permission mode '${options.permissionMode}'`, 2);
+  // Fill the default only after the request has a usable model and effort. An
+  // unresolved record that never reached this point keeps `permission_mode=`
+  // empty instead of claiming a value the run did not reach.
+  const permissionMode = options.permissionModeGiven
+    ? options.permissionMode
+    : CLAUDE_DEFAULT_PERMISSION_MODE;
+  record.permissionMode = permissionMode;
+  if (!CLAUDE_PERMISSION_MODES.includes(permissionMode)) {
+    unresolved(record, `unsupported permission mode '${permissionMode}'`, 2);
   }
   emit({ ...record, supported: [], effective: "", result: "ok" });
   process.exit(0);

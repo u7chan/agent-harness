@@ -7,7 +7,9 @@
 # root is reported by the .mjs as result=unknown with a nonzero exit. A Claude
 # request needs no pi root at all: its model exists only after launch, so the
 # .mjs validates the shape and the enumerations and reports
-# verification=postlaunch.
+# verification=postlaunch. A Claude request may omit --permission-mode; the
+# .mjs fills the shared default defined in lib/model-spec.mjs and rejects an
+# explicit empty value.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,10 +31,12 @@ pi (default):
   verification=exact.
 
 claude:
-  --model <id-or-alias> --effort <level> --permission-mode <mode>
+  --model <id-or-alias> --effort <level> [--permission-mode <mode>]
   Only the model shape and the effort/permission vocabularies are checked and
   the result is verification=postlaunch. No alias table is kept and no
-  effective value is reported before launch.
+  effective value is reported before launch. When --permission-mode is
+  omitted, the .mjs fills the shared default defined in lib/model-spec.mjs;
+  an explicit empty value is a usage error.
 
 --pi-root overrides the pi package root. Without it, the root is derived from
 the `pi` command on PATH (symlink target plus the nearest package.json).

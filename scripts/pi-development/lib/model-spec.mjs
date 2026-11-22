@@ -7,7 +7,8 @@
  * (`getSupportedThinkingLevels`, `clampThinkingLevel`) produced, and this
  * module only classifies them. It also holds the harness vocabularies that the
  * role-spec grammar and the resolver share: the harness names, the Claude
- * effort and permission modes, and the Claude model shape. The harness-prefix
+ * effort and permission modes, the Claude permission-mode default, and the
+ * Claude model shape. The harness-prefix
  * pattern and the default harness stay next to each parser that applies them,
  * because the grammar's split rules and the resolver's argument rules are
  * separate, so those two constants have one definition per site.
@@ -44,6 +45,21 @@ export const CLAUDE_EFFORT_LEVELS = Object.freeze(["low", "medium", "high", "xhi
  * deliberately absent: a role spec never skips the permission system.
  */
 export const CLAUDE_PERMISSION_MODES = Object.freeze(["acceptEdits", "auto", "manual", "dontAsk", "plan"]);
+
+/**
+ * Permission mode a Claude request gets when it omits one. The resolver is the
+ * only place that applies it: a stored profile and the launcher still require
+ * all three fields. The value is checked against the vocabulary here, so a
+ * default that is not a selectable mode stops every import of this module
+ * instead of turning an omitted mode into an unsupported value at the resolver.
+ */
+export const CLAUDE_DEFAULT_PERMISSION_MODE = "auto";
+
+if (!CLAUDE_PERMISSION_MODES.includes(CLAUDE_DEFAULT_PERMISSION_MODE)) {
+  throw new Error(
+    `CLAUDE_DEFAULT_PERMISSION_MODE '${CLAUDE_DEFAULT_PERMISSION_MODE}' is not in CLAUDE_PERMISSION_MODES`,
+  );
+}
 
 /**
  * True when a value can be a Claude model or alias: one command-line token that

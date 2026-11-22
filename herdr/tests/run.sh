@@ -1291,6 +1291,10 @@ shared_launcher_pi_arguments() {
   expect_rc 2 "$LAUNCHER" wB:p2 impl --harness pi --model m --effort high --permission-mode auto
   expect_rc 2 "$LAUNCHER" wB:p2 impl --provider p --model m
   expect_rc 2 "$LAUNCHER" wB:p2 impl --harness claude --model m --thinking high
+  # Only the resolver fills a Claude permission-mode default; the launcher
+  # still requires the complete three-field specification.
+  expect_rc 2 "$LAUNCHER" wB:p2 impl --harness claude --model m --effort high
+  expect_rc 1 "$LAUNCHER" wB:p2 impl --spec 'claude:claude-haiku-5-5/high'
   expect_rc 2 "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high' --provider p
   expect_rc 2 "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high' --model m
   expect_rc 2 "$LAUNCHER" wB:p2 impl --spec ''
@@ -1474,6 +1478,17 @@ shared_launcher_claude_verification() {
     HERDR_TEST_STATUSLINE=alias "$LAUNCHER" wB:p2 review --harness claude --model haiku \
     --effort high --permission-mode auto 2>&1 >/dev/null)"
   grep -Fqx 'effective: harness=claude provider=- model=claude-haiku-5-5 effort=high thinking=- permission_requested=auto requested=claude:haiku/high/auto' <<< "$err"
+
+  # A spec completed by the resolver is what the launcher receives: the argv
+  # carries the value as stated, so a non-default mode is kept and reported.
+  reset_logs
+  err="$(CLAUDE_CONFIG_DIR="$CLAUDE_EXPLICIT_CONFIG_DIR" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
+    HERDR_TEST_STATUSLINE=match "$LAUNCHER" wB:p2 review \
+    --spec 'claude:claude-haiku-5-5/high/plan' --spec-source explicit --origin explicit \
+    2>&1 >/dev/null)"
+  grep -Fqx 'launch: profile=- role=- harness=claude spec=claude:claude-haiku-5-5/high/plan spec_source=explicit origin=explicit' <<< "$err"
+  grep -Fqx "agent start review --kind claude --pane wB:p2 --timeout 60000 -- --model claude-haiku-5-5 --effort high --permission-mode plan --settings $TMPDIR/agent-harness/claude-spec/wB_p2.settings.json" "$HERDR_TEST_STARTS"
+  grep -Fqx 'effective: harness=claude provider=- model=claude-haiku-5-5 effort=high thinking=- permission_requested=plan requested=claude:claude-haiku-5-5/high/plan' <<< "$err"
 
   # A different effort than the one requested stops the start.
   reset_logs

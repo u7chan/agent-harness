@@ -201,6 +201,55 @@ check_eq "claude ok reports no effective model" "$(kv_line "$out" effective)" ""
 check_eq "claude ok prints one line" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" "1"
 check_not_contains "claude record has no thinking map" "$out" "thinking_level_map="
 
+# The Claude permission-mode default has one definition and is part of the
+# vocabulary the resolver accepts.
+default_mode="$(MODEL_SPEC_MODULE="$MODULE" node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+const module = await import(pathToFileURL(process.env.MODEL_SPEC_MODULE).href);
+process.stdout.write(
+  module.CLAUDE_PERMISSION_MODES.includes(module.CLAUDE_DEFAULT_PERMISSION_MODE)
+    ? module.CLAUDE_DEFAULT_PERMISSION_MODE
+    : "not-in-vocabulary",
+);
+')"
+check_eq "the Claude default permission mode is in the vocabulary" "$default_mode" "auto"
+
+# Omitting the permission mode resolves to the default; the completed record is
+# what a caller turns into a launch spec.
+out="$("$HELPER" --harness claude --model claude-haiku-5-5 --effort high \
+  2>"$WORK/claude-default-permission.err")"
+rc=$?
+check_eq "claude omitted permission mode exits zero" "$rc" "0"
+check_eq "claude omitted permission mode result" "$(kv_line "$out" result)" "ok"
+check_eq "claude omitted permission mode fills the default" "$(kv_line "$out" permission_mode)" "auto"
+check_eq "claude omitted permission mode keeps the effort" "$(kv_line "$out" requested)" "high"
+
+# An explicit empty value is a usage error, not an omission: the flag was given,
+# so the default must not stand in for it.
+out="$("$HELPER" --harness claude --model claude-haiku-5-5 --effort high \
+  --permission-mode "" 2>"$WORK/claude-empty-permission.err")"
+rc=$?
+check_eq "claude empty permission mode is a usage error" "$rc" "2"
+check_contains "claude empty permission mode names the flag" \
+  "$(cat "$WORK/claude-empty-permission.err")" "--permission-mode requires a non-empty value"
+check_eq "claude empty permission mode stays unresolved" "$(kv_line "$out" result)" "unknown"
+
+# An omitted mode is not filled on a request that never reaches the permission
+# check: the unknown record must not claim a value the run did not get to.
+for missing in model effort; do
+  if [ "$missing" = model ]; then
+    case_args=(--harness claude --effort high)
+  else
+    case_args=(--harness claude --model claude-haiku-5-5)
+  fi
+  out="$("$HELPER" "${case_args[@]}" 2>"$WORK/claude-missing-$missing.err")"
+  rc=$?
+  check_eq "claude omitted mode with missing $missing exits 2" "$rc" "2"
+  check_eq "claude omitted mode with missing $missing result" "$(kv_line "$out" result)" "unknown"
+  check_eq "claude omitted mode with missing $missing leaves the mode empty" \
+    "$(kv_line "$out" permission_mode)" ""
+done
+
 out="$("$HELPER" --harness claude --model haiku --effort max --permission-mode plan \
   2>"$WORK/claude-alias.err")"
 rc=$?
@@ -240,8 +289,10 @@ check_claude_invalid "claude bypassPermissions" "permission_mode=bypassPermissio
   --harness claude --model claude-haiku-5-5 --effort high --permission-mode bypassPermissions
 check_claude_invalid "claude unknown permission mode" "" \
   --harness claude --model claude-haiku-5-5 --effort high --permission-mode always
-check_claude_invalid "claude missing permission mode" "" \
-  --harness claude --model claude-haiku-5-5 --effort high
+check_claude_invalid "claude empty permission mode" "" \
+  --harness claude --model claude-haiku-5-5 --effort high --permission-mode ""
+check_claude_invalid "claude missing effort" "" \
+  --harness claude --model claude-haiku-5-5 --permission-mode auto
 check_claude_invalid "claude missing model" "" \
   --harness claude --effort high --permission-mode auto
 out="$("$HELPER" --harness claude --model claude-haiku-5-5 --effort high \
