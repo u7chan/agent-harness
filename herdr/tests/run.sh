@@ -61,27 +61,101 @@ next_id() {
   printf '%s\n' "$((next + 1))" > "$HERDR_TEST_STATE/next"
   printf '%s' "$next"
 }
+write_pi_session() { # path mode provider model thinking
+  local session_path="$1" session_mode="$2" provider="$3" model="$4" thinking="$5"
+  local record_provider record_model record_thinking
+  case "$session_mode" in
+    provider-mismatch) record_provider='other-provider'; record_model="$model"; record_thinking="$thinking" ;;
+    model-mismatch) record_provider="$provider"; record_model='other-model'; record_thinking="$thinking" ;;
+    thinking-mismatch) record_provider="$provider"; record_model="$model"; record_thinking='low' ;;
+    first-mismatch-later-match) record_provider='other-provider'; record_model="$model"; record_thinking="$thinking" ;;
+    first-thinking-mismatch-later-match) record_provider="$provider"; record_model="$model"; record_thinking='low' ;;
+    *) record_provider="$provider"; record_model="$model"; record_thinking="$thinking" ;;
+  esac
+  case "$session_mode" in
+    empty) : > "$session_path"; return 0 ;;
+    invalid) printf 'not json\n' > "$session_path"; return 0 ;;
+    broken-initial)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"%s"\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n' \
+        "$provider" "$thinking" "$provider" "$model" > "$session_path"
+      return 0
+      ;;
+    multi-value)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"other-provider","modelId":"other-model"}{"type":"model_change","provider":"other-provider","modelId":"other-model"}\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n' \
+        "$thinking" "$provider" "$model" > "$session_path"
+      return 0
+      ;;
+    initial-then-message)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n{"type":"message","text":"conversation"}\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n' \
+        "$provider" "$model" "$thinking" > "$session_path"
+      return 0
+      ;;
+    initial-then-custom-message)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n{"type":"custom_message","content":"conversation"}\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n' \
+        "$provider" "$model" "$thinking" > "$session_path"
+      return 0
+      ;;
+    partial)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n' \
+        "$record_provider" "$record_model" > "$session_path"
+      return 0
+      ;;
+    no-write) return 0 ;;
+  esac
+  printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n' \
+    "$record_provider" "$record_model" "$record_thinking" > "$session_path"
+  case "$session_mode" in
+    first-match-later-mismatch)
+      printf '{"type":"model_change","provider":"other-provider","modelId":"other-model"}\n{"type":"thinking_level_change","thinkingLevel":"low"}\n' >> "$session_path"
+      ;;
+    first-mismatch-later-match)
+      printf '{"type":"model_change","provider":"%s","modelId":"%s"}\n' "$provider" "$model" >> "$session_path"
+      ;;
+    first-thinking-mismatch-later-match)
+      printf '{"type":"thinking_level_change","thinkingLevel":"%s"}\n' "$thinking" >> "$session_path"
+      ;;
+  esac
+  return 0
+}
 case "${1:-}" in
   pane)
     case "${2:-}" in
       get)
         # The parent pane keeps its own fixture, so the display-name tests can
-        # vary its label. Any other pane is described from HERDR_TEST_PANE_CWD,
-        # which is the working directory the launcher's Claude preflight reads.
+        # vary its label. Any other pane is described from HERDR_TEST_PANE_CWD
+        # (unset means the test's cwd), and carries the Pi session record the
+        # fake start wrote for it.
         if [ "${3:-}" = "$HERDR_PANE_ID" ]; then
           cat "$HERDR_TEST_PANE_JSON"
           exit 0
         fi
-        [ -n "${HERDR_TEST_PANE_CWD:-}" ] || exit 95
+        if [ -n "${HERDR_TEST_PI_SESSION_PATH_DELAY:-}" ]; then
+          # Keep the pipe closed to the launcher even if the fake is killed by
+          # timeout; a child holding stdout would defeat the test's deadline.
+          sleep "$HERDR_TEST_PI_SESSION_PATH_DELAY" >/dev/null 2>&1
+        fi
+        pane_cwd="${HERDR_TEST_PANE_CWD-$PWD}"
+        session_kind="${HERDR_TEST_PI_SESSION_KIND:-path}"
+        safe_pane="${3:-}"
+        safe_pane="${safe_pane//[^[:alnum:]_.-]/_}"
+        session_path_file="$HERDR_TEST_STATE/pi-session-${safe_pane}"
+        session_field=''
+        if [ "$session_kind" = path ] && [ -s "$session_path_file" ]; then
+          session_field=",\"agent_session\":{\"agent\":\"pi\",\"kind\":\"path\",\"value\":\"$(cat "$session_path_file")\"}"
+        elif [ "$session_kind" = id ]; then
+          session_field=',"agent_session":{"agent":"pi","kind":"id","value":"session-id"}'
+        elif [ "$session_kind" = empty ]; then
+          session_field=',"agent_session":{"agent":"pi","kind":"path","value":""}'
+        fi
         if [ "${HERDR_TEST_PANE_NO_FOREGROUND:-0}" = 1 ]; then
-          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s"}},"type":"pane_info"}\n' \
-            "${3:-}" "$HERDR_TEST_PANE_CWD"
+          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s"%s}},"type":"pane_info"}\n' \
+            "${3:-}" "$pane_cwd" "$session_field"
         elif [ "${HERDR_TEST_PANE_EMPTY_FOREGROUND:-0}" = 1 ]; then
-          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s","foreground_cwd":""}},"type":"pane_info"}\n' \
-            "${3:-}" "$HERDR_TEST_PANE_CWD"
+          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s","foreground_cwd":""%s}},"type":"pane_info"}\n' \
+            "${3:-}" "$pane_cwd" "$session_field"
         else
-          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s","foreground_cwd":"%s"}},"type":"pane_info"}\n' \
-            "${3:-}" "$HERDR_TEST_PANE_CWD" "$HERDR_TEST_PANE_CWD"
+          printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","cwd":"%s","foreground_cwd":"%s"%s}},"type":"pane_info"}\n' \
+            "${3:-}" "$pane_cwd" "$pane_cwd" "$session_field"
         fi
         ;;
       layout)
@@ -202,14 +276,22 @@ case "${1:-}" in
         # would ever write the probe the launcher waits for, and no real Claude
         # CLI is started by this test suite.
         settings=''
+        kind=''
+        pane=''
+        provider=''
         model=''
         effort=''
+        thinking=''
         shift 2
         while [ "$#" -gt 0 ]; do
           case "$1" in
             --settings) settings="${2:-}"; shift 2 || shift ;;
+            --kind) kind="${2:-}"; shift 2 || shift ;;
+            --pane) pane="${2:-}"; shift 2 || shift ;;
+            --provider) provider="${2:-}"; shift 2 || shift ;;
             --model) model="${2:-}"; shift 2 || shift ;;
             --effort) effort="${2:-}"; shift 2 || shift ;;
+            --thinking) thinking="${2:-}"; shift 2 || shift ;;
             *) shift ;;
           esac
         done
@@ -238,6 +320,35 @@ case "${1:-}" in
             done
           fi
         fi
+        if [ "$kind" = pi ] && [ -n "$pane" ]; then
+          # Simulate the session record Pi writes. The launcher reads the first
+          # model_change and thinking_level_change, so a later change must not
+          # win; the mode lets a test make the first entry wrong, the record
+          # late, or the path unusable.
+          session_mode="${HERDR_TEST_PI_SESSION_MODE:-match}"
+          safe_pane="${pane//[^[:alnum:]_.-]/_}"
+          session_dir="$HERDR_TEST_STATE/pi-sessions"
+          mkdir -p -- "$session_dir"
+          session_path="$session_dir/${safe_pane}.jsonl"
+          rm -f -- "$session_path"
+          printf '%s|%s|%s|%s|%s\n' "$provider" "$model" "$thinking" "$pane" "$session_mode" \
+            > "$HERDR_TEST_STATE/pi-start-${safe_pane}"
+          if [ "$session_mode" = on-prompt ] || [ "$session_mode" = on-prompt-late ]; then
+            # Pi creates the record on the first turn; the launcher's startup
+            # probe is what makes it appear in this mode. `on-prompt-late`
+            # delays the write to test the shared deadline.
+            printf '%s\n' "$session_path" > "$HERDR_TEST_STATE/pi-session-${safe_pane}"
+          elif [ "$session_mode" = late ]; then
+            printf '%s\n' "$session_path" > "$HERDR_TEST_STATE/pi-session-${safe_pane}"
+            ( sleep 0.3; write_pi_session "$session_path" "$session_mode" "$provider" "$model" "$thinking" ) &
+          else
+            # Publish the path only after the record is complete, so a test
+            # that expects an unreadable or empty record is not racing the
+            # launcher's first read.
+            write_pi_session "$session_path" "$session_mode" "$provider" "$model" "$thinking"
+            printf '%s\n' "$session_path" > "$HERDR_TEST_STATE/pi-session-${safe_pane}"
+          fi
+        fi
         exit "${HERDR_TEST_START_RC:-0}"
         ;;
       wait)
@@ -252,6 +363,19 @@ case "${1:-}" in
         printf '%s' "$1" > "$HERDR_TEST_TARGET"
         printf '%s' "$2" > "$HERDR_TEST_MESSAGE"
         for arg in "$@"; do [ "$arg" = --wait ] && exit 92; done
+        safe_pane="${1//[^[:alnum:]_.-]/_}"
+        start_file="$HERDR_TEST_STATE/pi-start-${safe_pane}"
+        if [ -s "$start_file" ]; then
+          IFS='|' read -r start_provider start_model start_thinking start_pane start_mode \
+            <<< "$(cat "$start_file")"
+          if [ "$start_mode" = on-prompt ] || [ "$start_mode" = on-prompt-late ]; then
+            session_path="$HERDR_TEST_STATE/pi-sessions/${safe_pane}.jsonl"
+            if [ "$start_mode" = on-prompt-late ]; then
+              sleep "${HERDR_TEST_PI_SESSION_LATE_DELAY:-0.3}"
+            fi
+            write_pi_session "$session_path" match "$start_provider" "$start_model" "$start_thinking"
+          fi
+        fi
         exit "${HERDR_TEST_RC:-0}"
         ;;
       *) exit 96 ;;
@@ -1254,8 +1378,7 @@ shared_launcher_pi_arguments() {
   local err marker
 
   # Explicit mode: the flags become the canonical specification, the launch line
-  # precedes the start, and Pi reports no effective values here because its own
-  # agent prints them from $PI_*.
+  # precedes the start, and the launcher's effective line follows the start.
   reset_logs
   marker='agent-start-marker'
   err="$(HERDR_TEST_START_MARKER="$marker" "$LAUNCHER" wB:p2 impl \
@@ -1263,8 +1386,9 @@ shared_launcher_pi_arguments() {
   grep -Fqx 'agent start impl --kind pi --pane wB:p2 --timeout 60000 -- --provider openrouter --model anthropic/claude-x --thinking max' "$HERDR_TEST_STARTS"
   grep -Fqx 'agent wait wB:p2 --until idle --until done --until blocked --timeout 60000' "$HERDR_TEST_WAITS"
   grep -Fqx 'launch: profile=- role=- harness=pi spec=pi:openrouter/anthropic/claude-x/max spec_source=explicit origin=explicit' <<< "$err"
+  grep -Fqx 'effective: harness=pi provider=openrouter model=anthropic/claude-x effort=- thinking=max permission_requested=- requested=pi:openrouter/anthropic/claude-x/max' <<< "$err"
   [ "$(line_of "$err" '^launch: ')" -lt "$(line_of "$err" '^agent-start-marker$')" ]
-  ! grep -q '^effective: ' <<< "$err"
+  [ "$(line_of "$err" '^agent-start-marker$')" -lt "$(line_of "$err" '^effective: ')" ]
   ! grep -q '^probe: ' <<< "$err"
 
   # A canonical specification from a profile and a legacy unprefixed value are
@@ -1321,6 +1445,170 @@ shared_launcher_pi_arguments() {
   expect_rc 1 env HERDR_TEST_AGENT_STATUS=blocked \
     "$LAUNCHER" wB:p2 impl --spec 'pi:p/m/high'
   [ -s "$HERDR_TEST_STARTS" ]
+}
+
+shared_launcher_pi_effective() {
+  local err rc mode kind
+
+  # The launcher reads the session record, not the agent's environment, so a
+  # matching record is enough even when $PI_* is absent.
+  reset_logs
+  err="$(HERDR_TEST_PI_SESSION_MODE=match "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  grep -Fqx 'effective: harness=pi provider=openai-codex model=gpt-6.2-sol effort=- thinking=max permission_requested=- requested=pi:openai-codex/gpt-6.2-sol/max' <<< "$err"
+
+  # Pi writes the record only on its first turn; the launcher's startup probe
+  # makes it appear before the task is delegated.
+  reset_logs
+  err="$(HERDR_TEST_PI_SESSION_MODE=on-prompt "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  grep -Fqx 'effective: harness=pi provider=openai-codex model=gpt-6.2-sol effort=- thinking=max permission_requested=- requested=pi:openai-codex/gpt-6.2-sol/max' <<< "$err"
+  grep -Fq 'Startup check from the shared launcher' "$HERDR_TEST_MESSAGE"
+  # A mismatch in any of the three launch values stops before delegating.
+  for mode in provider-mismatch model-mismatch thinking-mismatch; do
+    reset_logs
+    set +e
+    err="$(HERDR_TEST_PI_SESSION_MODE="$mode" "$LAUNCHER" wB:p2 impl --harness pi \
+      --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+    rc=$?
+    set -e
+    [ "$rc" -eq 1 ]
+    grep -Fq 'does not match the requested specification' <<< "$err"
+    ! grep -q '^effective: ' <<< "$err"
+  done
+
+  # An unusable agent_session and a record that never appears stop as well.
+  for kind in id empty missing; do
+    reset_logs
+    set +e
+    err="$(HERDR_TEST_PI_SESSION_KIND="$kind" "$LAUNCHER" wB:p2 impl --harness pi \
+      --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
+    rc=$?
+    set -e
+    [ "$rc" -eq 1 ]
+    grep -Fq 'usable agent_session path' <<< "$err"
+    ! grep -q '^effective: ' <<< "$err"
+  done
+
+  for mode in empty partial no-write; do
+    reset_logs
+    set +e
+    err="$(HERDR_TEST_PI_SESSION_MODE="$mode" "$LAUNCHER" wB:p2 impl --harness pi \
+      --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
+    rc=$?
+    set -e
+    [ "$rc" -eq 1 ]
+    grep -Fq 'did not report model and thinking values' <<< "$err"
+    ! grep -q '^effective: ' <<< "$err"
+  done
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=invalid "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Eq 'unreadable entry|initial entries are missing before the conversation' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # Only the first model_change and thinking_level_change are authoritative: a
+  # later switch must not win, and a wrong first value is not repaired by a
+  # later matching one.
+  reset_logs
+  err="$(HERDR_TEST_PI_SESSION_MODE=first-match-later-mismatch "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  grep -Fqx 'effective: harness=pi provider=openai-codex model=gpt-6.2-sol effort=- thinking=max permission_requested=- requested=pi:openai-codex/gpt-6.2-sol/max' <<< "$err"
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=first-mismatch-later-match "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  ! grep -q '^effective: ' <<< "$err"
+
+  # The first thinking level is authoritative too.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=first-thinking-mismatch-later-match "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'does not match the requested specification' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A broken initial entry is not skipped for a later matching one.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=broken-initial "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'unreadable' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # More than one JSON value on an initial line is not skipped for a later one.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=multi-value "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'multiple entries on one line' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A conversation entry before both initial values stops the read.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=initial-then-message "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'initial entries are missing before the conversation' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A custom_message line is also a conversation boundary and is not parsed.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=initial-then-custom-message "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'initial entries are missing before the conversation' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # One deadline covers the path lookup, the probe, and the record. The
+  # bounded call itself must stop at the deadline, not after a slow IPC reply.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_PATH_DELAY=1.45 "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  ! grep -q '^effective: ' <<< "$err"
+
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_PATH_DELAY=0.2 HERDR_TEST_PI_SESSION_MODE=on-prompt-late \
+    HERDR_TEST_PI_SESSION_LATE_DELAY=2.0 "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Eq 'could not be prompted|did not appear|did not report model and thinking values' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A record written shortly after readiness is still read within the bound.
+  reset_logs
+  err="$(HERDR_TEST_PI_SESSION_MODE=late "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 2000 2>&1 >/dev/null)"
+  grep -Fqx 'effective: harness=pi provider=openai-codex model=gpt-6.2-sol effort=- thinking=max permission_requested=- requested=pi:openai-codex/gpt-6.2-sol/max' <<< "$err"
 }
 
 shared_launcher_claude_preflight() {
@@ -1591,14 +1879,15 @@ worktree_team_start_claude_mode() {
   [ "$(grep -c '^effective: ' "$HERDR_TEST_MESSAGE")" -eq 1 ]
   awk '/^launch: /{ l=NR } /^effective: /{ e=NR } /Direct parent pane for result return/{ r=NR } END { exit !(l && e && r && l < e && e < r) }' "$HERDR_TEST_MESSAGE"
 
-  # Pi keeps the launch line only: its effective line belongs to the agent.
+  # Pi now uses the launcher's effective line too, so both lines reach the body.
   reset_logs
   err="$(HERDR_TEST_RC=0 "$START_SCRIPT" wB:p2 impl \
     --provider anthropic --model claude-sonnet-4-5 --thinking high "$task_file" 2>&1 >/dev/null)"
   grep -Fqx 'launch: profile=- role=- harness=pi spec=pi:anthropic/claude-sonnet-4-5/high spec_source=explicit origin=explicit' <<< "$err"
-  ! grep -q '^effective: ' <<< "$err"
-  ! grep -q '^effective: ' "$HERDR_TEST_MESSAGE"
+  grep -Fqx 'effective: harness=pi provider=anthropic model=claude-sonnet-4-5 effort=- thinking=high permission_requested=- requested=pi:anthropic/claude-sonnet-4-5/high' <<< "$err"
   [ "$(grep -c '^launch: ' "$HERDR_TEST_MESSAGE")" -eq 1 ]
+  [ "$(grep -c '^effective: ' "$HERDR_TEST_MESSAGE")" -eq 1 ]
+  awk '/^launch: /{ l=NR } /^effective: /{ e=NR } /Direct parent pane for result return/{ r=NR } END { exit !(l && e && r && l < e && e < r) }' "$HERDR_TEST_MESSAGE"
 
   # Profile mode resolves a stored Claude role into the same launcher.
   home="$(profile_home claude-team)"
@@ -2154,7 +2443,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=39
+expected_count=40
 
 run_test parent_success
 run_test child_success
@@ -2172,6 +2461,7 @@ run_test worktree_team_start_flow
 run_test worktree_team_start_profile_mode
 run_test worktree_team_start_profile_failures
 run_test shared_launcher_pi_arguments
+run_test shared_launcher_pi_effective
 run_test shared_launcher_claude_preflight
 run_test shared_launcher_claude_verification
 run_test worktree_team_start_claude_mode

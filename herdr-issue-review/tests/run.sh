@@ -184,7 +184,7 @@ check_contains "the reviewer section keeps the Pi environment fallback" "$REVIEW
 check_contains "the reviewer section derives the Pi fallback from the runtime" "$REVIEWER_TEXT" \
   '$PI_PROVIDER'
 check_contains "the reviewer section reads all three Pi runtime values" "$REVIEWER_TEXT" \
-  '"$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"'
+  '`$PI_PROVIDER` / `$PI_MODEL` / `$PI_REASONING_LEVEL`'
 check_contains "the reviewer section stops on an incomplete Pi fallback" "$REVIEWER_TEXT" \
   '3 値が揃わない場合はフォールバックせず停止する'
 check_contains "the reviewer section never falls back for Claude to the runtime default" "$REVIEWER_TEXT" \
@@ -253,14 +253,14 @@ check_contains "the reviewer section checks the Claude skills location" "$REVIEW
   '~/.claude/skills'
 check_contains "the reviewer section fixes the trust stop line" "$REVIEWER_TEXT" \
   'claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。'
-check_contains "the reviewer section makes Pi print the effective line" "$REVIEWER_TEXT" \
-  "printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s"
-check_contains "the reviewer section matches the Pi effective line to the launch" "$REVIEWER_TEXT" \
-  '`launch:` 行と照合'
+check_contains "the reviewer section uses the launcher effective line for both harnesses" "$REVIEWER_TEXT" \
+  'Pi と Claude は、共有ランチャーが stderr に出す最後の `effective:` 行'
+check_not_contains "the reviewer section does not make the agent print the line" "$REVIEWER_TEXT" \
+  "printf 'effective:"
+check_contains "the reviewer section matches the effective line to the launch" "$REVIEWER_TEXT" \
+  '`requested=` が `launch:` 行の `spec` と一致'
 check_contains "the reviewer section treats the footer as auxiliary" "$REVIEWER_TEXT" \
   'footer だけで一致とみなさない'
-check_contains "the reviewer section uses the launcher effective line for Claude" "$REVIEWER_TEXT" \
-  'stderr に出す最後の `effective:` 行'
 check_contains "the reviewer section refuses launch arguments as evidence" "$REVIEWER_TEXT" \
   '起動引数だけを証拠にしない'
 check_contains "the reviewer section stops without an effective line" "$REVIEWER_TEXT" \

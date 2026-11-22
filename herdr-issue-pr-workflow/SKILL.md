@@ -176,17 +176,11 @@ GitHub は default ブランチへ到達したコミットメッセージ中の�
      --spec-source <profile|explicit> --origin <explicit|active|default>
    ```
 
-   `--spec` には `team-record.sh resolve` が返す正本の文字列（Pi は `pi:<provider>/<model>/<thinking>`、Claude は `claude:<model>/<effort>/<permission_mode>`）を渡す。プロファイルの仕様をそのまま使う場合は `--spec-source profile`、明示指定を 1 つでも含む場合は `--spec-source explicit` にする。`--profile` は土台にしたプロファイル名（明示 spec だけなら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。Claude の auth と trust の preflight、`probe:`、`launch:`、`effective:` 行はランチャーが所有する。`herdr agent start` をこのスキルから直接組み立てない。
+   `--spec` には `team-record.sh resolve` が返す正本の文字列（Pi は `pi:<provider>/<model>/<thinking>`、Claude は `claude:<model>/<effort>/<permission_mode>`）を渡す。プロファイルの仕様をそのまま使う場合は `--spec-source profile`、明示指定を 1 つでも含む場合は `--spec-source explicit` にする。`--profile` は土台にしたプロファイル名（明示 spec だけなら `-`）、`--origin` は resolve が返した source（明示 spec なら `explicit`）を監査用に渡す。auth と trust の preflight、`launch:`、`effective:` 行はランチャーが所有する（`probe:` は Claude のみ）。`herdr agent start` をこのスキルから直接組み立てない。
 6. 新規ペインには責務に基づいたエージェント名とペインラベルを付ける。`herdr pane rename <pane-id> <name>` と `herdr pane get <pane-id>` で label を確認する。再利用するペインの既存の名前とラベルは維持する。ランチャーは rename もタスク委譲も行わないため、rename と `herdr/scripts/parent-delegate-async.sh` の呼び出しはこの orchestrator が行う。
-7. 作業を送る前に、起動した各ペインの実効値を確認する。行の形式と不変条件は [Launch and effective lines](../_docs/pi-development.md#launch-and-effective-lines) を正本とする。Pi はエージェントに次の `effective:` 行を出させ、`launch:` 行の `spec` と照合する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
+7. 作業を送る前に、起動した各ペインの実効値を確認する。行の形式と不変条件は [Launch and effective lines](../_docs/pi-development.md#launch-and-effective-lines) を正本とする。Pi と Claude は、共有ランチャーが stderr に出した最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
 
-   ```bash
-   printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s\n' \
-     "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL" \
-     "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
-   ```
-
-   Claude は共有ランチャーが stderr に出した最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致し、`effort` が確定した effort と一致することを確認する。加えて `spec_source=profile` のときだけ、`model` が保存済みの canonical 完全 ID と一致することを確認する。明示 alias を一度限りで使った起動（`spec_source=explicit`）では、`effective:` の canonical な `model` を今回の実効仕様として報告し、保存済み spec との照合を要求しない。不一致・検証不能なら停止する。
+   Claude はさらに、`effort` が確定した effort と一致することを確認する。加えて `spec_source=profile` のときだけ、`model` が保存済みの canonical 完全 ID と一致することを確認する。明示 alias を一度限りで使った起動（`spec_source=explicit`）では、`effective:` の canonical な `model` を今回の実効仕様として報告し、保存済み spec との照合を要求しない。不一致・検証不能なら停止する。
 
 起動するのは参加ロールだけ。`impl`（独立させなければ `pr-fix` を兼務）と `review` は常に参加し、判定により `ui-tester` を追加する。`pane-layout.sh apply --count <new physical agents>` にはチーム総数ではなく新規ペイン数を渡す。再利用なしの場合、兼務チームは 2 つ、別 `pr-fix` または `ui-tester` の片方を追加すると 3 つ、両方あれば 4 つとなる。部分再利用では新規数が減り、全ロール再利用なら 0 になる。プランナーは新規ペインを計画済みグリッドに収め、呼び出し元のタブに収まらない場合はラベル付きの新タブを作る（[pane layout](../herdr/references/pane-layout.md#tab-policy)）。そのため 4 ペインチームが新タブで起動する場合もある。起動結果が失敗・不明の場合、実装を開始せず、作成済みペインも自動で閉じない。観測した状態を報告する。
 

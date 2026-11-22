@@ -107,17 +107,19 @@ check_contains "target PR form covers a final stacked position" "$KICKOFF_TEXT" 
 
 # --- effective value check (authority: SKILL.md Start the team) -------------
 
-# The Pi role prints its own line; Claude's line comes from the shared launcher.
-# The specification section names the effective-line fields, while the
-# statusline fields are only the probe input.
+# The shared launcher prints the effective line for both harnesses. The
+# specification section names the effective-line fields, while the statusline
+# fields are only the probe input.
 check_contains "the Claude postlaunch check reads effective-line fields" "$SPEC_TEXT" \
   '`effective:` 行の `model` と `effort` が確定値と一致'
 check_contains "the statusline fields are stored as probe fields" "$SPEC_TEXT" \
   'probe には `model` と `effort` として保存される'
 check_not_contains "the effective line is not described with statusline fields" "$SPEC_TEXT" \
   '`effective:` 行が `.model.id`'
-check_contains "the Pi effective line reports its own harness" "$TEAM_TEXT" \
-  'effective: harness=pi provider='
+check_contains "the team workflow uses the launcher effective line for both harnesses" "$TEAM_TEXT" \
+  'Pi と Claude は、共有ランチャーが stderr に出した最後の `effective:` 行'
+check_not_contains "the team workflow does not make the agent print the line" "$TEAM_TEXT" \
+  "printf 'effective:"
 check_contains "the Claude effective check compares requested with the launch spec" \
   "$TEAM_TEXT" '`requested=` が `launch:` 行の `spec` と一致'
 check_contains "the stored model is compared only for profile starts" "$TEAM_TEXT" \

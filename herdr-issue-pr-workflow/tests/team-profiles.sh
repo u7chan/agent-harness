@@ -58,14 +58,16 @@ for value in ('provider: <provider>', 'model: <model>', 'thinking: <level>'):
 assert '親は同じ 3 つの値を' not in template
 assert '--role orchestrator' in template
 assert 'launch:' in template
-assert 'PI_PROVIDER' in template and 'PI_MODEL' in template and 'PI_REASONING_LEVEL' in template
-assert '`PI_*`' in template
-assert 'Claude の orchestrator は `$PI_*` を使わない' in template
-assert '`effective:` 行の `requested=` が `spec` と一致し、`model` と `effort` が確定値と一致' in template
+assert 'PI_PROVIDER' not in template and 'PI_MODEL' not in template and 'PI_REASONING_LEVEL' not in template
+assert 'Pi / Claude とも `$PI_*` を printf せず' in template
+assert 'worktree-team-start.sh' in template
+assert '`effective:` 行の `requested=` が `launch:` 行の `spec` と一致' in template
+assert 'footer だけで一致とみなさない' in template
 assert '.model.id' not in template and '.effort.level' not in template
 assert '../../_docs/pi-development.md#launch-and-effective-lines' in template
 assert '`spec_source=profile` のときだけ' in template
-assert '明示 alias を一度限りで使った起動では canonical な `model`' in template
+assert '明示 alias を一度限りで使った起動（`spec_source=explicit`）では、canonical な `model`' in template
+assert '`spec` の model token との等値照合を要求しない' in template
 # Route 2 has no approved team from the starter, so the handoff enters the
 # canonical gate instead of assuming one. Route 1 may start at Start the team
 # only after confirming the approved composition.
