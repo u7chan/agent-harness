@@ -106,14 +106,7 @@ herdr pane rename <pane-id> pr-review
 
 起動に使った pane ID をそのまま使い、`herdr pane rename <pane-id> pr-review` と `herdr pane get <pane-id>` で label を確認する。共有ランチャーは JSON を返さず、`launch:` 行（Claude は `probe:` と `effective:` も）を stderr に出す。画面とランタイム状態で対話可能なこと、実効値が確定した仕様に一致することを検証する。起動引数だけでは証拠にならない。
 
-- Claude は共有ランチャーが stderr に出す最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。不明または不一致の場合は委譲前に停止する。
-- Pi は、レビュアーへ渡すタスク文面に次のコマンドを含め、`effective:` 行を出させる。`launch:` 行と照合してからレビュー結果を採用する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
-
-  ```bash
-  printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s\n' \
-    "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL" \
-    "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
-  ```
+- Pi と Claude は、共有ランチャーが stderr に出す最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。不明または不一致の場合は委譲前に停止する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
 
 この実行の全ラウンドで同じレビュアーを使う。
 

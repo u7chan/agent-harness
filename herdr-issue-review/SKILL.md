@@ -93,15 +93,7 @@ description: >
 
   例: 土台のプロファイル `default` の `review` が Claude で、model と permission_mode が揃っている場合に限り、effort だけを上書きして `--profile default --role review --spec-source explicit --origin default` にできる。ハーネスをまたぐ指定はこの形にできないため停止する。spec 全体がプロファイル由来のままなら `--spec-source profile --origin default` にする。
 - 起動確認:
-  - Pi は、レビュアーへ渡すタスク文面に次のコマンドを含め、`effective:` 行を出させる。`launch:` 行と照合し、`requested=` が起動した `spec` と一致することを確認する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
-
-    ```bash
-    printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=pi:%s/%s/%s\n' \
-      "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL" \
-      "$PI_PROVIDER" "$PI_MODEL" "$PI_REASONING_LEVEL"
-    ```
-
-  - Claude は共有ランチャーが stderr に出す最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。起動引数だけを証拠にしない。
+  - Pi と Claude は、共有ランチャーが stderr に出す最後の `effective:` 行を正本とし、`requested=` が `launch:` 行の `spec` と一致することを確認する。起動引数だけを証拠にしない。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
   - `effective:` 行が得られない、または `launch:` 行と一致しない場合は、レビュー結果を採用せずに停止する。
 - 起動に使った pane ID をそのまま使い、`herdr pane rename <pane-id> herdr-issue-review` と `herdr pane get <pane-id>` で label を確認する。共有ランチャーは JSON を返さず、`launch:` 行（Claude は `probe:` と `effective:` も）を stderr に出す。
 - 収束まで同じペインを使い回す（レビューのたびに増やさない）

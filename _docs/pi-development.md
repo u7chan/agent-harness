@@ -398,10 +398,16 @@ The effective values are reported once after launch:
 effective: harness=<pi|claude> provider=<provider|-> model=<canonical model> effort=<level|-> thinking=<level|-> permission_requested=<mode|-> requested=<spec>
 ```
 
-A Pi agent prints this line from its own `$PI_*` variables. For Claude, the
-shared launcher prints it from the launched session's statusline, and
-`permission_requested` is the value passed in argv, not a value read back
-(Claude does not expose the merged permission mode). `requested=` must equal the
+The shared launcher prints this line for both harnesses. Pi writes its session
+record on the first turn, so the launcher sends one minimal startup probe when
+the record is absent and then reads the first `model_change` (`provider` /
+`modelId`) and `thinking_level_change` (`thinkingLevel`) entries of the record
+Herdr reports as `agent_session` with `kind=path`, within a bounded wait; an
+absent or unusable record, or a value that differs from `spec`, stops the
+launch. `$PI_*` is not used. The probe stays in the session and the delegated
+task follows it. For Claude, the launcher reads the launched session's
+statusline, and `permission_requested` is the value passed in argv, not a value
+read back (Claude does not expose the merged permission mode). `requested=` must equal the
 `spec` of the `launch:` line, and a stored canonical model ID must match
 `model`. When a body holds several `effective:` lines, the last one is
 authoritative.

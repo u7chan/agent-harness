@@ -5,11 +5,12 @@
 # One start owns the whole sequence: argument, harness, specification,
 # permission, and timeout validation, the Claude authentication and
 # workspace-trust preflight, the per-pane Claude settings file and statusline
-# probe, `herdr agent start`, the bounded readiness wait, the Claude
+# probe, `herdr agent start`, the bounded readiness wait, the harness-specific
 # effective-value check, and the `launch:`/`effective:` lines. Callers keep
 # everything around the start: the shared launcher never renames the pane,
-# never prompts the agent, never performs a scope check, and never creates,
-# splits, or removes a pane or a workspace.
+# never prompts the agent with the delegated task, never performs a scope
+# check, and never creates, splits, or removes a pane or a workspace. Pi gets
+# one startup probe because its session record appears only on the first turn.
 #
 # The specification is either one canonical role string (as `team-record.sh`
 # prints it) or the harness's own flags:
@@ -22,21 +23,22 @@
 # the vocabularies. `--harness` must match the prefix of `--spec`; an explicit
 # start without `--harness` is Pi.
 #
-# Verification is harness-specific. Pi is confirmed by the resolver before a
-# start, so the launcher launches and reports nothing more; the Pi agent prints
-# its own `effective:` line from `$PI_*`. Claude exposes its model and effort
-# only in the running session, so the launcher installs a statusline command
-# that writes `.model.id` and `.effort.level` to a per-launch probe file, waits
-# for a bounded time for a write carrying the launch's own nonce, and only then
-# prints `effective:`.
+# Verification is harness-specific. Pi's model and thinking level are read from
+# the session record Herdr reports (`agent_session` with `kind=path`): the first
+# `model_change` and `thinking_level_change` entries are the launch values, and
+# a missing record or a mismatch stops the launch. `$PI_*` is never used.
+# Claude exposes its model and effort only in the running session, so the
+# launcher installs a statusline command that writes `.model.id` and
+# `.effort.level` to a per-launch probe file, waits for a bounded time for a
+# write carrying the launch's own nonce, and only then prints `effective:`.
 #
 # Output, all on stderr, in order: `probe: <path>` (Claude only, before the
 # start), the `launch:` line (before `herdr agent start`), and, after a
-# successful Claude verification, the `effective:` line. A failed launch is
+# successful effective-value check, the `effective:` line. A failed launch is
 # left in place: the caller decides whether to reuse or close the pane.
 #
-# Exit status: 0 started and, for Claude, verified; 1 validation, launch, or
-# verification failure; 2 usage.
+# Exit status: 0 started and verified; 1 validation, launch, or verification
+# failure; 2 usage.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -72,11 +74,11 @@ usage() {
   printf '  --spec-source <source> profile or explicit (default explicit)\n' >&2
   printf '  --origin <origin>      explicit, active, or default (default explicit)\n' >&2
   printf '  --timeout <ms>         bounded start and readiness wait (default %s)\n' "$default_timeout_ms" >&2
-  printf '  --probe-timeout <ms>   bounded Claude statusline wait (default %s)\n' "$default_probe_timeout_ms" >&2
+  printf '  --probe-timeout <ms>   bounded effective-value wait (default %s)\n' "$default_probe_timeout_ms" >&2
   printf '\nA flag of the other harness, a mixed or partial explicit mode, and an empty\n' >&2
   printf 'option value are usage errors, and nothing is started.\n' >&2
   printf 'This script prints `probe:`, `launch:`, and `effective:` lines to stderr;\n' >&2
-  printf 'the caller appends the launch line and, for Claude, the effective line.\n' >&2
+  printf 'the caller appends the launch line and the effective line.\n' >&2
   exit 2
 }
 
@@ -384,6 +386,77 @@ wait_output="$(herdr agent wait "$pane" --until idle --until done --until blocke
 # left in place for a human to resolve the prompt.
 if grep -Eq '"agent_status"[[:space:]]*:[[:space:]]*"blocked"' <<< "$wait_output"; then
   fail "${agent_name} in ${pane} is blocked; resolve the prompt in the pane before starting it again"
+fi
+
+if [ "$harness" = pi ]; then
+  # Herdr reports the session record the launched Pi agent writes. Only a
+  # `kind=path` value is usable; an absent record, another kind, or a record
+  # that never carries the launch values stops instead of guessing from
+  # `$PI_*` or the pane footer.
+  session_path=''
+  session_started="$(now_ms)"
+  while :; do
+    session_json=''
+    session_json="$(herdr pane get "$pane" 2>/dev/null)" || session_json=''
+    session_kind="$(jq -r '.result.pane.agent_session.kind // ""' <<< "$session_json" 2>/dev/null)" || session_kind=''
+    session_candidate="$(jq -r '.result.pane.agent_session.value // ""' <<< "$session_json" 2>/dev/null)" || session_candidate=''
+    if [ "$session_kind" = path ] && [ -n "$session_candidate" ]; then
+      session_path="$session_candidate"
+      break
+    fi
+    [ "$(( $(now_ms) - session_started ))" -lt "$probe_timeout" ] || break
+    sleep 0.2
+  done
+  case "$session_path" in
+    /*) ;;
+    *) fail "the Pi session did not report a usable agent_session path within ${probe_timeout}ms" ;;
+  esac
+
+  # Pi writes its session record on the first turn, not at startup. A minimal
+  # startup probe makes the record appear without consuming the task body; the
+  # probe's reply stays in the session and the caller's task follows it.
+  if [ ! -s "$session_path" ]; then
+    herdr agent prompt "$pane" \
+      'Startup check from the shared launcher: reply with OK only and take no other action.' \
+      >/dev/null 2>&1 ||
+      fail "the Pi session could not be prompted to write its startup record"
+  fi
+
+  launched_provider=''
+  launched_model=''
+  launched_thinking=''
+  session_started="$(now_ms)"
+  while :; do
+    if [ -s "$session_path" ]; then
+      session_head="$(head -n 200 -- "$session_path" 2>/dev/null)" || session_head=''
+      effective_record=''
+      effective_record="$(printf '%s\n' "$session_head" | jq -R -s '
+        split("\n")
+        | map(select(length > 0) | (fromjson? // empty))
+        | . as $entries
+        | {
+            provider: (([$entries[] | select(.type == "model_change")][0] // {}) | .provider // ""),
+            model: (([$entries[] | select(.type == "model_change")][0] // {}) | .modelId // ""),
+            thinking: (([$entries[] | select(.type == "thinking_level_change")][0] // {}) | .thinkingLevel // "")
+          }' 2>/dev/null)" || effective_record=''
+      launched_provider="$(jq -r '.provider // ""' <<< "$effective_record" 2>/dev/null)" || launched_provider=''
+      launched_model="$(jq -r '.model // ""' <<< "$effective_record" 2>/dev/null)" || launched_model=''
+      launched_thinking="$(jq -r '.thinking // ""' <<< "$effective_record" 2>/dev/null)" || launched_thinking=''
+      if [ -n "$launched_provider" ] && [ -n "$launched_model" ] && [ -n "$launched_thinking" ]; then
+        break
+      fi
+    fi
+    [ "$(( $(now_ms) - session_started ))" -lt "$probe_timeout" ] || break
+    sleep 0.2
+  done
+  if [ -z "$launched_provider" ] || [ -z "$launched_model" ] || [ -z "$launched_thinking" ]; then
+    fail "the Pi session record did not report model and thinking values within ${probe_timeout}ms (session: ${session_path})"
+  fi
+  if [ "$launched_provider" != "$provider" ] || [ "$launched_model" != "$model" ] || [ "$launched_thinking" != "$thinking" ]; then
+    fail "the launched Pi session does not match the requested specification: launched=${launched_provider}/${launched_model}/${launched_thinking} requested=${spec}"
+  fi
+  printf 'effective: harness=pi provider=%s model=%s effort=- thinking=%s permission_requested=- requested=%s\n' \
+    "$launched_provider" "$launched_model" "$launched_thinking" "$spec" >&2
 fi
 
 if [ "$harness" = claude ]; then

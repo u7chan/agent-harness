@@ -5,7 +5,7 @@
 # Sequence: argument and task-file checks, scope check, optional profile
 # resolution, the shared launcher (`start-agent.sh`: specification validation,
 # Claude authentication and workspace-trust preflight, `herdr agent start`,
-# bounded readiness wait, Claude effective-value check, and the
+# bounded readiness wait, the harness-specific effective-value check, and the
 # `launch:`/`effective:` lines), pane rename, then the task body through the
 # existing parent-delegate-async.sh wrapper (which appends the direct-parent
 # return instruction and performs the same scope check again).
@@ -19,11 +19,9 @@
 #             unresolved role stops the start (fail closed).
 #
 # Both modes hand the specification to the shared launcher, which owns the
-# grammar, the launch arguments, and the stop conditions. This script appends
-# only what the launcher reported: its `launch:` line, plus its `effective:`
-# line for Claude, whose harness cannot print one from inside the pane. A Pi
-# agent prints its own `effective:` line from `$PI_*`, so the launcher prints
-# none for Pi and neither does this script.
+# grammar, the launch arguments, the stop conditions, and the effective-value
+# check. This script appends only what the launcher reported: its `launch:` and
+# `effective:` lines.
 #
 # The worktree workspace and its pane must already exist; this script never
 # creates, shares, or removes workspaces, worktrees, tabs, or panes.
@@ -69,7 +67,7 @@ usage() {
   printf 'neither yourself:\n' >&2
   printf '  launch: profile=<name|-> role=<profile-role|-> harness=<pi|claude> spec=<harness>:<...> spec_source=<profile|explicit> origin=<explicit|active|default>\n' >&2
   printf '  effective: harness=<pi|claude> provider=<provider|-> model=<canonical model> effort=<level|-> thinking=<level|-> permission_requested=<mode|-> requested=<spec>\n' >&2
-  printf 'The effective line is printed here only for Claude; a Pi agent prints its own.\n' >&2
+  printf 'The effective line is verified and printed by the launcher for both harnesses.\n' >&2
   exit 2
 }
 
@@ -254,8 +252,8 @@ fi
 
 launch_line="$(printf '%s\n' "$agent_records" | grep '^launch: ' | tail -n 1)" || launch_line=''
 [ -n "$launch_line" ] || fail 'the shared launcher reported no launch: line'
-# The last effective line is authoritative. A Pi start reports none here, so
-# the body carries only the launch line; a Claude start carries both.
+# The last effective line is authoritative; the launcher prints one for both
+# harnesses after it verifies the launched values.
 effective_line="$(printf '%s\n' "$agent_records" | grep '^effective: ' | tail -n 1)" || effective_line=''
 delegated_records="$launch_line"
 if [ -n "$effective_line" ]; then

@@ -49,7 +49,7 @@ for value in (
     'verification=exact', 'verification=postlaunch',
     'claude auth status', '~/.claude/skills',
     'claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。',
-    'effective: harness=pi provider=', '$PI_PROVIDER', '$PI_MODEL', '$PI_REASONING_LEVEL',
+    'Pi と Claude は、共有ランチャーが stderr に出す最後の `effective:` 行',
     'footer だけで一致とみなさない',
     'ランタイムのデフォルトや別モデルへ黙って切り替えない', 'migration-required',
     'プロファイルや `active` を自動作成・保存・変更しない', '起動引数だけでは証拠にならない',
@@ -68,6 +68,7 @@ for value in (
     'マージは行わない', '最終ゲートは人間', '別 Issue 候補',
 ):
     assert value in text, value
+assert "printf 'effective:" not in text, 'the agent does not print the effective line'
 assert 'herdr-issue-pr-workflow/' not in text, 'no dependency on the Issue workflow'
 evidence = (skill.parent / 'references' / 'evidence.md').read_text()
 for value in (
