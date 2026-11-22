@@ -44,6 +44,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/record.sh
 source "$script_dir/lib/record.sh"
+# shellcheck source=lib/claude-trust.sh
+source "$script_dir/lib/claude-trust.sh"
 role_spec_helper="$script_dir/lib/role-spec.mjs"
 statusline_probe="$script_dir/claude-statusline-probe.sh"
 # Resolved from this script, never from the caller's cwd: the Claude preflight
@@ -294,13 +296,12 @@ if [ "$harness" = claude ]; then
     /*) config_dir="$CLAUDE_CONFIG_DIR" ;;
     *) fail "CLAUDE_CONFIG_DIR must be an absolute path: ${CLAUDE_CONFIG_DIR}" ;;
   esac
-  case "$config_dir" in
-    /*) ;;
-    *) fail "the Claude config directory must be an absolute path: ${config_dir:-<none>}" ;;
-  esac
-  case "$config_dir" in
-    *[[:space:][:cntrl:]]*) fail "the Claude config directory contains an unusable character: ${config_dir}" ;;
-  esac
+  claude_trust_usable_dir "$config_dir" || {
+    case "$config_dir" in
+      /*) fail "the Claude config directory contains an unusable character: ${config_dir}" ;;
+      *) fail "the Claude config directory must be an absolute path: ${config_dir:-<none>}" ;;
+    esac
+  }
   valid_flag_value "$config_dir" || fail "the Claude config directory must be a single-line token: ${config_dir}"
 
   # Trust is read-only and fail closed: the launcher never writes the trust
@@ -315,28 +316,22 @@ if [ "$harness" = claude ]; then
     | if $foreground == "" then (.cwd // "") else $foreground end' \
     <<< "$pane_json" 2>/dev/null)" || pane_cwd=''
   [ -n "$pane_cwd" ] || fail "pane ${pane} reported no working directory"
-  real_cwd="$(realpath -m -- "$pane_cwd" 2>/dev/null)" || real_cwd=''
+  real_cwd="$(claude_trust_normalize_path "$pane_cwd")" || real_cwd=''
   case "$real_cwd" in
     /*) ;;
     *) fail "cannot normalize the working directory of pane ${pane}: ${pane_cwd}" ;;
   esac
-  # The state file is `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`, not
-  # `<config-dir>/.claude.json` in the default case: measured on 2.1.328, a
-  # fresh `CLAUDE_CONFIG_DIR` gets `<dir>/.claude.json`, while the default
-  # config directory Claude reports is `<home>/.claude` and the state file stays
-  # at `<home>/.claude.json`. The reported directory holds settings and skills,
-  # so the trust file sits one level above it only when the variable is unset.
-  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
-    trust_file="$CLAUDE_CONFIG_DIR/.claude.json"
-  else
-    trust_file="$(dirname -- "$config_dir")/.claude.json"
-  fi
-  # A missing file, invalid JSON, a missing project key, and `false` are all
-  # unapproved: only an explicit `true` approves the directory.
-  if ! jq -e --arg dir "$real_cwd" \
-    '(.projects // {}) | has($dir) and (.[$dir].hasTrustDialogAccepted == true)' \
-    "$trust_file" >/dev/null 2>&1; then
-    printf 'claude-trust: %s が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。\n' "$real_cwd" >&2
+  # The state file and the state vocabulary come from lib/claude-trust.sh, the
+  # same implementation claude-trust.sh writes with. With CLAUDE_CONFIG_DIR the
+  # state file is `<dir>/.claude.json`; without it, it sits one level above the
+  # reported config directory. A missing or unreadable file, invalid JSON, an
+  # unexpected shape, a missing key, and `false` are all unapproved; only an
+  # explicit `true` approves the directory. The launcher never writes the file.
+  trust_file="$(claude_trust_file "$config_dir")"
+  trust_state="$(claude_trust_state "$trust_file" "$real_cwd")"
+  if [ "$trust_state" != true ]; then
+    printf 'claude-trust: %s が未承認です（state: %s）。人間が `%s %s` を実行して承認を記録するか、そのディレクトリで claude を一度起動して TUI で trust を承認してください。手順: herdr/SKILL.md の "Claude trust approval"。\n' \
+      "$real_cwd" "$trust_state" "$script_dir/claude-trust.sh" "$real_cwd" >&2
     exit 1
   fi
 

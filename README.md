@@ -82,7 +82,11 @@ state file (`$CLAUDE_CONFIG_DIR/.claude.json`, or `~/.claude.json` when that
 variable is unset) to approve the pane's working directory before it starts a
 Claude agent, and it never writes that file and never passes
 `--dangerously-skip-permissions`. An unapproved directory stops the start with
-the approval instructions instead of launching the CLI.
+the approval instructions instead of launching the CLI. The decision itself is
+the human's: `herdr/scripts/claude-trust.sh <worktree-root>` records it for one
+git worktree root, and [the Herdr skill](herdr/SKILL.md#claude-trust-approval)
+owns the conditions under which an agent may run it and what the record
+approves.
 
 ## Install
 

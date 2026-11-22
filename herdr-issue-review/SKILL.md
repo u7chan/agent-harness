@@ -70,11 +70,7 @@ description: >
   review: 実効プロファイルを使わず実行環境の既定で起動（profile=<missing|invalid|unresolved>）
   ```
 
-- ハーネスの preflight: Pi は `pi` が使えることを確認する。Claude は `claude` と `claude auth status` の `loggedIn=true` を確認し、`~/.claude/skills` からこのリポジトリのスキルをロードできることを確かめる。trust は共有ランチャーが読み取り専用で確認する。未承認なら次の固定行で停止する。
-
-  ```text
-  claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。
-  ```
+- ハーネスの preflight: Pi は `pi` が使えることを確認する。Claude は `claude` と `claude auth status` の `loggedIn=true` を確認し、`~/.claude/skills` からこのリポジトリのスキルをロードできることを確かめる。trust は共有ランチャーが読み取り専用で確認する。未承認で停止したときの固定行と、人間が 1 コマンドで承認を記録する手順は [Claude trust approval](../herdr/SKILL.md#claude-trust-approval) を正本とし、同じ文をここへ複製しない。
 
 - 起動は共有ランチャー `herdr/scripts/start-agent.sh` を使う。共有ランチャー以外の起動経路を使わない。ランチャーは引数検証、認証と trust の preflight、起動、実効値確認、`launch:` / `effective:` 行を所有する。行の形式と不変条件は [Launch and effective lines](../_docs/pi-development.md#launch-and-effective-lines) を正本とする。
 

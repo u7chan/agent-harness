@@ -36,11 +36,7 @@ Issue は必須ではない。PR がまだない場合は Draft PR の作成か�
 7. ユーザー可視のサーフェスを変更する場合、またはリポジトリが証跡を要求する場合、[証跡契約](references/evidence.md) に従って現在の head の証跡を PR 本文の証跡節へ更新する。不要と判断した場合は理由を記録する。
 8. 人間レビュー用サマリが必要な場合、[_docs/human-brief.md](../_docs/human-brief.md) に従って現在の head のサマリを用意し、PR 本文の先頭に節を置く。PR 作成経路では `pr.create` の本文と `attachments` に含める。間に合わない場合は `pr.update` で挿入する。
 
-レビュアーに使うハーネスが Claude の場合は、`claude auth status` が `loggedIn=true` と `configDirectory` を返し、`~/.claude/skills` からこのリポジトリのスキルをロードでき、起動するディレクトリが trust 承認済みであることも確認する。trust は共有ランチャーが読み取り専用で確認する。未承認の場合は次の固定行で停止する。
-
-```text
-claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。
-```
+レビュアーに使うハーネスが Claude の場合は、`claude auth status` が `loggedIn=true` と `configDirectory` を返し、`~/.claude/skills` からこのリポジトリのスキルをロードでき、起動するディレクトリが trust 承認済みであることも確認する。trust は共有ランチャーが読み取り専用で確認する。未承認で停止したときの固定行と、人間が 1 コマンドで承認を記録する手順は [Claude trust approval](../herdr/SKILL.md#claude-trust-approval) を正本とし、同じ文をここへ複製しない。
 
 ### PR 作成
 

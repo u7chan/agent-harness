@@ -57,8 +57,9 @@ starter には 2 つの経路がある。
 どちらの経路でも、starter は対象 worktree と同じ `repo_root` を持つ親チェックアウトのペインでなければならない（[Starting and coordinating the team](#starting-and-coordinating-the-team) の `worktree-team` 辺を導出できる側）。兄弟 worktree や 2 つ目のチェックアウトからの起動は形状ルールで拒否されるため、`herdr/scripts/scope-grant.sh` で辺を記録してから起動する。生の `herdr agent start` で境界を迂回しない。
 
 1. [Topology creation](#topology-creation) のとおりに worktree を作成し、その JSON 応答からリンク済みワークスペース ID とルートペイン ID を保持する。
-2. worktree 環境ブロックを含む orchestrator のタスクファイルを書く。タスクファイルにはハーネス別の仕様（Pi の provider/model/thinking、Claude の model/effort/permission_mode）も `launch:` 行も書かない。
-3. starter のワークスペースから、プロファイルのロールを解決して orchestrator を起動する。
+2. Claude で起動する場合は、この時点で worktree のルートを承認する。新しいワークツリーは元チェックアウトの承認を引き継がないため、共有ランチャーは未承認で停止する。人間が `herdr/scripts/claude-trust.sh <worktree-path>` を実行して記録する。条件、書き込む設定ファイル、承認する内容は [Claude trust approval](../SKILL.md#claude-trust-approval) を正本とする。orchestrator が Pi の場合は不要。
+3. worktree 環境ブロックを含む orchestrator のタスクファイルを書く。タスクファイルにはハーネス別の仕様（Pi の provider/model/thinking、Claude の model/effort/permission_mode）も `launch:` 行も書かない。
+4. starter のワークスペースから、プロファイルのロールを解決して orchestrator を起動する。
 
    ```bash
    herdr/scripts/worktree-team-start.sh <root-pane-id> <orchestrator-name> \
@@ -103,8 +104,8 @@ starter には 2 つの経路がある。
    明示モードはプロファイルを読まない。`--harness` の既定は `pi` で、Pi は `--provider`/`--model`/`--thinking`、Claude は `--model`/`--effort`/`--permission-mode` の完全な 3 値だけを受け付ける。ハーネスをまたぐ値や一部だけの 3 値は usage error である。「プロファイルに orchestrator が無い場合だけ」は規約であり、スクリプトで強制しない。starter は `launch: ... spec_source=explicit origin=explicit` を応答に含めて監査する。明示 3 値と `--role`、3 値の一部だけ、`--role` なしの `--profile` や `--resolver`、モード未指定はすべて usage error（終了コード 2）であり、何も起動しない。
 
    この起動が、starter による worktree ワークスペースへの唯一の `worktree-team-start.sh` 呼び出しである。経路 2 ではワークフローの親が同じ worktree へ別の orchestrator を追加しない。スクリプトのスコープ、起動、返却のルールはそのまま適用される。
-4. starter は orchestrator の起動 spec を確認する。Pi / Claude とも、`worktree-team-start.sh` が転記したランチャーの `effective:` 行の `requested=` を `launch:` の `spec` と照合する。Pi と Claude は `$PI_*` を printf しない。`spec` は `pi:` / `claude:` 接頭辞を含み、`harness` がその接頭辞と一致する。`spec_source=profile` のときだけ `model` を保存済みの canonical 完全 ID と照合し、明示 alias の起動では canonical な `model` を今回の実効値として報告する。starter は補助として `herdr agent read <pane-id> --source visible` の footer を見てよいが、footer だけで一致とみなさない。一致しない、または取得できない場合は停止して報告する（[キックオフ用テンプレート](../../herdr-issue-pr-workflow/references/kickoff-task-template.md)）。
-5. orchestrator は worktree ワークスペース内のチームを所有する。ペインの作成（`herdr/scripts/pane-layout.sh apply`）、エージェントの起動（共有ランチャー `herdr/scripts/start-agent.sh`）、タスクの委譲（`herdr/scripts/parent-delegate-async.sh`）を行う。チームロールの起動に `herdr agent start` を直接組み立てない。親は `impl`、`review`、`ui-tester` などのロールペインを事前に作ったり、それらのエージェントを起動したりしてはならない。チームごとに書き込み主体は 1 つである。
+5. starter は orchestrator の起動 spec を確認する。Pi / Claude とも、`worktree-team-start.sh` が転記したランチャーの `effective:` 行の `requested=` を `launch:` の `spec` と照合する。Pi と Claude は `$PI_*` を printf しない。`spec` は `pi:` / `claude:` 接頭辞を含み、`harness` がその接頭辞と一致する。`spec_source=profile` のときだけ `model` を保存済みの canonical 完全 ID と照合し、明示 alias の起動では canonical な `model` を今回の実効値として報告する。starter は補助として `herdr agent read <pane-id> --source visible` の footer を見てよいが、footer だけで一致とみなさない。一致しない、または取得できない場合は停止して報告する（[キックオフ用テンプレート](../../herdr-issue-pr-workflow/references/kickoff-task-template.md)）。
+6. orchestrator は worktree ワークスペース内のチームを所有する。ペインの作成（`herdr/scripts/pane-layout.sh apply`）、エージェントの起動（共有ランチャー `herdr/scripts/start-agent.sh`）、タスクの委譲（`herdr/scripts/parent-delegate-async.sh`）を行う。チームロールの起動に `herdr agent start` を直接組み立てない。親は `impl`、`review`、`ui-tester` などのロールペインを事前に作ったり、それらのエージェントを起動したりしてはならない。チームごとに書き込み主体は 1 つである。
 
 #### Worktree environment block
 
@@ -147,6 +148,9 @@ test -s <task-file>
 親ワークスペースからチームメンバーを起動する場合は、辺の分類を含む `worktree-team-start.sh` を使う。スクリプトは内部で共有ランチャー `start-agent.sh` を呼び、起動そのものはランチャーが所有する。ワークスペースをまたがないチームロールは、worktree 内の orchestrator が `start-agent.sh` を直接使って起動し、rename と `parent-delegate-async.sh` を呼び出し元が行う。
 
 ```bash
+# Claude のチームを起動する前に、新しい worktree のルートを人間が承認する。
+herdr/scripts/claude-trust.sh <worktree-path>
+
 # 親ワークスペースから（Pi）。辺の分類はスクリプトが行う。
 herdr/scripts/worktree-team-start.sh <pane-id> <role> \
   --provider <provider> --model <model> --thinking <level> <task-file>

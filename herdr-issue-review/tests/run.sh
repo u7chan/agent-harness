@@ -251,8 +251,10 @@ check_contains "the reviewer section checks the Claude login state" "$REVIEWER_T
   'claude auth status'
 check_contains "the reviewer section checks the Claude skills location" "$REVIEWER_TEXT" \
   '~/.claude/skills'
-check_contains "the reviewer section fixes the trust stop line" "$REVIEWER_TEXT" \
-  'claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。'
+check_contains "the reviewer section defers the trust procedure to the herdr skill" "$REVIEWER_TEXT" \
+  '[Claude trust approval](../herdr/SKILL.md#claude-trust-approval)'
+check_not_contains "the reviewer section does not copy the trust stop line" "$REVIEWER_TEXT" \
+  'claude-trust: <path> が未承認です'
 check_contains "the reviewer section uses the launcher effective line for both harnesses" "$REVIEWER_TEXT" \
   'Pi と Claude は、共有ランチャーが stderr に出す最後の `effective:` 行'
 check_not_contains "the reviewer section does not make the agent print the line" "$REVIEWER_TEXT" \
