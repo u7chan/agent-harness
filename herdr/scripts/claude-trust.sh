@@ -137,7 +137,6 @@ config_dir="$(dirname -- "$trust_file")"
 [ -d "$config_dir" ] ||
   refuse config-dir-missing "設定ディレクトリがありません: $config_dir"
 
-command -v jq >/dev/null 2>&1 || refuse jq-missing 'jq が必要です'
 state="$(claude_trust_state "$trust_file" "$target")"
 printf 'target: %s\n' "$target"
 printf 'trust-file: %s\n' "$trust_file"
@@ -171,7 +170,11 @@ if ! mkdir -- "$lock_dir" 2>/dev/null; then
 fi
 lock_held=1
 temporary_file=''
+snapshot_file=''
 cleanup() {
+  if [ -n "${snapshot_file:-}" ]; then
+    rm -f -- "$snapshot_file" 2>/dev/null || true
+  fi
   if [ -n "${temporary_file:-}" ]; then
     rm -f -- "$temporary_file" 2>/dev/null || true
   fi
@@ -181,9 +184,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Re-read under the lock: the state may have changed between the display and
-# this point, and an approval that finished first makes this run a no-op.
-state="$(claude_trust_state "$trust_file" "$target")"
+# Take one snapshot under the lock and base the whole decision on it: the
+# classification, the merge, and the replacement all read this copy, not the
+# live path. The state may have changed since the display, and an approval that
+# finished first makes this run a no-op.
+if [ -e "$trust_file" ]; then
+  snapshot_file="$(mktemp -- "${trust_file}.snapshot.XXXXXX")" ||
+    refuse write-failed "$(printf '一時ファイルを作成できませんでした（%s）。' "$trust_file")$(tui_fallback)"
+  cat -- "$trust_file" > "$snapshot_file" || {
+    rm -f -- "$snapshot_file"
+    snapshot_file=''
+    refuse write-failed "$(printf '信頼ファイルを読めませんでした（%s）。' "$trust_file")$(tui_fallback)"
+  }
+  chmod 600 -- "$snapshot_file" || {
+    rm -f -- "$snapshot_file"
+    snapshot_file=''
+    refuse write-failed "$(printf '一時ファイルを保護できませんでした（%s）。' "$trust_file")$(tui_fallback)"
+  }
+  state="$(claude_trust_state "$snapshot_file" "$target")"
+else
+  state='missing-file'
+fi
 case "$state" in
   true)
     printf 'result: already-approved\n'
@@ -229,7 +250,7 @@ esac
 command -v node >/dev/null 2>&1 || refuse node-missing 'node が必要です'
 command -v python3 >/dev/null 2>&1 || refuse python3-missing 'python3 が必要です'
 write_rc=0
-write_output="$(python3 -I - "$trust_file" "$target" "$state" 2>/dev/null <<'PY'
+write_output="$(python3 -I - "$snapshot_file" "$target" "$state" "$trust_file" 2>/dev/null <<'PY'
 import json
 import os
 import secrets
@@ -290,14 +311,21 @@ def mark_numbers(value, nonce, markers):
     return value
 
 
-path, target, state = sys.argv[1:4]
+snapshot, target, state, state_file = sys.argv[1:5]
 
-# This snapshot is the one that will replace the state file: apply the same
-# shape rules as the reader, so a file that changed after the classification
-# (for example `projects: null`) is refused instead of reinitialized.
-if os.path.exists(path):
+# The input is the snapshot the caller classified under the lock, never the
+# live path: the merge must apply to the same bytes the decision was based on.
+# The shape rules are re-applied so a snapshot that is not what the caller
+# classified is refused instead of reinitialized.
+if state == "missing-file":
+    document = {"projects": {}}
+    projects = document["projects"]
+    original_text = ""
+else:
+    if not snapshot or not os.path.exists(snapshot):
+        fail("state-changed")
     try:
-        document, original_text = load_document(path)
+        document, original_text = load_document(snapshot)
     except (OSError, ValueError):
         fail("invalid-json")
     if not isinstance(document, dict):
@@ -308,12 +336,6 @@ if os.path.exists(path):
             fail("unexpected-shape")
     else:
         projects = {}
-else:
-    if state != "missing-file":
-        fail("state-changed")
-    document = {"projects": {}}
-    projects = document["projects"]
-    original_text = ""
 
 if target in projects:
     entry = projects[target]
@@ -365,7 +387,7 @@ except ValueError:
 
 # The caller validates this file with the reader's rule before it replaces the
 # state file: a snapshot the launcher cannot read never becomes the record.
-directory = os.path.dirname(os.path.abspath(path)) or "."
+directory = os.path.dirname(os.path.abspath(state_file)) or "."
 try:
     descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".claude.json.", suffix=".tmp")
     try:
@@ -413,6 +435,25 @@ if [ "$snapshot_state" != true ]; then
   rm -f -- "$temporary_file"
   temporary_file=''
   refuse unpreservable-document "$(printf '書き込み後にランチャーが読めない内容になるため、変更していません（%s: %s）。' "$snapshot_state" "$trust_file")$(tui_fallback)"
+fi
+
+# The live file must still be the snapshot the merge came from. A newer write
+# (the CLI, or another approval that ignored the lock) is content this command
+# never validated; replacing it would lose that change, so stop instead. The
+# comparison is the only read of the live path after the snapshot, and its
+# content is never approved.
+if [ -n "$snapshot_file" ]; then
+  cmp -s -- "$snapshot_file" "$trust_file" || {
+    rm -f -- "$temporary_file"
+    temporary_file=''
+    refuse state-changed "$(printf '置換直前に信頼ファイルが変わりました。未検証の内容で上書きしないため、変更していません（%s）。' "$trust_file")$(tui_fallback)"
+  }
+else
+  [ ! -e "$trust_file" ] || {
+    rm -f -- "$temporary_file"
+    temporary_file=''
+    refuse state-changed "$(printf '置換直前に信頼ファイルが作成されました。未検証の内容で上書きしないため、変更していません（%s）。' "$trust_file")$(tui_fallback)"
+  }
 fi
 mv -f -- "$temporary_file" "$trust_file" || {
   rm -f -- "$temporary_file"

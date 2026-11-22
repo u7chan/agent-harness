@@ -2752,7 +2752,7 @@ SCRIPT
   chmod +x "$wrapper/python3"
   run_trust env PATH="$wrapper:$PATH" CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
   [ "$trust_rc" -eq 1 ]
-  grep -Fq 'reason=unexpected-shape' <<< "$trust_out"
+  grep -Fq 'reason=state-changed' <<< "$trust_out"
   [ "$(cat "$config/.claude.json")" = '{"projects":null}' ]
 }
 
@@ -2836,6 +2836,56 @@ claude_trust_quoted_command() {
     grep -Fqx "target: $worktree" <<< "$trust_out"
     trust_approved "$config" "$worktree"
   done
+}
+
+claude_trust_single_read() {
+  local target config real_jq swap_dir rc err
+  target="$(trust_worktree)"
+  real_jq="$(command -v jq)"
+  swap_dir="$TEST_TMP/bin-swap-jq"
+  rm -rf "$swap_dir"
+  mkdir -p "$swap_dir"
+  # A stand-in for a second reader: when it is handed the state file, it
+  # replaces the file with a trusted record plus Infinity before reading it.
+  # A classifier that validated one read and then opened the path again through
+  # jq would approve the unvalidated swap.
+  cat > "$swap_dir/jq" <<SCRIPT
+#!/usr/bin/env bash
+for argument in "\$@"; do
+  if [ -n "\${HERDR_TEST_SWAP_FILE:-}" ] && [ "\$argument" = "\$HERDR_TEST_SWAP_FILE" ]; then
+    printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}},"note":Infinity}\n' "\$HERDR_TEST_SWAP_TARGET" > "\$HERDR_TEST_SWAP_FILE"
+  fi
+done
+exec "$real_jq" "\$@"
+SCRIPT
+  chmod +x "$swap_dir/jq"
+
+  # The launcher stops on the document it read, and never reopens it.
+  config="$(trust_config single-read "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  reset_logs
+  set +e
+  err="$(PATH="$swap_dir:$PATH" CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$target" \
+    HERDR_TEST_SWAP_FILE="$config/.claude.json" HERDR_TEST_SWAP_TARGET="$target" \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq "claude-trust: $target が未承認です（state: false）。" <<< "$err"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  ! grep -Fq 'Infinity' "$config/.claude.json"
+
+  # The writer decides on the snapshot it read under the lock: the swap never
+  # becomes an `already-approved` success.
+  config="$(trust_config single-read-writer "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  run_trust env PATH="$swap_dir:$PATH" CLAUDE_CONFIG_DIR="$config" \
+    HERDR_TEST_SWAP_FILE="$config/.claude.json" HERDR_TEST_SWAP_TARGET="$target" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fq 'result: approved' <<< "$trust_out"
+  ! grep -Fq 'already-approved' <<< "$trust_out"
+  trust_approved "$config" "$target"
+  ! grep -Fq 'Infinity' "$config/.claude.json"
 }
 
 claude_trust_document_contract() {
@@ -2985,7 +3035,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=46
+expected_count=47
 
 run_test parent_success
 run_test child_success
@@ -3026,6 +3076,7 @@ run_test claude_trust_writer
 run_test claude_trust_write_conditions
 run_test claude_trust_launcher_integration
 run_test claude_trust_quoted_command
+run_test claude_trust_single_read
 run_test claude_trust_document_contract
 run_test markdown_check_passes
 run_test markdown_reference_file_rename_is_rejected

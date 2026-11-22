@@ -92,28 +92,6 @@ claude_trust_file() {
   fi
 }
 
-# claude_trust_strict_json <file>
-#
-# Exit 0 only when the file holds exactly one strict JSON document. `jq` and
-# Python's `json` both accept the non-standard constants `Infinity`, `-Infinity`,
-# and `NaN`; a state file containing one of them is a syntax error for Claude
-# Code, so the reader must not treat it as a record either. `JSON.parse` in
-# Node rejects those tokens and any trailing data, which is the shape this
-# repository already requires (start-agent.sh parses the role specification with
-# Node). Exit 3 when no validator is available: an unvalidated document is
-# never read as approved.
-claude_trust_strict_json() {
-  command -v node >/dev/null 2>&1 || return 3
-  node --input-type=module -e '
-import { readFileSync } from "node:fs";
-try {
-  JSON.parse(readFileSync(process.argv[1], "utf8"));
-} catch {
-  process.exit(1);
-}
-' "$1" 2>/dev/null
-}
-
 # claude_trust_state <state-file> <normalized-directory>
 #
 # Print exactly one classification:
@@ -126,6 +104,12 @@ try {
 #   false             the record is present and explicitly false
 #   true              the record is present and explicitly true
 #
+# The file is opened exactly once. One Node process reads it, parses it with
+# `JSON.parse` (which rejects `Infinity`, `NaN`, and trailing data, unlike `jq`
+# and Python's `json`), and classifies that same text; a second reader would
+# classify a snapshot the syntax check never saw, so a file swapped between the
+# two reads could be approved unvalidated.
+#
 # Always exits 0 for a classification so a caller under `set -e` can read the
 # verdict; only a usage error returns 2. The trimmed, unmodified path is the
 # key: a path with a trailing slash or a symlinked spelling is a different
@@ -135,7 +119,7 @@ claude_trust_state() {
     printf 'Usage: claude_trust_state <state-file> <normalized-directory>\n' >&2
     return 2
   fi
-  local file="$1" dir="$2" verdict='' rc=0 strict_rc=0
+  local file="$1" dir="$2" verdict='' rc=0
   if [ -d "$file" ]; then
     printf 'unreadable\n'
     return 0
@@ -148,34 +132,50 @@ claude_trust_state() {
     printf 'unreadable\n'
     return 0
   fi
-  # Strict syntax first: `jq -s` accepts `Infinity`, `NaN`, and two concatenated
-  # documents, so its own parse cannot tell a record from a file the CLI rejects.
-  strict_rc=0
-  claude_trust_strict_json "$file" || strict_rc=$?
-  if [ "$strict_rc" -ne 0 ]; then
-    printf 'invalid-json\n'
-    return 0
-  fi
-  # The slurp also pins the value count at one for the classification below.
-  verdict="$(jq -s -r --arg dir "$dir" '
-    if length != 1 then "invalid-json"
-    else .[0] as $document
-      | if ($document | type) != "object" then "unexpected-shape"
-        elif (($document | has("projects")) and (($document.projects | type) != "object")) then
-          "unexpected-shape"
-        else ($document.projects // {}) as $projects
-          | if ($projects | has($dir)) | not then "missing-key"
-            else $projects[$dir] as $entry
-              | if ($entry | type) != "object" then "unexpected-shape"
-                elif ($entry | has("hasTrustDialogAccepted")) | not then "missing-key"
-                elif $entry.hasTrustDialogAccepted == true then "true"
-                elif $entry.hasTrustDialogAccepted == false then "false"
-                else "unexpected-shape"
-                end
-            end
-        end
-    end' "$file" 2>/dev/null)" || rc=$?
+  verdict="$(node --input-type=module -e '
+import { readFileSync } from "node:fs";
+
+const [file, dir] = process.argv.slice(1);
+const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+let document;
+try {
+  document = JSON.parse(readFileSync(file, "utf8"));
+} catch {
+  console.log("invalid-json");
+  process.exit(0);
+}
+if (!isObject(document)) {
+  console.log("unexpected-shape");
+  process.exit(0);
+}
+if (has(document, "projects") && !isObject(document.projects)) {
+  console.log("unexpected-shape");
+  process.exit(0);
+}
+const projects = has(document, "projects") ? document.projects : {};
+if (!has(projects, dir)) {
+  console.log("missing-key");
+  process.exit(0);
+}
+const entry = projects[dir];
+if (!isObject(entry)) {
+  console.log("unexpected-shape");
+  process.exit(0);
+}
+if (!has(entry, "hasTrustDialogAccepted")) {
+  console.log("missing-key");
+  process.exit(0);
+}
+const accepted = entry.hasTrustDialogAccepted;
+if (accepted === true) console.log("true");
+else if (accepted === false) console.log("false");
+else console.log("unexpected-shape");
+' "$file" "$dir" 2>/dev/null)" || rc=$?
   if [ "$rc" -ne 0 ]; then
+    # No usable validator (Node missing or crashed): an unvalidated document is
+    # never read as approved.
     printf 'invalid-json\n'
     return 0
   fi
