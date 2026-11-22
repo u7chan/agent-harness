@@ -126,17 +126,25 @@ claude_trust_state() {
     printf 'unreadable\n'
     return 0
   fi
-  verdict="$(jq -r --arg dir "$dir" '
-    if type != "object" then "unexpected-shape"
-    elif (has("projects") and ((.projects | type) != "object")) then "unexpected-shape"
-    else (.projects // {}) as $projects
-      | if ($projects | has($dir)) | not then "missing-key"
-        else $projects[$dir] as $entry
-          | if ($entry | type) != "object" then "unexpected-shape"
-            elif ($entry | has("hasTrustDialogAccepted")) | not then "missing-key"
-            elif $entry.hasTrustDialogAccepted == true then "true"
-            elif $entry.hasTrustDialogAccepted == false then "false"
-            else "unexpected-shape"
+  # Slurp first: `jq` evaluates a filter per value, so a file holding two JSON
+  # documents would otherwise be classified by its first value only. A state
+  # file must be exactly one JSON document; trailing data is invalid JSON, not
+  # an approved record.
+  verdict="$(jq -s -r --arg dir "$dir" '
+    if length != 1 then "invalid-json"
+    else .[0] as $document
+      | if ($document | type) != "object" then "unexpected-shape"
+        elif (($document | has("projects")) and (($document.projects | type) != "object")) then
+          "unexpected-shape"
+        else ($document.projects // {}) as $projects
+          | if ($projects | has($dir)) | not then "missing-key"
+            else $projects[$dir] as $entry
+              | if ($entry | type) != "object" then "unexpected-shape"
+                elif ($entry | has("hasTrustDialogAccepted")) | not then "missing-key"
+                elif $entry.hasTrustDialogAccepted == true then "true"
+                elif $entry.hasTrustDialogAccepted == false then "false"
+                else "unexpected-shape"
+                end
             end
         end
     end' "$file" 2>/dev/null)" || rc=$?
@@ -146,7 +154,7 @@ claude_trust_state() {
   fi
   verdict="${verdict%%$'\n'*}"
   case "$verdict" in
-    unexpected-shape | missing-key | false | true) ;;
+    invalid-json | unexpected-shape | missing-key | false | true) ;;
     *) verdict='unexpected-shape' ;;
   esac
   printf '%s\n' "$verdict"
@@ -156,12 +164,15 @@ claude_trust_state() {
 #
 # Print one tab-separated line per running `claude` process of this user:
 #
-#   <pid>\t<explicit|default>\t<config-directory or - >
+#   <pid>\t<explicit|default>\t<config-directory or - >\t<home-directory or - >
 #
 # The program is the basename of the first command-line token, so a wrapper
 # such as claude-trust.sh is not mistaken for the CLI. `explicit` means the
-# process carries a non-empty CLAUDE_CONFIG_DIR; `default` means it does not
-# and its state file has to be derived from the reported config directory.
+# process carries a non-empty CLAUDE_CONFIG_DIR; `default` means it does not,
+# and its state file follows the process's own HOME (measured on 2.1.330:
+# `<home>/.claude` is the default config directory and the state file stays at
+# `<home>/.claude.json`). The reader reports the environment each process
+# actually carries, never the writer's own.
 #
 # Exit status: 0 when at least one process was printed, 1 when there is none,
 # 2 when the scan cannot confirm either way. Only this user's processes are
@@ -170,7 +181,7 @@ claude_trust_state() {
 # environment, or a missing `ps` stops the writer instead of guessing.
 claude_trust_claude_processes() {
   command -v ps >/dev/null 2>&1 || return 2
-  local uid listing line pid owner args first env_file env_text value found=1
+  local uid listing line pid owner args first env_file env_text config_value home_value found=1
   uid="$(id -u 2>/dev/null)" || return 2
   listing="$(ps -e -o pid=,uid=,args= 2>/dev/null)" || return 2
   [ -n "$listing" ] || return 2
@@ -192,16 +203,33 @@ claude_trust_claude_processes() {
     env_text="$(tr '\0' '\n' < "$env_file" 2>/dev/null)" || return 2
     [ -n "$env_text" ] || return 2
     found=0
-    if printf '%s\n' "$env_text" | grep -q '^CLAUDE_CONFIG_DIR='; then
-      value="$(printf '%s\n' "$env_text" | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1)"
-      if [ -n "$value" ]; then
-        printf '%s\texplicit\t%s\n' "$pid" "$value"
-      else
-        printf '%s\tdefault\t-\n' "$pid"
-      fi
+    config_value="$(printf '%s\n' "$env_text" | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1)"
+    home_value="$(printf '%s\n' "$env_text" | sed -n 's/^HOME=//p' | head -n 1)"
+    if [ -n "$config_value" ]; then
+      printf '%s\texplicit\t%s\t%s\n' "$pid" "$config_value" "${home_value:--}"
     else
-      printf '%s\tdefault\t-\n' "$pid"
+      printf '%s\tdefault\t-\t%s\n' "$pid" "${home_value:--}"
     fi
   done <<< "$listing"
   return "$found"
+}
+
+# claude_trust_process_state_file <explicit|default> <config-directory> <home>
+#
+# Print the state file one scanned process uses, from that process's own
+# environment. An explicit directory keeps the state inside it; a default
+# process resolves `<home>/.claude.json`. A default process without a HOME is
+# unconfirmable, so the caller stops instead of comparing against its own.
+claude_trust_process_state_file() {
+  case "$1" in
+    explicit)
+      [ -n "${2:-}" ] || return 1
+      claude_trust_file_for explicit "$2"
+      ;;
+    default)
+      [ -n "${3:-}" ] && [ "${3:-}" != - ] || return 1
+      printf '%s/.claude.json\n' "${3%/}"
+      ;;
+    *) return 2 ;;
+  esac
 }

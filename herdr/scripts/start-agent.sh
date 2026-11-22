@@ -120,6 +120,19 @@ shell_quote() {
   printf '%s' "$out"
 }
 
+# Quote tokens for a command printed for a person to paste into a shell.
+# Unlike shell_quote, a single quote is escaped (close, escape, reopen), so a
+# worktree path with spaces, quotes, or other shell characters still arrives as
+# exactly one argument.
+display_quote() {
+  local value out='' escaped
+  for value in "$@"; do
+    escaped="$(printf '%s' "$value" | sed "s/'/'\\\\''/g")" || return 1
+    out="${out}${out:+ }'${escaped}'"
+  done
+  printf '%s' "$out"
+}
+
 now_ms() {
   date +%s%3N
 }
@@ -330,8 +343,12 @@ if [ "$harness" = claude ]; then
   trust_file="$(claude_trust_file "$config_dir")"
   trust_state="$(claude_trust_state "$trust_file" "$real_cwd")"
   if [ "$trust_state" != true ]; then
-    printf 'claude-trust: %s が未承認です（state: %s）。人間が `%s %s` を実行して承認を記録するか、そのディレクトリで claude を一度起動して TUI で trust を承認してください。手順: herdr/SKILL.md の "Claude trust approval"。\n' \
-      "$real_cwd" "$trust_state" "$script_dir/claude-trust.sh" "$real_cwd" >&2
+    # The printed command is meant to be pasted as-is, so both paths are quoted
+    # for the shell: a worktree path with a space must arrive as one argument.
+    trust_command="$(display_quote "$script_dir/claude-trust.sh" "$real_cwd")" ||
+      fail "cannot quote the trust command: ${real_cwd}"
+    printf 'claude-trust: %s が未承認です（state: %s）。人間が `%s` を実行して承認を記録するか、そのディレクトリで claude を一度起動して TUI で trust を承認してください。手順: herdr/SKILL.md の "Claude trust approval"。\n' \
+      "$real_cwd" "$trust_state" "$trust_command" >&2
     exit 1
   fi
 

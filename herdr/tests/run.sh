@@ -1656,7 +1656,7 @@ shared_launcher_claude_preflight() {
   # file, invalid JSON, an unexpected shape, `false`, and a project without the
   # key are all unapproved, and the file is byte-identical afterwards. The stop
   # line names the writer command a human can run and the shared procedure.
-  for case_name in missing false invalid no-key unreadable unexpected-shape; do
+  for case_name in missing false invalid no-key unreadable unexpected-shape trailing-json; do
     config="$(claude_config_dir "$case_name")"
     rm -f "$config/before"
     case "$case_name" in
@@ -1672,6 +1672,12 @@ shared_launcher_claude_preflight() {
         ;;
       unreadable) printf '{"projects":{}}\n' > "$config/.claude.json" ;;
       unexpected-shape) printf '[]\n' > "$config/.claude.json" ;;
+      trailing-json)
+        # A valid record followed by a second JSON value: `jq` would evaluate
+        # the first value alone, so the reader must reject the document.
+        printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}}}{"projects":{}}\n' \
+          "$(realpath -m -- "$CLAUDE_TRUSTED_DIR")" > "$config/.claude.json"
+        ;;
     esac
     [ ! -e "$config/.claude.json" ] || cp "$config/.claude.json" "$config/before"
     [ "$case_name" != unreadable ] || chmod 000 "$config/.claude.json"
@@ -1679,6 +1685,7 @@ shared_launcher_claude_preflight() {
       missing) expected_state='missing-file' ;;
       no-key) expected_state='missing-key' ;;
       invalid) expected_state='invalid-json' ;;
+      trailing-json) expected_state='invalid-json' ;;
       *) expected_state="$case_name" ;;
     esac
     reset_logs
@@ -1690,7 +1697,7 @@ shared_launcher_claude_preflight() {
     set -e
     [ "$rc" -eq 1 ]
     trusted_path="$(realpath -m -- "$CLAUDE_TRUSTED_DIR")"
-    grep -Fqx "claude-trust: $trusted_path が未承認です（state: $expected_state）。人間が \`$TRUST_SCRIPT $trusted_path\` を実行して承認を記録するか、そのディレクトリで claude を一度起動して TUI で trust を承認してください。手順: herdr/SKILL.md の \"Claude trust approval\"。" <<< "$err"
+    grep -Fqx "claude-trust: $trusted_path が未承認です（state: $expected_state）。人間が \`'$TRUST_SCRIPT' '$trusted_path'\` を実行して承認を記録するか、そのディレクトリで claude を一度起動して TUI で trust を承認してください。手順: herdr/SKILL.md の \"Claude trust approval\"。" <<< "$err"
     [ ! -s "$HERDR_TEST_STARTS" ]
     ! grep -q '^launch: ' <<< "$err"
     ! grep -q '^probe: ' <<< "$err"
@@ -2441,6 +2448,10 @@ claude_trust_state_classes() {
     check unexpected-shape 'projects that is not an object'
     printf '{"projects":null}\n' > "$file"
     check unexpected-shape 'projects that is null'
+    printf '{"projects":{}}{}\n' > "$file"
+    check invalid-json 'a second JSON value after the document'
+    printf '{"projects":{}} trailing\n' > "$file"
+    check invalid-json 'trailing data after the document'
     printf '{"projects":{"%s":"yes"}}\n' "$target" > "$file"
     check unexpected-shape 'an entry that is not an object'
     printf '{"projects":{"%s":{"hasTrustDialogAccepted":"true"}}}\n' "$target" > "$file"
@@ -2518,6 +2529,23 @@ claude_trust_writer() {
   grep -Fqx "trust-file: $config/.claude.json" <<< "$trust_out"
   trust_approved "$config" "$target"
   [ ! -e "$config/.claude/.claude.json" ]
+
+  # Numbers are carried through as their original text. `1e400` is a valid JSON
+  # number that a float round-trip turns into Infinity (and an int beyond 2^53
+  # loses digits), so the writer either keeps them verbatim or refuses without
+  # touching the file.
+  config="$(trust_config numbers "{\"threshold\":1e400,\"big\":123456789012345678901234567890,\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  cp "$config/.claude.json" "$before"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  if [ "$trust_rc" -eq 0 ]; then
+    grep -Fq '"threshold": 1e400' "$config/.claude.json"
+    grep -Fq '123456789012345678901234567890' "$config/.claude.json"
+    trust_approved "$config" "$target"
+  else
+    grep -Fq 'result: refused' <<< "$trust_out"
+    cmp -s "$config/.claude.json" "$before"
+  fi
+  ! grep -Fq 'Infinity' "$config/.claude.json"
 }
 
 claude_trust_write_conditions() {
@@ -2608,6 +2636,66 @@ claude_trust_write_conditions() {
   [ "$trust_rc" -eq 1 ]
   grep -Fq 'reason=claude-unconfirmed' <<< "$trust_out"
   [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
+
+  # A default-config claude (no CLAUDE_CONFIG_DIR) is resolved from its own
+  # HOME, not from the writer's environment. Both share $home/.claude.json here:
+  # the writer carries an explicit CLAUDE_CONFIG_DIR=$home and the process is a
+  # default-config session with HOME=$home.
+  home="$TEST_TMP/trust-home"
+  rm -rf "$home"
+  mkdir -p "$home"
+  printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}}}\n' "$target" > "$home/.claude.json"
+  chmod 600 "$home/.claude.json"
+  env -u CLAUDE_CONFIG_DIR HOME="$home" bash -c 'exec -a claude sleep 60' &
+  pid=$!
+  printf '%s\t%s\t%s\n' "$pid" "$(id -u)" 'claude 60' >> "$HERDR_TEST_TRUST_PS_LINES"
+  sleep 0.3
+  run_trust env CLAUDE_CONFIG_DIR="$home" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=claude-running' <<< "$trust_out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$home/.claude.json")" = false ]
+  # The same conflict is found when the writer itself uses the default config.
+  run_trust env -u CLAUDE_CONFIG_DIR HERDR_TEST_CLAUDE_HOME="$home" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=claude-running' <<< "$trust_out"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  : > "$HERDR_TEST_TRUST_PS_LINES"
+
+  # Repository-locating variables cannot make a non-worktree look like one.
+  config="$(trust_config git-env "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  outside="$TEST_TMP/trust-outside-git"
+  run_trust env GIT_DIR="$TEST_TMP/trust-repo/.git" GIT_WORK_TREE="$target" \
+    CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$outside"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=not-worktree-root' <<< "$trust_out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
+  # The same variables cannot make a real worktree root fail either.
+  run_trust env GIT_DIR="$outside/.git" CLAUDE_CONFIG_DIR="$config" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fq 'result: approved' <<< "$trust_out"
+
+  # The snapshot that would replace the state file is classified with the same
+  # rules as the reader: a file that turns into `projects: null` between the
+  # classification and the final read stops the write. The python3 wrapper
+  # performs that change at the final read.
+  config="$(trust_config final-shape "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  real_python="$(command -v python3)"
+  wrapper="$TEST_TMP/trust-corrupt-python"
+  rm -rf "$wrapper"
+  mkdir -p "$wrapper"
+  cat > "$wrapper/python3" <<SCRIPT
+#!/usr/bin/env bash
+printf '{"projects":null}\n' > "$config/.claude.json"
+exec "$real_python" "\$@"
+SCRIPT
+  chmod +x "$wrapper/python3"
+  run_trust env PATH="$wrapper:$PATH" CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=unexpected-shape' <<< "$trust_out"
+  [ "$(cat "$config/.claude.json")" = '{"projects":null}' ]
 }
 
 claude_trust_launcher_integration() {
@@ -2661,6 +2749,37 @@ claude_trust_launcher_integration() {
   grep -Fqx "probe: $TMPDIR/agent-harness/claude-spec/wB_p2.json" <<< "$err"
 }
 
+claude_trust_quoted_command() {
+  local worktree config err rc command_line branch
+  for worktree in "$TEST_TMP/worktree with space" "$TEST_TMP/worktree 'with quote"; do
+    branch="trust-$(printf '%s' "${worktree##*/}" | tr -cs '[:alnum:]' '-' | tr '[:upper:]' '[:lower:]')"
+    if [ ! -f "$worktree/.git" ]; then
+      git -C "$TEST_TMP/trust-repo" worktree add -q "$worktree" -b "$branch"
+    fi
+    config="$(trust_config quoted)"
+    reset_logs
+    set +e
+    err="$(CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$worktree" "$LAUNCHER" wB:p2 review \
+      --harness claude --model claude-haiku-5-5 --effort high --permission-mode auto 2>&1 >/dev/null)"
+    rc=$?
+    set -e
+    [ "$rc" -eq 1 ]
+    grep -Fq "claude-trust: $worktree が未承認です" <<< "$err"
+    # The printed command is meant to be pasted: the path must arrive as one
+    # argument even with spaces or a quote in it.
+    command_line="$(sed -n 's/.*人間が `\(.*\)` を実行して.*/\1/p' <<< "$err")"
+    [ -n "$command_line" ]
+    case "$command_line" in
+      *'<worktree'*) return 1 ;;
+    esac
+    run_trust env CLAUDE_CONFIG_DIR="$config" bash -c "$command_line"
+    [ "$trust_rc" -eq 0 ]
+    grep -Fq 'result: approved' <<< "$trust_out"
+    grep -Fqx "target: $worktree" <<< "$trust_out"
+    trust_approved "$config" "$worktree"
+  done
+}
+
 claude_trust_document_contract() {
   local skill="$HERDR_DIR/SKILL.md"
   local reference="$HERDR_DIR/references/worktree-workspace-teams.md"
@@ -2670,15 +2789,16 @@ claude_trust_document_contract() {
 
   # The Herdr skill is the authority for the procedure and the command.
   grep -Fqx '## Claude trust approval' "$skill"
-  grep -Fq 'herdr/scripts/claude-trust.sh <worktree-root>' "$skill"
+  grep -Fq 'herdr/scripts/claude-trust.sh "<worktree-root>"' "$skill"
+  grep -Fq 'ランチャーの停止行は引用済みのコマンドを出す' "$skill"
   grep -Fq 'herdr/scripts/lib/claude-trust.sh' "$skill"
   grep -Fq 'procfs' "$skill"
   grep -Fq 'fail closed' "$skill"
   grep -Fq '原則として人間が実行する' "$skill"
   # The starter path and the command list name the same command.
-  grep -Fq 'herdr/scripts/claude-trust.sh <worktree-path>' "$reference"
+  grep -Fq 'herdr/scripts/claude-trust.sh "<worktree-path>"' "$reference"
   # The README entry point points at the command and the shared procedure.
-  grep -Fq 'herdr/scripts/claude-trust.sh <worktree-root>' "$readme"
+  grep -Fq 'herdr/scripts/claude-trust.sh "<worktree-root>"' "$readme"
   grep -Fq 'herdr/SKILL.md#claude-trust-approval' "$readme"
 
   # The workflows point at the authority and never copy the stop line.
@@ -2805,7 +2925,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=45
+expected_count=46
 
 run_test parent_success
 run_test child_success
@@ -2845,6 +2965,7 @@ run_test claude_trust_state_classes
 run_test claude_trust_writer
 run_test claude_trust_write_conditions
 run_test claude_trust_launcher_integration
+run_test claude_trust_quoted_command
 run_test claude_trust_document_contract
 run_test markdown_check_passes
 run_test markdown_reference_file_rename_is_rejected

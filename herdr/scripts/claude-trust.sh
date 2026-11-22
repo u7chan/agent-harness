@@ -93,9 +93,16 @@ if [ ! -d "$target" ]; then
 fi
 # Only a git worktree root can be approved: the launcher reads the pane's
 # working directory, and a subdirectory would approve a path the agent never
-# runs in. `git rev-parse --show-toplevel` is the same rule the launcher's
-# exact-key check implies.
-git_root="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" || git_root=''
+# runs in. `git -C` alone proves nothing: `GIT_DIR` and the other locating
+# variables override discovery, so a directory outside any worktree can look
+# like the worktree of a repository named by the caller. Drop those variables
+# and let the target's own metadata answer.
+git_root="$(env \
+  -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+  -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
+  -u GIT_CEILING_DIRECTORIES -u GIT_DISCOVERY_ACROSS_FILESYSTEM \
+  -u GIT_CONFIG -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_COUNT \
+  git -C "$target" rev-parse --show-toplevel 2>/dev/null)" || git_root=''
 if [ -z "$git_root" ]; then
   refuse not-worktree-root "$(printf '%s は git リポジトリの中ではありません。' "$target")$(tui_fallback)"
 fi
@@ -160,7 +167,11 @@ if ! mkdir -- "$lock_dir" 2>/dev/null; then
   refuse lock-held "他の承認コマンドが実行中です（ロック: $lock_dir）。終了を待って再実行してください。実行中の承認がなければ、このディレクトリを削除してください。"
 fi
 lock_held=1
+temporary_file=''
 cleanup() {
+  if [ -n "${temporary_file:-}" ]; then
+    rm -f -- "$temporary_file" 2>/dev/null || true
+  fi
   if [ "${lock_held:-0}" -eq 1 ]; then
     rmdir -- "$lock_dir" 2>/dev/null || true
   fi
@@ -184,38 +195,20 @@ esac
 
 # The CLI rewrites this file without taking the lock, so a running session of
 # the same state file can overwrite the record. Refuse while one exists, and
-# refuse when the scan cannot rule one out.
-default_trust_file() {
-  local reported=''
-  if [ -z "$auth_record" ]; then
-    [ -x "$claude_auth" ] || return 1
-    auth_record="$("$claude_auth" 2>/dev/null)" || return 1
-  fi
-  reported="$(record_field "$auth_record" configDirectory)" || return 1
-  claude_trust_usable_dir "$reported" || return 1
-  claude_trust_file_for default "$reported"
-}
-
+# refuse when the scan cannot rule one out. Each process's state file comes from
+# that process's own environment: resolving it through this writer's
+# environment would miss a default-config session whenever the writer carries
+# an explicit CLAUDE_CONFIG_DIR.
 trust_file_compare="$(claude_trust_normalize_path "$trust_file")" || trust_file_compare="$trust_file"
 processes=''
 scan_rc=0
 processes="$(claude_trust_claude_processes)" || scan_rc=$?
 case "$scan_rc" in
   0)
-    while IFS=$'\t' read -r pid process_mode process_dir; do
+    while IFS=$'\t' read -r pid process_mode process_dir process_home; do
       [ -n "$pid" ] || continue
-      case "$process_mode" in
-        explicit)
-          other_file="$(claude_trust_file_for explicit "$process_dir")"
-          ;;
-        default)
-          other_file="$(default_trust_file)" ||
-            refuse claude-unconfirmed "同じ設定先を使う claude がいるかを確認できません（pid $pid）。$(tui_fallback)"
-          ;;
-        *)
-          refuse claude-unconfirmed "実行中の claude の設定先を判定できません（pid $pid）。$(tui_fallback)"
-          ;;
-      esac
+      other_file="$(claude_trust_process_state_file "$process_mode" "$process_dir" "$process_home")" ||
+        refuse claude-unconfirmed "同じ設定先を使う claude がいるかを確認できません（pid $pid）。$(tui_fallback)"
       other_compare="$(claude_trust_normalize_path "$other_file")" || other_compare="$other_file"
       if [ "$other_compare" = "$trust_file_compare" ]; then
         refuse claude-running "同じ設定ファイルを使う claude が実行中です（pid $pid）。書き込みません。承認の間は claude を起動しないでください。終了後に同じコマンドを再実行してください。"
@@ -233,10 +226,27 @@ write_rc=0
 write_output="$(python3 -I - "$trust_file" "$target" "$state" 2>/dev/null <<'PY'
 import json
 import os
+import secrets
 import sys
 import tempfile
 
-path, target, state = sys.argv[1:4]
+
+class RawNumber:
+    """A JSON number kept as its original source text."""
+
+    __slots__ = ("text",)
+
+    def __init__(self, text):
+        self.text = text
+
+    def __eq__(self, other):
+        return isinstance(other, RawNumber) and other.text == self.text
+
+    def __hash__(self):
+        return hash(self.text)
+
+    def __repr__(self):
+        return "RawNumber(%r)" % self.text
 
 
 def fail(reason):
@@ -244,46 +254,118 @@ def fail(reason):
     sys.exit(1)
 
 
+def reject_constant(value):
+    # NaN and Infinity are not JSON. Accepting them would let this command write
+    # a document that a strict reader cannot parse.
+    raise ValueError("not a JSON number: %s" % value)
+
+
+def load_document(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        text = handle.read()
+    document = json.loads(
+        text,
+        parse_float=RawNumber,
+        parse_int=RawNumber,
+        parse_constant=reject_constant,
+    )
+    return document, text
+
+
+def mark_numbers(value, nonce, markers):
+    if isinstance(value, RawNumber):
+        marker = "%s-%d" % (nonce, len(markers))
+        markers[marker] = value.text
+        return marker
+    if isinstance(value, dict):
+        return {key: mark_numbers(item, nonce, markers) for key, item in value.items()}
+    if isinstance(value, list):
+        return [mark_numbers(item, nonce, markers) for item in value]
+    return value
+
+
+path, target, state = sys.argv[1:4]
+
+# This snapshot is the one that will replace the state file: apply the same
+# shape rules as the reader, so a file that changed after the classification
+# (for example `projects: null`) is refused instead of reinitialized.
 if os.path.exists(path):
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            document = json.load(handle)
-    except Exception:
+        document, original_text = load_document(path)
+    except (OSError, ValueError):
         fail("invalid-json")
     if not isinstance(document, dict):
         fail("unexpected-shape")
-    projects = document.get("projects")
-    if projects is None:
+    if "projects" in document:
+        projects = document["projects"]
+        if not isinstance(projects, dict):
+            fail("unexpected-shape")
+    else:
         projects = {}
-    if not isinstance(projects, dict):
-        fail("unexpected-shape")
 else:
     if state != "missing-file":
         fail("state-changed")
     document = {"projects": {}}
     projects = document["projects"]
+    original_text = ""
 
-entry = projects.get(target)
-if entry is None:
+if target in projects:
+    entry = projects[target]
+    if not isinstance(entry, dict):
+        fail("unexpected-shape")
+else:
     entry = {}
-if not isinstance(entry, dict):
-    fail("unexpected-shape")
-# The one change this command owns: every other project, key, and value is
-# carried through the same document, serialized with the CLI's own two-space
-# layout, so no other value is rewritten.
+if "hasTrustDialogAccepted" in entry:
+    accepted = entry["hasTrustDialogAccepted"]
+    if not isinstance(accepted, bool):
+        fail("unexpected-shape")
+    if accepted:
+        # Another writer recorded the same decision first: a no-op success.
+        sys.stdout.write("already-approved")
+        sys.exit(0)
+# The only change this command owns. Every other value is carried through the
+# same document.
 entry["hasTrustDialogAccepted"] = True
 projects[target] = entry
 document["projects"] = projects
 
+# Serialize without touching any number: each one is replaced by a unique
+# string marker and restored as its original source text afterwards, so a valid
+# JSON number that is not a finite float (1e400, or an integer beyond float
+# precision) survives the rewrite instead of becoming Infinity or a rounded
+# value.
+nonce = "raw-number-%s" % secrets.token_hex(12)
+if nonce in original_text:
+    fail("unpreservable-document")
+markers = {}
+try:
+    serialized = json.dumps(mark_numbers(document, nonce, markers), indent=2, ensure_ascii=False)
+except (TypeError, ValueError):
+    fail("unpreservable-document")
+for marker, raw in markers.items():
+    serialized = serialized.replace('"%s"' % marker, raw)
+serialized += "\n"
+try:
+    reparsed = json.loads(
+        serialized,
+        parse_float=RawNumber,
+        parse_int=RawNumber,
+        parse_constant=reject_constant,
+    )
+    if reparsed != document:
+        fail("unpreservable-document")
+except ValueError:
+    fail("unpreservable-document")
+
+# The caller validates this file with the reader's rule before it replaces the
+# state file: a snapshot the launcher cannot read never becomes the record.
 directory = os.path.dirname(os.path.abspath(path)) or "."
 try:
     descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".claude.json.", suffix=".tmp")
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(document, handle, indent=2, ensure_ascii=False)
-            handle.write("\n")
+            handle.write(serialized)
         os.chmod(temporary, 0o600)
-        os.replace(temporary, path)
     except BaseException:
         try:
             os.unlink(temporary)
@@ -293,7 +375,7 @@ try:
 except Exception:
     fail("write-failed")
 
-sys.stdout.write("written")
+sys.stdout.write("temporary:%s" % temporary)
 PY
 )" || write_rc=$?
 if [ "$write_rc" -ne 0 ]; then
@@ -302,6 +384,36 @@ if [ "$write_rc" -ne 0 ]; then
     *) refuse write-failed "$(printf '信頼ファイルを書き換えられませんでした（%s）。' "$trust_file")$(tui_fallback)" ;;
   esac
 fi
+
+case "$write_output" in
+  already-approved)
+    printf 'result: already-approved\n'
+    printf 'claude-trust: %s は既に承認済みです。変更していません。\n' "$target" >&2
+    exit 0
+    ;;
+  temporary:*) temporary_file="${write_output#temporary:}" ;;
+  *)
+    refuse write-failed "$(printf '信頼ファイルを書き換えられませんでした（%s）。' "$trust_file")$(tui_fallback)"
+    ;;
+esac
+[ -n "$temporary_file" ] && [ -f "$temporary_file" ] ||
+  refuse write-failed "$(printf '一時ファイルを作成できませんでした（%s）。' "$trust_file")$(tui_fallback)"
+
+# Validate the exact snapshot with the reader's rule before it can replace the
+# state file. The merge above keeps numbers and unknown keys, but a document
+# the launcher cannot classify must leave the original untouched.
+snapshot_state="$(claude_trust_state "$temporary_file" "$target")"
+if [ "$snapshot_state" != true ]; then
+  rm -f -- "$temporary_file"
+  temporary_file=''
+  refuse unpreservable-document "$(printf '書き込み後にランチャーが読めない内容になるため、変更していません（%s: %s）。' "$snapshot_state" "$trust_file")$(tui_fallback)"
+fi
+mv -f -- "$temporary_file" "$trust_file" || {
+  rm -f -- "$temporary_file"
+  temporary_file=''
+  refuse write-failed "$(printf '信頼ファイルを置換できませんでした（%s）。' "$trust_file")$(tui_fallback)"
+}
+temporary_file=''
 
 verified="$(claude_trust_state "$trust_file" "$target")"
 [ "$verified" = true ] ||

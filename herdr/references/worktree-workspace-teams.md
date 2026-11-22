@@ -57,7 +57,7 @@ starter には 2 つの経路がある。
 どちらの経路でも、starter は対象 worktree と同じ `repo_root` を持つ親チェックアウトのペインでなければならない（[Starting and coordinating the team](#starting-and-coordinating-the-team) の `worktree-team` 辺を導出できる側）。兄弟 worktree や 2 つ目のチェックアウトからの起動は形状ルールで拒否されるため、`herdr/scripts/scope-grant.sh` で辺を記録してから起動する。生の `herdr agent start` で境界を迂回しない。
 
 1. [Topology creation](#topology-creation) のとおりに worktree を作成し、その JSON 応答からリンク済みワークスペース ID とルートペイン ID を保持する。
-2. Claude で起動する場合は、この時点で worktree のルートを承認する。新しいワークツリーは元チェックアウトの承認を引き継がないため、共有ランチャーは未承認で停止する。人間が `herdr/scripts/claude-trust.sh <worktree-path>` を実行して記録する。条件、書き込む設定ファイル、承認する内容は [Claude trust approval](../SKILL.md#claude-trust-approval) を正本とする。orchestrator が Pi の場合は不要。
+2. Claude で起動する場合は、この時点で worktree のルートを承認する。新しいワークツリーは元チェックアウトの承認を引き継がないため、共有ランチャーは未承認で停止する。人間が `herdr/scripts/claude-trust.sh "<worktree-path>"` を実行して記録する。条件、書き込む設定ファイル、承認する内容は [Claude trust approval](../SKILL.md#claude-trust-approval) を正本とする。orchestrator が Pi の場合は不要。
 3. worktree 環境ブロックを含む orchestrator のタスクファイルを書く。タスクファイルにはハーネス別の仕様（Pi の provider/model/thinking、Claude の model/effort/permission_mode）も `launch:` 行も書かない。
 4. starter のワークスペースから、プロファイルのロールを解決して orchestrator を起動する。
 
@@ -149,7 +149,7 @@ test -s <task-file>
 
 ```bash
 # Claude のチームを起動する前に、新しい worktree のルートを人間が承認する。
-herdr/scripts/claude-trust.sh <worktree-path>
+herdr/scripts/claude-trust.sh "<worktree-path>"
 
 # 親ワークスペースから（Pi）。辺の分類はスクリプトが行う。
 herdr/scripts/worktree-team-start.sh <pane-id> <role> \
