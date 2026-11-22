@@ -92,6 +92,28 @@ claude_trust_file() {
   fi
 }
 
+# claude_trust_strict_json <file>
+#
+# Exit 0 only when the file holds exactly one strict JSON document. `jq` and
+# Python's `json` both accept the non-standard constants `Infinity`, `-Infinity`,
+# and `NaN`; a state file containing one of them is a syntax error for Claude
+# Code, so the reader must not treat it as a record either. `JSON.parse` in
+# Node rejects those tokens and any trailing data, which is the shape this
+# repository already requires (start-agent.sh parses the role specification with
+# Node). Exit 3 when no validator is available: an unvalidated document is
+# never read as approved.
+claude_trust_strict_json() {
+  command -v node >/dev/null 2>&1 || return 3
+  node --input-type=module -e '
+import { readFileSync } from "node:fs";
+try {
+  JSON.parse(readFileSync(process.argv[1], "utf8"));
+} catch {
+  process.exit(1);
+}
+' "$1" 2>/dev/null
+}
+
 # claude_trust_state <state-file> <normalized-directory>
 #
 # Print exactly one classification:
@@ -113,7 +135,7 @@ claude_trust_state() {
     printf 'Usage: claude_trust_state <state-file> <normalized-directory>\n' >&2
     return 2
   fi
-  local file="$1" dir="$2" verdict='' rc=0
+  local file="$1" dir="$2" verdict='' rc=0 strict_rc=0
   if [ -d "$file" ]; then
     printf 'unreadable\n'
     return 0
@@ -126,10 +148,15 @@ claude_trust_state() {
     printf 'unreadable\n'
     return 0
   fi
-  # Slurp first: `jq` evaluates a filter per value, so a file holding two JSON
-  # documents would otherwise be classified by its first value only. A state
-  # file must be exactly one JSON document; trailing data is invalid JSON, not
-  # an approved record.
+  # Strict syntax first: `jq -s` accepts `Infinity`, `NaN`, and two concatenated
+  # documents, so its own parse cannot tell a record from a file the CLI rejects.
+  strict_rc=0
+  claude_trust_strict_json "$file" || strict_rc=$?
+  if [ "$strict_rc" -ne 0 ]; then
+    printf 'invalid-json\n'
+    return 0
+  fi
+  # The slurp also pins the value count at one for the classification below.
   verdict="$(jq -s -r --arg dir "$dir" '
     if length != 1 then "invalid-json"
     else .[0] as $document
@@ -164,7 +191,7 @@ claude_trust_state() {
 #
 # Print one tab-separated line per running `claude` process of this user:
 #
-#   <pid>\t<explicit|default>\t<config-directory or - >\t<home-directory or - >
+#   <pid>\t<explicit|default>\t<config-directory or - >\t<home-directory or - >\t<cwd or - >
 #
 # The program is the basename of the first command-line token, so a wrapper
 # such as claude-trust.sh is not mistaken for the CLI. `explicit` means the
@@ -172,7 +199,9 @@ claude_trust_state() {
 # and its state file follows the process's own HOME (measured on 2.1.330:
 # `<home>/.claude` is the default config directory and the state file stays at
 # `<home>/.claude.json`). The reader reports the environment each process
-# actually carries, never the writer's own.
+# actually carries, never the writer's own. The cwd is the process's working
+# directory, because a relative CLAUDE_CONFIG_DIR belongs to that directory, not
+# to the caller's.
 #
 # Exit status: 0 when at least one process was printed, 1 when there is none,
 # 2 when the scan cannot confirm either way. Only this user's processes are
@@ -181,7 +210,8 @@ claude_trust_state() {
 # environment, or a missing `ps` stops the writer instead of guessing.
 claude_trust_claude_processes() {
   command -v ps >/dev/null 2>&1 || return 2
-  local uid listing line pid owner args first env_file env_text config_value home_value found=1
+  local uid listing line pid owner args first env_file env_text config_value home_value
+  local cwd_link cwd_value found=1
   uid="$(id -u 2>/dev/null)" || return 2
   listing="$(ps -e -o pid=,uid=,args= 2>/dev/null)" || return 2
   [ -n "$listing" ] || return 2
@@ -205,30 +235,44 @@ claude_trust_claude_processes() {
     found=0
     config_value="$(printf '%s\n' "$env_text" | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1)"
     home_value="$(printf '%s\n' "$env_text" | sed -n 's/^HOME=//p' | head -n 1)"
+    cwd_value=''
+    cwd_link="/proc/${pid}/cwd"
+    if [ -e "$cwd_link" ]; then
+      cwd_value="$(readlink -f -- "$cwd_link" 2>/dev/null)" || cwd_value=''
+    fi
     if [ -n "$config_value" ]; then
-      printf '%s\texplicit\t%s\t%s\n' "$pid" "$config_value" "${home_value:--}"
+      printf '%s\texplicit\t%s\t%s\t%s\n' "$pid" "$config_value" "${home_value:--}" "${cwd_value:--}"
     else
-      printf '%s\tdefault\t-\t%s\n' "$pid" "${home_value:--}"
+      printf '%s\tdefault\t-\t%s\t%s\n' "$pid" "${home_value:--}" "${cwd_value:--}"
     fi
   done <<< "$listing"
   return "$found"
 }
 
-# claude_trust_process_state_file <explicit|default> <config-directory> <home>
+# claude_trust_process_state_file <explicit|default> <config-directory> <home> <cwd>
 #
 # Print the state file one scanned process uses, from that process's own
-# environment. An explicit directory keeps the state inside it; a default
-# process resolves `<home>/.claude.json`. A default process without a HOME is
-# unconfirmable, so the caller stops instead of comparing against its own.
+# environment. An explicit absolute directory keeps the state inside it; a
+# relative one belongs to the process's cwd and is unconfirmable without it. A
+# default process resolves `<home>/.claude.json`; one without a HOME is
+# unconfirmable too, so the caller stops instead of comparing against its own.
 claude_trust_process_state_file() {
-  case "$1" in
+  local mode="$1" config_dir="${2:-}" home="${3:-}" cwd="${4:-}"
+  case "$mode" in
     explicit)
-      [ -n "${2:-}" ] || return 1
-      claude_trust_file_for explicit "$2"
+      [ -n "$config_dir" ] && [ "$config_dir" != - ] || return 1
+      case "$config_dir" in
+        /*) ;;
+        *)
+          [ -n "$cwd" ] && [ "$cwd" != - ] || return 1
+          config_dir="${cwd%/}/${config_dir}"
+          ;;
+      esac
+      claude_trust_file_for explicit "$config_dir"
       ;;
     default)
-      [ -n "${3:-}" ] && [ "${3:-}" != - ] || return 1
-      printf '%s/.claude.json\n' "${3%/}"
+      [ -n "$home" ] && [ "$home" != - ] || return 1
+      printf '%s/.claude.json\n' "${home%/}"
       ;;
     *) return 2 ;;
   esac

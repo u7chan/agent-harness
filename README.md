@@ -71,7 +71,11 @@ Commands used by the harnesses and by this repository's documented procedures:
 
 The shared development profile/model helpers require Node.js, and so does
 `herdr/scripts/start-agent.sh`, which parses one role specification through the
-same grammar before it starts an agent.
+same grammar before it starts an agent. The shared Claude trust check
+(`herdr/scripts/lib/claude-trust.sh`, used by the launcher and
+`herdr/scripts/claude-trust.sh`) validates the state file as strict JSON with
+Node's `JSON.parse`, so `Infinity`, `NaN`, and trailing data are rejected the
+way the CLI rejects them.
 [explain-video](explain-video/SKILL.md#prerequisites) additionally requires
 Node.js, FFmpeg/ffprobe, the Playwright/Chromium environment, and fonts covering
 the caption language. FFmpeg remains optional for other workflows; it is not a

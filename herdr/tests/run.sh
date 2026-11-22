@@ -1656,7 +1656,7 @@ shared_launcher_claude_preflight() {
   # file, invalid JSON, an unexpected shape, `false`, and a project without the
   # key are all unapproved, and the file is byte-identical afterwards. The stop
   # line names the writer command a human can run and the shared procedure.
-  for case_name in missing false invalid no-key unreadable unexpected-shape trailing-json; do
+  for case_name in missing false invalid no-key unreadable unexpected-shape trailing-json infinity; do
     config="$(claude_config_dir "$case_name")"
     rm -f "$config/before"
     case "$case_name" in
@@ -1678,6 +1678,12 @@ shared_launcher_claude_preflight() {
         printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}}}{"projects":{}}\n' \
           "$(realpath -m -- "$CLAUDE_TRUSTED_DIR")" > "$config/.claude.json"
         ;;
+      infinity)
+        # One document, but with a non-standard JSON constant. `jq` accepts
+        # `Infinity` and would let the start through; the CLI rejects the file.
+        printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}},"note":Infinity}\n' \
+          "$(realpath -m -- "$CLAUDE_TRUSTED_DIR")" > "$config/.claude.json"
+        ;;
     esac
     [ ! -e "$config/.claude.json" ] || cp "$config/.claude.json" "$config/before"
     [ "$case_name" != unreadable ] || chmod 000 "$config/.claude.json"
@@ -1686,6 +1692,7 @@ shared_launcher_claude_preflight() {
       no-key) expected_state='missing-key' ;;
       invalid) expected_state='invalid-json' ;;
       trailing-json) expected_state='invalid-json' ;;
+      infinity) expected_state='invalid-json' ;;
       *) expected_state="$case_name" ;;
     esac
     reset_logs
@@ -2452,6 +2459,14 @@ claude_trust_state_classes() {
     check invalid-json 'a second JSON value after the document'
     printf '{"projects":{}} trailing\n' > "$file"
     check invalid-json 'trailing data after the document'
+    printf '{"note":Infinity}\n' > "$file"
+    check invalid-json 'the Infinity constant'
+    printf '{"note":-Infinity}\n' > "$file"
+    check invalid-json 'the -Infinity constant'
+    printf '{"note":NaN}\n' > "$file"
+    check invalid-json 'the NaN constant'
+    printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}},"note":"Infinity"}\n' "$target" > "$file"
+    check false 'a string that only spells Infinity'
     printf '{"projects":{"%s":"yes"}}\n' "$target" > "$file"
     check unexpected-shape 'an entry that is not an object'
     printf '{"projects":{"%s":{"hasTrustDialogAccepted":"true"}}}\n' "$target" > "$file"
@@ -2546,6 +2561,21 @@ claude_trust_writer() {
     cmp -s "$config/.claude.json" "$before"
   fi
   ! grep -Fq 'Infinity' "$config/.claude.json"
+
+  # A non-standard constant is a syntax error for the CLI. A trusted record
+  # next to it must not become an `already-approved` success, and the file must
+  # stay untouched. A string that merely spells Infinity is ordinary JSON.
+  config="$(trust_config infinity "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":true}},\"note\":Infinity}")"
+  cp "$config/.claude.json" "$before"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=invalid-json' <<< "$trust_out"
+  cmp -s "$config/.claude.json" "$before"
+  config="$(trust_config infinity-string "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}},\"note\":\"Infinity\"}")"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  trust_approved "$config" "$target"
+  grep -Fq '"note": "Infinity"' "$config/.claude.json"
 }
 
 claude_trust_write_conditions() {
@@ -2591,12 +2621,12 @@ claude_trust_write_conditions() {
 
   # The lock beside the state file serializes approvals.
   config="$(trust_config lock "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
-  mkdir "$config/.claude.json.lock"
+  mkdir "$config/.claude.json.approval.lock"
   run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
   [ "$trust_rc" -eq 1 ]
   grep -Fq 'reason=lock-held' <<< "$trust_out"
   [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
-  rmdir "$config/.claude.json.lock"
+  rmdir "$config/.claude.json.approval.lock"
 
   # A claude process sharing the state file blocks the write, and the same
   # command succeeds once it exits. The fake `ps` reports exactly this process.
@@ -2662,6 +2692,34 @@ claude_trust_write_conditions() {
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   : > "$HERDR_TEST_TRUST_PS_LINES"
+
+  # A relative CLAUDE_CONFIG_DIR belongs to the process's cwd, not to the
+  # writer's. The process runs in directory A with `CLAUDE_CONFIG_DIR=config`,
+  # and the writer runs in directory B with A/config as an absolute path.
+  relative_a="$TEST_TMP/trust-relative-a"
+  relative_b="$TEST_TMP/trust-relative-b"
+  rm -rf "$relative_a" "$relative_b"
+  mkdir -p "$relative_a/config" "$relative_b"
+  printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}}}\n' "$target" > "$relative_a/config/.claude.json"
+  ( cd "$relative_a" && exec env -u CLAUDE_CONFIG_DIR CLAUDE_CONFIG_DIR=config \
+      bash -c 'exec -a claude sleep 60' ) &
+  pid=$!
+  printf '%s\t%s\t%s\n' "$pid" "$(id -u)" 'claude 60' >> "$HERDR_TEST_TRUST_PS_LINES"
+  sleep 0.3
+  relative_rc=0
+  ( cd "$relative_b" && CLAUDE_CONFIG_DIR="$relative_a/config" "$TRUST_SCRIPT" "$target" \
+      > "$TEST_TMP/trust-relative.out" 2>&1 ) || relative_rc=$?
+  [ "$relative_rc" -eq 1 ]
+  grep -Fq 'reason=claude-running' "$TEST_TMP/trust-relative.out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$relative_a/config/.claude.json")" = false ]
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  : > "$HERDR_TEST_TRUST_PS_LINES"
+  relative_rc=0
+  ( cd "$relative_b" && CLAUDE_CONFIG_DIR="$relative_a/config" "$TRUST_SCRIPT" "$target" \
+      > "$TEST_TMP/trust-relative-ok.out" 2>&1 ) || relative_rc=$?
+  [ "$relative_rc" -eq 0 ]
+  grep -Fq 'result: approved' "$TEST_TMP/trust-relative-ok.out"
 
   # Repository-locating variables cannot make a non-worktree look like one.
   config="$(trust_config git-env "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
@@ -2793,6 +2851,8 @@ claude_trust_document_contract() {
   grep -Fq 'ランチャーの停止行は引用済みのコマンドを出す' "$skill"
   grep -Fq 'herdr/scripts/lib/claude-trust.sh' "$skill"
   grep -Fq 'procfs' "$skill"
+  grep -Fq 'Infinity' "$skill"
+  grep -Fq 'そのプロセスの作業ディレクトリ' "$skill"
   grep -Fq 'fail closed' "$skill"
   grep -Fq '原則として人間が実行する' "$skill"
   # The starter path and the command list name the same command.

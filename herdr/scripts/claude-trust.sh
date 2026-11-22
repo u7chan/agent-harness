@@ -158,11 +158,14 @@ case "$state" in
     ;;
 esac
 
-# Serialize approval commands on a lock beside the state file. The CLI does not
-# take this lock, so this only orders writers of this command; the running
-# process check below covers the CLI. A lock that cannot be taken is a stop,
-# never a wait: a stale lock is removed by hand.
-lock_dir="${trust_file}.lock"
+# Serialize approval commands on a lock beside the state file. The name is not
+# the CLI's own `<state file>.lock`, which Claude Code creates for its config
+# writes and can leave behind after a status call or a killed session: a shared
+# name would turn a leftover CLI lock into a permanent "another approval is
+# running" refusal. This lock only orders this command; the running-process
+# check below covers the CLI. A lock that cannot be taken is a stop, never a
+# wait: a stale approval lock is removed by hand.
+lock_dir="${trust_file}.approval.lock"
 if ! mkdir -- "$lock_dir" 2>/dev/null; then
   refuse lock-held "他の承認コマンドが実行中です（ロック: $lock_dir）。終了を待って再実行してください。実行中の承認がなければ、このディレクトリを削除してください。"
 fi
@@ -205,9 +208,9 @@ scan_rc=0
 processes="$(claude_trust_claude_processes)" || scan_rc=$?
 case "$scan_rc" in
   0)
-    while IFS=$'\t' read -r pid process_mode process_dir process_home; do
+    while IFS=$'\t' read -r pid process_mode process_dir process_home process_cwd; do
       [ -n "$pid" ] || continue
-      other_file="$(claude_trust_process_state_file "$process_mode" "$process_dir" "$process_home")" ||
+      other_file="$(claude_trust_process_state_file "$process_mode" "$process_dir" "$process_home" "$process_cwd")" ||
         refuse claude-unconfirmed "同じ設定先を使う claude がいるかを確認できません（pid $pid）。$(tui_fallback)"
       other_compare="$(claude_trust_normalize_path "$other_file")" || other_compare="$other_file"
       if [ "$other_compare" = "$trust_file_compare" ]; then
@@ -221,6 +224,9 @@ case "$scan_rc" in
     ;;
 esac
 
+# The state classification and the writer rely on strict JSON: Node's
+# `JSON.parse` is the validator the reader shares, and Python keeps the numbers.
+command -v node >/dev/null 2>&1 || refuse node-missing 'node が必要です'
 command -v python3 >/dev/null 2>&1 || refuse python3-missing 'python3 が必要です'
 write_rc=0
 write_output="$(python3 -I - "$trust_file" "$target" "$state" 2>/dev/null <<'PY'
