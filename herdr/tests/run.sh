@@ -90,6 +90,11 @@ write_pi_session() { # path mode provider model thinking
         "$provider" "$model" "$thinking" > "$session_path"
       return 0
       ;;
+    initial-then-custom-message)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n{"type":"custom_message","content":"conversation"}\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n' \
+        "$provider" "$model" "$thinking" > "$session_path"
+      return 0
+      ;;
     partial)
       printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n' \
         "$record_provider" "$record_model" > "$session_path"
@@ -125,7 +130,9 @@ case "${1:-}" in
           exit 0
         fi
         if [ -n "${HERDR_TEST_PI_SESSION_PATH_DELAY:-}" ]; then
-          sleep "$HERDR_TEST_PI_SESSION_PATH_DELAY"
+          # Keep the pipe closed to the launcher even if the fake is killed by
+          # timeout; a child holding stdout would defeat the test's deadline.
+          sleep "$HERDR_TEST_PI_SESSION_PATH_DELAY" >/dev/null 2>&1
         fi
         pane_cwd="${HERDR_TEST_PANE_CWD-$PWD}"
         session_kind="${HERDR_TEST_PI_SESSION_KIND:-path}"
@@ -1471,7 +1478,7 @@ shared_launcher_pi_effective() {
     reset_logs
     set +e
     err="$(HERDR_TEST_PI_SESSION_KIND="$kind" "$LAUNCHER" wB:p2 impl --harness pi \
-      --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 300 2>&1 >/dev/null)"
+      --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
     rc=$?
     set -e
     [ "$rc" -eq 1 ]
@@ -1493,11 +1500,11 @@ shared_launcher_pi_effective() {
   reset_logs
   set +e
   err="$(HERDR_TEST_PI_SESSION_MODE=invalid "$LAUNCHER" wB:p2 impl --harness pi \
-    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 300 2>&1 >/dev/null)"
+    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
   rc=$?
   set -e
   [ "$rc" -eq 1 ]
-  grep -Fq 'unreadable entry' <<< "$err"
+  grep -Eq 'unreadable entry|initial entries are missing before the conversation' <<< "$err"
   ! grep -q '^effective: ' <<< "$err"
 
   # Only the first model_change and thinking_level_change are authoritative: a
@@ -1560,16 +1567,37 @@ shared_launcher_pi_effective() {
   grep -Fq 'initial entries are missing before the conversation' <<< "$err"
   ! grep -q '^effective: ' <<< "$err"
 
-  # One deadline covers the path lookup, the probe, and the record.
+  # A custom_message line is also a conversation boundary and is not parsed.
   reset_logs
   set +e
-  err="$(HERDR_TEST_PI_SESSION_PATH_DELAY=0.3 HERDR_TEST_PI_SESSION_MODE=on-prompt-late \
-    HERDR_TEST_PI_SESSION_LATE_DELAY=0.8 "$LAUNCHER" wB:p2 impl --harness pi \
+  err="$(HERDR_TEST_PI_SESSION_MODE=initial-then-custom-message "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'initial entries are missing before the conversation' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # One deadline covers the path lookup, the probe, and the record. The
+  # bounded call itself must stop at the deadline, not after a slow IPC reply.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_PATH_DELAY=1.45 "$LAUNCHER" wB:p2 impl --harness pi \
     --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
   rc=$?
   set -e
   [ "$rc" -eq 1 ]
-  grep -Eq 'did not appear|did not report model and thinking values' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_PATH_DELAY=0.2 HERDR_TEST_PI_SESSION_MODE=on-prompt-late \
+    HERDR_TEST_PI_SESSION_LATE_DELAY=2.0 "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Eq 'could not be prompted|did not appear|did not report model and thinking values' <<< "$err"
   ! grep -q '^effective: ' <<< "$err"
 
   # A record written shortly after readiness is still read within the bound.

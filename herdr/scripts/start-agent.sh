@@ -122,6 +122,14 @@ now_ms() {
   date +%s%3N
 }
 
+bounded() { # milliseconds command...
+  local remaining_ms="$1"; shift
+  local seconds
+  [ "$remaining_ms" -gt 0 ] || return 124
+  seconds="$(awk -v ms="$remaining_ms" 'BEGIN { printf "%.3f", ms / 1000 }')" || return 1
+  timeout "$seconds" "$@"
+}
+
 [ "$#" -ge 2 ] || usage
 pane="$1"
 agent_name="$2"
@@ -389,6 +397,7 @@ if grep -Eq '"agent_status"[[:space:]]*:[[:space:]]*"blocked"' <<< "$wait_output
 fi
 
 if [ "$harness" = pi ]; then
+  command -v timeout >/dev/null 2>&1 || fail 'timeout is required for a Pi start'
   # Herdr reports the session record the launched Pi agent writes. Only a
   # `kind=path` value is usable; an absent record, another kind, or a record
   # that never carries the launch values stops instead of guessing from
@@ -398,9 +407,10 @@ if [ "$harness" = pi ]; then
   pi_started="$(now_ms)"
   session_path=''
   while :; do
-    [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] || break
+    remaining_ms=$(( probe_timeout - ( $(now_ms) - pi_started ) ))
+    [ "$remaining_ms" -gt 0 ] || break
     session_json=''
-    session_json="$(herdr pane get "$pane" 2>/dev/null)" || session_json=''
+    session_json="$(bounded "$remaining_ms" herdr pane get "$pane" 2>/dev/null)" || session_json=''
     session_kind="$(jq -r '.result.pane.agent_session.kind // ""' <<< "$session_json" 2>/dev/null)" || session_kind=''
     session_candidate="$(jq -r '.result.pane.agent_session.value // ""' <<< "$session_json" 2>/dev/null)" || session_candidate=''
     if [ "$session_kind" = path ] && [ -n "$session_candidate" ]; then
@@ -422,10 +432,13 @@ if [ "$harness" = pi ]; then
   if [ ! -s "$session_path" ]; then
     [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] ||
       fail "the Pi session record did not appear within ${probe_timeout}ms (session: ${session_path})"
-    herdr agent prompt "$pane" \
+    remaining_ms=$(( probe_timeout - ( $(now_ms) - pi_started ) ))
+    [ "$remaining_ms" -gt 0 ] ||
+      fail "the Pi session record did not appear within ${probe_timeout}ms (session: ${session_path})"
+    bounded "$remaining_ms" herdr agent prompt "$pane" \
       'Startup check from the shared launcher: reply with OK only and take no other action.' \
       >/dev/null 2>&1 ||
-      fail "the Pi session could not be prompted to write its startup record"
+      fail "the Pi session could not be prompted to write its startup record within the remaining time"
     [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] ||
       fail "the Pi session record did not appear within ${probe_timeout}ms (session: ${session_path})"
   fi
@@ -446,7 +459,8 @@ if [ "$harness" = pi ]; then
       while IFS= read -r session_line; do
         [ -n "$session_line" ] || continue
         case "$session_line" in
-          '{"type":"message"'*|'{"type":"custom"'*|'{"type":"tool"'*)
+          '{"type":"session"'*|'{"type":"model_change"'*|'{"type":"thinking_level_change"'*) ;;
+          *)
             record_error='initial entries are missing before the conversation'
             break
             ;;
