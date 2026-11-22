@@ -80,6 +80,16 @@ write_pi_session() { # path mode provider model thinking
         "$provider" "$thinking" "$provider" "$model" > "$session_path"
       return 0
       ;;
+    multi-value)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"other-provider","modelId":"other-model"}{"type":"model_change","provider":"other-provider","modelId":"other-model"}\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n' \
+        "$thinking" "$provider" "$model" > "$session_path"
+      return 0
+      ;;
+    initial-then-message)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n{"type":"message","text":"conversation"}\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n' \
+        "$provider" "$model" "$thinking" > "$session_path"
+      return 0
+      ;;
     partial)
       printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n' \
         "$record_provider" "$record_model" > "$session_path"
@@ -314,18 +324,22 @@ case "${1:-}" in
           mkdir -p -- "$session_dir"
           session_path="$session_dir/${safe_pane}.jsonl"
           rm -f -- "$session_path"
-          printf '%s\n' "$session_path" > "$HERDR_TEST_STATE/pi-session-${safe_pane}"
           printf '%s|%s|%s|%s|%s\n' "$provider" "$model" "$thinking" "$pane" "$session_mode" \
             > "$HERDR_TEST_STATE/pi-start-${safe_pane}"
           if [ "$session_mode" = on-prompt ] || [ "$session_mode" = on-prompt-late ]; then
             # Pi creates the record on the first turn; the launcher's startup
             # probe is what makes it appear in this mode. `on-prompt-late`
             # delays the write to test the shared deadline.
-            :
+            printf '%s\n' "$session_path" > "$HERDR_TEST_STATE/pi-session-${safe_pane}"
           elif [ "$session_mode" = late ]; then
+            printf '%s\n' "$session_path" > "$HERDR_TEST_STATE/pi-session-${safe_pane}"
             ( sleep 0.3; write_pi_session "$session_path" "$session_mode" "$provider" "$model" "$thinking" ) &
           else
+            # Publish the path only after the record is complete, so a test
+            # that expects an unreadable or empty record is not racing the
+            # launcher's first read.
             write_pi_session "$session_path" "$session_mode" "$provider" "$model" "$thinking"
+            printf '%s\n' "$session_path" > "$HERDR_TEST_STATE/pi-session-${safe_pane}"
           fi
         fi
         exit "${HERDR_TEST_START_RC:-0}"
@@ -350,11 +364,9 @@ case "${1:-}" in
           if [ "$start_mode" = on-prompt ] || [ "$start_mode" = on-prompt-late ]; then
             session_path="$HERDR_TEST_STATE/pi-sessions/${safe_pane}.jsonl"
             if [ "$start_mode" = on-prompt-late ]; then
-              ( sleep "${HERDR_TEST_PI_SESSION_LATE_DELAY:-0.3}"; \
-                write_pi_session "$session_path" match "$start_provider" "$start_model" "$start_thinking" ) &
-            else
-              write_pi_session "$session_path" match "$start_provider" "$start_model" "$start_thinking"
+              sleep "${HERDR_TEST_PI_SESSION_LATE_DELAY:-0.3}"
             fi
+            write_pi_session "$session_path" match "$start_provider" "$start_model" "$start_thinking"
           fi
         fi
         exit "${HERDR_TEST_RC:-0}"
@@ -1471,7 +1483,7 @@ shared_launcher_pi_effective() {
     reset_logs
     set +e
     err="$(HERDR_TEST_PI_SESSION_MODE="$mode" "$LAUNCHER" wB:p2 impl --harness pi \
-      --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 300 2>&1 >/dev/null)"
+      --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
     rc=$?
     set -e
     [ "$rc" -eq 1 ]
@@ -1526,16 +1538,38 @@ shared_launcher_pi_effective() {
   grep -Fq 'unreadable' <<< "$err"
   ! grep -q '^effective: ' <<< "$err"
 
+  # More than one JSON value on an initial line is not skipped for a later one.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=multi-value "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'multiple entries on one line' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A conversation entry before both initial values stops the read.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=initial-then-message "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'initial entries are missing before the conversation' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
   # One deadline covers the path lookup, the probe, and the record.
   reset_logs
   set +e
-  err="$(HERDR_TEST_PI_SESSION_PATH_DELAY=0.6 HERDR_TEST_PI_SESSION_MODE=on-prompt-late \
-    HERDR_TEST_PI_SESSION_LATE_DELAY=0.6 "$LAUNCHER" wB:p2 impl --harness pi \
+  err="$(HERDR_TEST_PI_SESSION_PATH_DELAY=0.3 HERDR_TEST_PI_SESSION_MODE=on-prompt-late \
+    HERDR_TEST_PI_SESSION_LATE_DELAY=0.8 "$LAUNCHER" wB:p2 impl --harness pi \
     --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
   rc=$?
   set -e
   [ "$rc" -eq 1 ]
-  grep -Fq 'did not report model and thinking values' <<< "$err"
+  grep -Eq 'did not appear|did not report model and thinking values' <<< "$err"
   ! grep -q '^effective: ' <<< "$err"
 
   # A record written shortly after readiness is still read within the bound.

@@ -74,7 +74,7 @@ starter には 2 つの経路がある。
 
    `--role` はプロファイルのロール名であり、タスク文面の `role: orchestrator` とは別物である。agent 名も単なるラベルで、ロール名と一致する必要はない。`--profile` を省略すると `active`、次に `default` を使う。`--resolver <path>` はモデル仕様リゾルバを差し替えるテスト・上級者向けのオプションで、絶対パスで指定する（start は変換せず `team-record.sh` へ渡す）。
 
-   スクリプトは `team-record.sh resolve --only-role <role>` で仕様を解決し、共有ランチャー（`start-agent.sh`）を呼んで起動する。解決結果を stderr と委譲本文の末尾（返却指示の前）へ `launch:` 行として出す。Claude の場合はランチャーの `effective:` 行も同じ位置へ転記する。Pi の `effective:` 行はエージェント自身が出す。
+   スクリプトは `team-record.sh resolve --only-role <role>` で仕様を解決し、共有ランチャー（`start-agent.sh`）を呼んで起動する。解決結果を stderr と委譲本文の末尾（返却指示の前）へ `launch:` 行として出し、ランチャーの `effective:` 行も同じ位置へ転記する。Pi / Claude とも `effective:` 行はランチャーが出す。
 
    行の形式、`harness` と `spec` の接頭辞一致、複数行のときの正本は [Launch and effective lines](../../_docs/pi-development.md#launch-and-effective-lines)。starter は stderr の `launch:` 行を応答に含める。内容が曖昧なら停止する。
 
@@ -164,7 +164,7 @@ herdr pane rename <pane-id> <role>
 herdr/scripts/parent-delegate-async.sh <pane-id> "$(cat <task-file>)"
 ```
 
-`start-agent.sh` は引数検証と preflight、`herdr agent start --kind <harness>`、起動後の有界待機、Claude の `probe:`/`effective:` 行を所有する。`launch:` / `effective:` の形式と不変条件は [Launch and effective lines](../../_docs/pi-development.md#launch-and-effective-lines) を正本とする。rename とタスク委譲はランチャーの責務ではない。
+`start-agent.sh` は引数検証と preflight、`herdr agent start --kind <harness>`、起動後の有界待機、`probe:` 行（Claude のみ）、`effective:` 行を所有する。`launch:` / `effective:` の形式と不変条件は [Launch and effective lines](../../_docs/pi-development.md#launch-and-effective-lines) を正本とする。rename とタスク委譲はランチャーの責務ではない。
 
 `worktree-team-start.sh` は何よりも先に辺を分類し、共有ランチャーで起動し、エージェントが対話可能になるまでの有界待機、`herdr pane rename <pane-id> <role>`、最後に `parent-delegate-async.sh` 経由のタスク本文（直接の親への返却指示を追加する）を行う。起動、準備完了待機、rename のいずれかが失敗すると、プロンプトの前にコマンドが停止する。scope 拒否は終了コード 3 で終わる。プロンプトの失敗は通信失敗である。エージェントはペイン内で起動・rename されたままなので、隣に 2 人目を起動せず、そのペインを調べる（`herdr agent get`、`herdr agent read`）。エージェントのフラグは、個別の引数として渡す 1 行のトークンである。`herdr agent start` は複数行の AGENT_ARG を、何かが起動する前に拒否する。
 

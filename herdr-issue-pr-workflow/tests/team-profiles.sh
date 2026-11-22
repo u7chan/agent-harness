@@ -66,7 +66,8 @@ assert 'footer だけで一致とみなさない' in template
 assert '.model.id' not in template and '.effort.level' not in template
 assert '../../_docs/pi-development.md#launch-and-effective-lines' in template
 assert '`spec_source=profile` のときだけ' in template
-assert '明示 alias を一度限りで使った起動では canonical な `model`' in template
+assert '明示 alias を一度限りで使った起動（`spec_source=explicit`）では、canonical な `model`' in template
+assert '`spec` の model token との等値照合を要求しない' in template
 # Route 2 has no approved team from the starter, so the handoff enters the
 # canonical gate instead of assuming one. Route 1 may start at Start the team
 # only after confirming the approved composition.

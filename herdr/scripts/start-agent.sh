@@ -393,19 +393,21 @@ if [ "$harness" = pi ]; then
   # `kind=path` value is usable; an absent record, another kind, or a record
   # that never carries the launch values stops instead of guessing from
   # `$PI_*` or the pane footer. One deadline covers the path lookup, the probe,
-  # and the record read so a slow path cannot grant a second full wait.
+  # and the record read so a slow path or a late write cannot grant a second
+  # full wait.
   pi_started="$(now_ms)"
   session_path=''
   while :; do
+    [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] || break
     session_json=''
     session_json="$(herdr pane get "$pane" 2>/dev/null)" || session_json=''
     session_kind="$(jq -r '.result.pane.agent_session.kind // ""' <<< "$session_json" 2>/dev/null)" || session_kind=''
     session_candidate="$(jq -r '.result.pane.agent_session.value // ""' <<< "$session_json" 2>/dev/null)" || session_candidate=''
     if [ "$session_kind" = path ] && [ -n "$session_candidate" ]; then
+      [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] || break
       session_path="$session_candidate"
       break
     fi
-    [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] || break
     sleep 0.2
   done
   case "$session_path" in
@@ -415,7 +417,8 @@ if [ "$harness" = pi ]; then
 
   # Pi writes its session record on the first turn, not at startup. A minimal
   # startup probe makes the record appear without consuming the task body; the
-  # probe's reply stays in the session and the caller's task follows it.
+  # probe's reply stays in the session and the caller's task follows it. The
+  # probe and its write are bounded by the same deadline.
   if [ ! -s "$session_path" ]; then
     [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] ||
       fail "the Pi session record did not appear within ${probe_timeout}ms (session: ${session_path})"
@@ -423,27 +426,48 @@ if [ "$harness" = pi ]; then
       'Startup check from the shared launcher: reply with OK only and take no other action.' \
       >/dev/null 2>&1 ||
       fail "the Pi session could not be prompted to write its startup record"
+    [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] ||
+      fail "the Pi session record did not appear within ${probe_timeout}ms (session: ${session_path})"
   fi
 
   # Read the record line by line and stop as soon as the first model_change
-  # and thinking_level_change are known. An unreadable or incomplete entry
-  # before both are known is a failure, not a line to skip; a later value must
-  # never stand in for a broken initial one.
+  # and thinking_level_change are known. A conversation entry before both means
+  # the initial values are missing: stop without parsing the conversation. An
+  # unreadable, multi-value, or incomplete initial entry is a failure, never a
+  # line to skip; a later value must not stand in for a broken initial one.
   launched_provider=''
   launched_model=''
   launched_thinking=''
   record_error=''
   while :; do
+    [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] || break
     if [ -s "$session_path" ]; then
       record_error=''
       while IFS= read -r session_line; do
         [ -n "$session_line" ] || continue
+        case "$session_line" in
+          '{"type":"message"'*|'{"type":"custom"'*|'{"type":"tool"'*)
+            record_error='initial entries are missing before the conversation'
+            break
+            ;;
+        esac
         session_entry=''
         session_entry="$(jq -c . <<< "$session_line" 2>/dev/null)" || {
           record_error='unreadable entry'
           break
         }
+        if [ "$(printf '%s\n' "$session_entry" | wc -l | tr -d ' ')" -ne 1 ]; then
+          record_error='multiple entries on one line'
+          break
+        fi
         session_type="$(jq -r '.type // ""' <<< "$session_entry" 2>/dev/null)" || session_type=''
+        case "$session_type" in
+          session | model_change | thinking_level_change) ;;
+          *)
+            record_error='initial entries are missing before the conversation'
+            break
+            ;;
+        esac
         case "$session_type" in
           model_change)
             if [ -z "$launched_provider" ] && [ -z "$launched_model" ]; then
@@ -476,10 +500,10 @@ if [ "$harness" = pi ]; then
         break
       fi
     fi
-    [ "$(( $(now_ms) - pi_started ))" -lt "$probe_timeout" ] || break
     sleep 0.2
   done
-  if [ -z "$launched_provider" ] || [ -z "$launched_model" ] || [ -z "$launched_thinking" ]; then
+  if [ -z "$launched_provider" ] || [ -z "$launched_model" ] || [ -z "$launched_thinking" ] ||
+    [ "$(( $(now_ms) - pi_started ))" -ge "$probe_timeout" ]; then
     fail "the Pi session record did not report model and thinking values within ${probe_timeout}ms (session: ${session_path})"
   fi
   if [ "$launched_provider" != "$provider" ] || [ "$launched_model" != "$model" ] || [ "$launched_thinking" != "$thinking" ]; then

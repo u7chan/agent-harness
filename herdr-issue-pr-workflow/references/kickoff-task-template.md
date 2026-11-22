@@ -18,8 +18,7 @@ role: orchestrator
 
 `launch:` 行と `effective:` 行の形式、`harness` と `spec` の接頭辞一致、本文に複数ある場合の扱いは [Launch and effective lines](../../_docs/pi-development.md#launch-and-effective-lines) を正本とする。`spec` は正本の文字列であり、`harness` がその接頭辞と一致しない行は使わない。
 
-- `effective:` 行の `requested=` が `launch:` 行の `spec` と一致することを確認する。`spec` の `provider` / `model` / `thinking`（Pi）または `model` / `effort` / `permission_mode`（Claude）と、`effective:` の値も一致することを確認する。接頭辞を落として比較してはいけない。
-- `spec_source=profile` のときだけ、`model` が保存済みの canonical 完全 ID と一致することを確認する。明示 alias を一度限りで使った起動では canonical な `model` を今回の実効仕様として報告し、保存済み spec と比較しない。
+- `effective:` 行の `requested=` が `launch:` 行の `spec` と一致することを確認する。`spec` の `provider` / `thinking`（Pi）と `effort`（Claude）が `effective:` の値と一致することも確認する。`spec_source=profile` のときだけ、`model` が保存済みの canonical 完全 ID と一致することを確認する。明示 alias を一度限りで使った起動（`spec_source=explicit`）では、canonical な `model` を今回の実効仕様として報告し、`spec` の model token との等値照合を要求しない。接頭辞を落として比較してはいけない。
 - 行がタスク文面に無い、値が取得できない、または照合できない場合は、作業を始めずに停止して起動元へ報告する。footer（`herdr agent read <pane-id> --source visible`）は補助に留め、footer だけで一致とみなさない。
 
 実行結果が `spec` と一致しない、または行が曖昧な場合は、作業を始めずに停止して起動元へ報告する。
