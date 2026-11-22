@@ -71,7 +71,12 @@ Commands used by the harnesses and by this repository's documented procedures:
 
 The shared development profile/model helpers require Node.js, and so does
 `herdr/scripts/start-agent.sh`, which parses one role specification through the
-same grammar before it starts an agent.
+same grammar before it starts an agent. The shared Claude trust check
+(`herdr/scripts/lib/claude-trust.sh`, used by the launcher and
+`herdr/scripts/claude-trust.sh`) validates and classifies the state file from one
+read with Node's `JSON.parse`, so `Infinity`, `NaN`, and trailing data are
+rejected the way the CLI rejects them and a file swapped between two reads
+cannot be approved unvalidated.
 [explain-video](explain-video/SKILL.md#prerequisites) additionally requires
 Node.js, FFmpeg/ffprobe, the Playwright/Chromium environment, and fonts covering
 the caption language. FFmpeg remains optional for other workflows; it is not a
@@ -82,7 +87,11 @@ state file (`$CLAUDE_CONFIG_DIR/.claude.json`, or `~/.claude.json` when that
 variable is unset) to approve the pane's working directory before it starts a
 Claude agent, and it never writes that file and never passes
 `--dangerously-skip-permissions`. An unapproved directory stops the start with
-the approval instructions instead of launching the CLI.
+the approval instructions instead of launching the CLI. The decision itself is
+the human's: `herdr/scripts/claude-trust.sh "<worktree-root>"` records it for one
+git worktree root, and [the Herdr skill](herdr/SKILL.md#claude-trust-approval)
+owns the conditions under which an agent may run it and what the record
+approves.
 
 ## Install
 

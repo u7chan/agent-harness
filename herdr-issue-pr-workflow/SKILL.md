@@ -41,11 +41,7 @@ Issue 起票前に次の表を適用する。手順は [`herdr-issue-review`](..
 
 1. 一意に特定できる GitHub Issue 参照を要求する。なければユーザーに尋ねる。
 2. Herdr の事前検証を通し、Herdr スキルの条件に加えて `HERDR_WORKSPACE_ID` を必須とする。
-3. チームで使うハーネスの CLI を必須とする。Pi は `pi` を確認し、`pi --list-models` から実際に利用可能なモデル一覧を取得する。Claude は `claude` と `claude auth status` の `loggedIn=true` を確認し、`~/.claude/skills` からこのリポジトリのスキルをロードできることを確かめる。チームのハーネスがまだ決まっていない場合は、[Kickoff gate](#kickoff-gate) が解決するプロファイルのハーネスで判断し、起動前に同じ確認を行う。trust は共有ランチャーが読み取り専用で確認する。未承認なら次の固定行で停止する。
-
-   ```text
-   claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。
-   ```
+3. チームで使うハーネスの CLI を必須とする。Pi は `pi` を確認し、`pi --list-models` から実際に利用可能なモデル一覧を取得する。Claude は `claude` と `claude auth status` の `loggedIn=true` を確認し、`~/.claude/skills` からこのリポジトリのスキルをロードできることを確かめる。チームのハーネスがまだ決まっていない場合は、[Kickoff gate](#kickoff-gate) が解決するプロファイルのハーネスで判断し、起動前に同じ確認を行う。trust は共有ランチャーが読み取り専用で確認する。未承認で停止したときの固定行と、人間が 1 コマンドで承認を記録する手順は [Claude trust approval](../herdr/SKILL.md#claude-trust-approval) を正本とし、同じ文をここへ複製しない。
 
 4. GH スキルで Issue 本文と会話コメントを読む。本文の `pi:human-brief` 範囲は除く。
 5. 対象リポジトリの指示と Git/worktree の状態を確認する。

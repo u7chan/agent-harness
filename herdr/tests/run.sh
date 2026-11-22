@@ -8,6 +8,7 @@ CHILD_SCRIPT="$HERDR_DIR/scripts/child-return-result.sh"
 START_SCRIPT="$HERDR_DIR/scripts/worktree-team-start.sh"
 GRANT_SCRIPT="$HERDR_DIR/scripts/scope-grant.sh"
 LAYOUT_SCRIPT="$HERDR_DIR/scripts/pane-layout.sh"
+TRUST_SCRIPT="$HERDR_DIR/scripts/claude-trust.sh"
 TEST_TMP="$(mktemp -d /tmp/herdr-async-test-XXXXXX)"
 TEST_TMP="$(cd "$TEST_TMP" && pwd -P)"
 MOCK_BIN="$TEST_TMP/bin"
@@ -418,6 +419,20 @@ esac
 MOCK
 chmod +x "$MOCK_BIN/claude"
 
+# Fake `ps` for the trust writer. The writer scans for running `claude`
+# processes of this user, so a hermetic suite must not see the machine's own
+# sessions: this stand-in prints only the lines a test wrote, and fails on
+# demand so the "cannot confirm" path is covered without depending on the host.
+cat > "$MOCK_BIN/ps" <<'MOCK'
+#!/usr/bin/env bash
+[ "${HERDR_TEST_TRUST_PS_RC:-0}" -eq 0 ] || exit "${HERDR_TEST_TRUST_PS_RC}"
+# A process table is never empty on a real host, so the baseline line keeps the
+# reader's "empty output is unconfirmable" rule honest.
+printf '1\t0\tinit\n'
+cat "${HERDR_TEST_TRUST_PS_LINES:-/dev/null}" 2>/dev/null
+MOCK
+chmod +x "$MOCK_BIN/ps"
+
 export PATH="$MOCK_BIN:$PATH"
 export HERDR_ENV=1
 export HERDR_WORKSPACE_ID=wG
@@ -430,6 +445,10 @@ export HERDR_TEST_STARTS="$MOCK_LOG/starts"
 export HERDR_TEST_WAITS="$MOCK_LOG/waits"
 export HERDR_TEST_RENAMES="$MOCK_LOG/renames"
 export HERDR_TEST_CLAUDE_CALLS="$MOCK_LOG/claude-calls"
+# The fake `ps` reads this file: one `<pid>\t<uid>\t<command line>` line per
+# process the test wants the trust writer to see.
+export HERDR_TEST_TRUST_PS_LINES="$MOCK_LOG/trust-ps-lines"
+: > "$HERDR_TEST_TRUST_PS_LINES"
 # The fake `claude auth status` reports $HERDR_TEST_CLAUDE_HOME/.claude unless
 # HERDR_TEST_CLAUDE_CONFIG_DIR names an explicit config directory.
 export HERDR_TEST_CLAUDE_HOME="$TEST_TMP/claude-home"
@@ -1613,6 +1632,7 @@ shared_launcher_pi_effective() {
 
 shared_launcher_claude_preflight() {
   local case_name config err rc probe settings command_line empty_home
+  local expected_state trusted_path
   probe="$TMPDIR/agent-harness/claude-spec/wB_p2.json"
   settings="$TMPDIR/agent-harness/claude-spec/wB_p2.settings.json"
 
@@ -1632,10 +1652,11 @@ shared_launcher_claude_preflight() {
   [ ! -s "$HERDR_TEST_STARTS" ]
   ! grep -q '^pane get ' "$HERDR_TEST_CALLS"
 
-  # The trust file is read-only and fail closed: a missing file, `false`,
-  # invalid JSON, and a project without the key are all unapproved, and the
-  # file is byte-identical afterwards.
-  for case_name in missing false invalid no-key; do
+  # The trust file is read-only and fail closed: a missing file, an unreadable
+  # file, invalid JSON, an unexpected shape, `false`, and a project without the
+  # key are all unapproved, and the file is byte-identical afterwards. The stop
+  # line names the writer command a human can run and the shared procedure.
+  for case_name in missing false invalid no-key unreadable unexpected-shape trailing-json infinity; do
     config="$(claude_config_dir "$case_name")"
     rm -f "$config/before"
     case "$case_name" in
@@ -1649,8 +1670,31 @@ shared_launcher_claude_preflight() {
         printf '{"projects":{"%s":{"hasCompletedProjectOnboarding":true}}}\n' \
           "$(realpath -m -- "$CLAUDE_TRUSTED_DIR")" > "$config/.claude.json"
         ;;
+      unreadable) printf '{"projects":{}}\n' > "$config/.claude.json" ;;
+      unexpected-shape) printf '[]\n' > "$config/.claude.json" ;;
+      trailing-json)
+        # A valid record followed by a second JSON value: `jq` would evaluate
+        # the first value alone, so the reader must reject the document.
+        printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}}}{"projects":{}}\n' \
+          "$(realpath -m -- "$CLAUDE_TRUSTED_DIR")" > "$config/.claude.json"
+        ;;
+      infinity)
+        # One document, but with a non-standard JSON constant. `jq` accepts
+        # `Infinity` and would let the start through; the CLI rejects the file.
+        printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}},"note":Infinity}\n' \
+          "$(realpath -m -- "$CLAUDE_TRUSTED_DIR")" > "$config/.claude.json"
+        ;;
     esac
     [ ! -e "$config/.claude.json" ] || cp "$config/.claude.json" "$config/before"
+    [ "$case_name" != unreadable ] || chmod 000 "$config/.claude.json"
+    case "$case_name" in
+      missing) expected_state='missing-file' ;;
+      no-key) expected_state='missing-key' ;;
+      invalid) expected_state='invalid-json' ;;
+      trailing-json) expected_state='invalid-json' ;;
+      infinity) expected_state='invalid-json' ;;
+      *) expected_state="$case_name" ;;
+    esac
     reset_logs
     set +e
     err="$(CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$CLAUDE_TRUSTED_DIR" \
@@ -1659,10 +1703,12 @@ shared_launcher_claude_preflight() {
     rc=$?
     set -e
     [ "$rc" -eq 1 ]
-    grep -Fqx "claude-trust: $(realpath -m -- "$CLAUDE_TRUSTED_DIR") が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。" <<< "$err"
+    trusted_path="$(realpath -m -- "$CLAUDE_TRUSTED_DIR")"
+    grep -Fqx "claude-trust: $trusted_path が未承認です（state: $expected_state）。人間が \`'$TRUST_SCRIPT' '$trusted_path'\` を実行して承認を記録するか、そのディレクトリで claude を一度起動して TUI で trust を承認してください。手順: herdr/SKILL.md の \"Claude trust approval\"。" <<< "$err"
     [ ! -s "$HERDR_TEST_STARTS" ]
     ! grep -q '^launch: ' <<< "$err"
     ! grep -q '^probe: ' <<< "$err"
+    [ "$case_name" != unreadable ] || chmod 600 "$config/.claude.json"
     if [ -e "$config/before" ]; then
       cmp -s "$config/.claude.json" "$config/before"
     else
@@ -2334,6 +2380,552 @@ markdown_check() { # <skill-dir>...
   "$MARKDOWN_CHECK" "$@"
 }
 
+# --- Claude trust approval: shared vocabulary, writer, write conditions -----
+
+# A real repository with a linked worktree. The writer refuses anything that is
+# not a worktree root, so a plain directory fixture cannot stand in for one.
+TRUST_REPO="$TEST_TMP/trust-repo"
+TRUST_WORKTREE="$TEST_TMP/trust-worktree"
+
+trust_worktree() {
+  if [ ! -f "$TRUST_WORKTREE/.git" ]; then
+    git init -q "$TRUST_REPO"
+    git -C "$TRUST_REPO" -c user.email=trust@example.invalid -c user.name=trust \
+      commit -q --allow-empty -m init
+    git -C "$TRUST_REPO" worktree add -q "$TRUST_WORKTREE" -b trust-worktree
+  fi
+  printf '%s' "$TRUST_WORKTREE"
+}
+
+trust_config() { # <tag> [<document>] -> prints a fresh config directory
+  local dir="$TEST_TMP/trust-config-$1"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  if [ "$#" -ge 2 ]; then
+    printf '%s\n' "$2" > "$dir/.claude.json"
+    chmod 600 "$dir/.claude.json"
+  fi
+  printf '%s' "$dir"
+}
+
+trust_approved() { # <config-directory> <target>
+  [ "$(jq -r --arg path "$2" '.projects[$path].hasTrustDialogAccepted' "$1/.claude.json")" = true ]
+}
+
+run_trust() { # <command...>; sets trust_out and trust_rc
+  local rc=0
+  set +e
+  trust_out="$("$@" 2>&1)"
+  rc=$?
+  set -e
+  trust_rc=$rc
+}
+
+claude_trust_state_classes() {
+  local dir="$TEST_TMP/trust-states"
+  local file="$dir/.claude.json"
+  local target="$TEST_TMP/trust-state-target"
+  mkdir -p "$dir"
+  (
+    # shellcheck source=../scripts/lib/claude-trust.sh
+    source "$HERDR_DIR/scripts/lib/claude-trust.sh"
+    check() { # <expected> <description>
+      local got
+      got="$(claude_trust_state "$file" "$target")" || return 1
+      if [ "$got" != "$1" ]; then
+        printf 'expected %s, got %s (%s)\n' "$1" "$got" "$2" >&2
+        return 1
+      fi
+    }
+    rm -f "$file"
+    check missing-file 'no state file'
+    printf '{"projects":{}}\n' > "$file"
+    check missing-key 'projects without the directory'
+    printf '{"projects":{"%s":{"hasCompletedProjectOnboarding":true}}}\n' "$target" > "$file"
+    check missing-key 'entry without the trust key'
+    printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}}}\n' "$target" > "$file"
+    check false 'an explicit false'
+    printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}}}\n' "$target" > "$file"
+    check true 'an explicit true'
+    printf 'not json\n' > "$file"
+    check invalid-json 'a document that is not JSON'
+    printf '[]\n' > "$file"
+    check unexpected-shape 'a top-level array'
+    printf '{"projects":[]}\n' > "$file"
+    check unexpected-shape 'projects that is not an object'
+    printf '{"projects":null}\n' > "$file"
+    check unexpected-shape 'projects that is null'
+    printf '{"projects":{}}{}\n' > "$file"
+    check invalid-json 'a second JSON value after the document'
+    printf '{"projects":{}} trailing\n' > "$file"
+    check invalid-json 'trailing data after the document'
+    printf '{"note":Infinity}\n' > "$file"
+    check invalid-json 'the Infinity constant'
+    printf '{"note":-Infinity}\n' > "$file"
+    check invalid-json 'the -Infinity constant'
+    printf '{"note":NaN}\n' > "$file"
+    check invalid-json 'the NaN constant'
+    printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}},"note":"Infinity"}\n' "$target" > "$file"
+    check false 'a string that only spells Infinity'
+    printf '{"projects":{"%s":"yes"}}\n' "$target" > "$file"
+    check unexpected-shape 'an entry that is not an object'
+    printf '{"projects":{"%s":{"hasTrustDialogAccepted":"true"}}}\n' "$target" > "$file"
+    check unexpected-shape 'a trust value that is not a boolean'
+    chmod 000 "$file"
+    check unreadable 'a state file that cannot be read'
+    chmod 600 "$file"
+    # The classification never fails a caller under set -e.
+    rm -f "$file"
+    claude_trust_state "$file" "$target" >/dev/null
+  )
+}
+
+claude_trust_writer() {
+  local target config before
+  target="$(trust_worktree)"
+
+  # Only the target key changes; other projects, unknown keys, and top-level
+  # values survive, and the file becomes private.
+  config="$(trust_config merge "{\"hasCompletedOnboarding\":true,\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false,\"allowedTools\":[\"Read\"],\"mcpServers\":{}},\"/tmp/other-project\":{\"hasTrustDialogAccepted\":true,\"lastVersionBase\":\"2.1.330\"}}}")"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fqx "target: $target" <<< "$trust_out"
+  grep -Fqx "trust-file: $config/.claude.json" <<< "$trust_out"
+  grep -Fqx 'state: false' <<< "$trust_out"
+  grep -Fqx "key: projects[\"$target\"].hasTrustDialogAccepted=true" <<< "$trust_out"
+  grep -Fqx 'result: approved' <<< "$trust_out"
+  [ "$(stat -c '%a' "$config/.claude.json")" = 600 ]
+  trust_approved "$config" "$target"
+  [ "$(jq -r --arg path "$target" '.projects[$path].allowedTools[0]' "$config/.claude.json")" = Read ]
+  [ "$(jq -r '.projects["/tmp/other-project"].hasTrustDialogAccepted' "$config/.claude.json")" = true ]
+  [ "$(jq -r '.projects["/tmp/other-project"].lastVersionBase' "$config/.claude.json")" = 2.1.330 ]
+  [ "$(jq -r '.hasCompletedOnboarding' "$config/.claude.json")" = true ]
+
+  # Idempotent: a second run reports the approved state and changes no byte.
+  before="$TEST_TMP/trust-before.json"
+  cp "$config/.claude.json" "$before"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fqx 'state: true' <<< "$trust_out"
+  grep -Fqx 'result: already-approved' <<< "$trust_out"
+  cmp -s "$config/.claude.json" "$before"
+
+  # A missing state file becomes a minimal document with only the target key,
+  # created private.
+  config="$(trust_config create)"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fqx 'state: missing-file' <<< "$trust_out"
+  grep -Fqx 'result: approved' <<< "$trust_out"
+  [ "$(stat -c '%a' "$config/.claude.json")" = 600 ]
+  [ "$(jq -c . "$config/.claude.json")" = "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":true}}}" ]
+  # A repeated run leaves that document alone too.
+  cp "$config/.claude.json" "$before"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fqx 'result: already-approved' <<< "$trust_out"
+  cmp -s "$config/.claude.json" "$before"
+
+  # A missing project entry adds one entry and leaves the others false.
+  config="$(trust_config missing-key '{"projects":{"/tmp/other-project":{"hasTrustDialogAccepted":false}}}')"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fqx 'state: missing-key' <<< "$trust_out"
+  trust_approved "$config" "$target"
+  [ "$(jq -r '.projects["/tmp/other-project"].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
+
+  # Without CLAUDE_CONFIG_DIR the state file is the one the launcher reads:
+  # `<reported-config-directory>/../.claude.json`, never `<dir>/.claude.json`
+  # and never a guess from $HOME.
+  config="$(trust_config default-home)"
+  run_trust env -u CLAUDE_CONFIG_DIR HERDR_TEST_CLAUDE_HOME="$config" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fqx "trust-file: $config/.claude.json" <<< "$trust_out"
+  trust_approved "$config" "$target"
+  [ ! -e "$config/.claude/.claude.json" ]
+
+  # Numbers are carried through as their original text. `1e400` is a valid JSON
+  # number that a float round-trip turns into Infinity (and an int beyond 2^53
+  # loses digits), so the writer either keeps them verbatim or refuses without
+  # touching the file.
+  config="$(trust_config numbers "{\"threshold\":1e400,\"big\":123456789012345678901234567890,\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  cp "$config/.claude.json" "$before"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  if [ "$trust_rc" -eq 0 ]; then
+    grep -Fq '"threshold": 1e400' "$config/.claude.json"
+    grep -Fq '123456789012345678901234567890' "$config/.claude.json"
+    trust_approved "$config" "$target"
+  else
+    grep -Fq 'result: refused' <<< "$trust_out"
+    cmp -s "$config/.claude.json" "$before"
+  fi
+  ! grep -Fq 'Infinity' "$config/.claude.json"
+
+  # A non-standard constant is a syntax error for the CLI. A trusted record
+  # next to it must not become an `already-approved` success, and the file must
+  # stay untouched. A string that merely spells Infinity is ordinary JSON.
+  config="$(trust_config infinity "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":true}},\"note\":Infinity}")"
+  cp "$config/.claude.json" "$before"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=invalid-json' <<< "$trust_out"
+  cmp -s "$config/.claude.json" "$before"
+  config="$(trust_config infinity-string "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}},\"note\":\"Infinity\"}")"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  trust_approved "$config" "$target"
+  grep -Fq '"note": "Infinity"' "$config/.claude.json"
+}
+
+claude_trust_write_conditions() {
+  local target config before pid
+  target="$(trust_worktree)"
+
+  # Usage errors and paths that are not an absolute worktree root never write.
+  expect_rc 2 "$TRUST_SCRIPT"
+  expect_rc 2 "$TRUST_SCRIPT" one two
+  config="$(trust_config conditions "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  run_trust "$TRUST_SCRIPT" "$(basename "$target")"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=not-absolute' <<< "$trust_out"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$TEST_TMP/trust-missing-path"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=missing-path' <<< "$trust_out"
+  mkdir -p "$target/subdirectory"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target/subdirectory"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=not-worktree-root' <<< "$trust_out"
+  rmdir "$target/subdirectory"
+  mkdir -p "$TEST_TMP/trust-outside-git"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$TEST_TMP/trust-outside-git"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=not-worktree-root' <<< "$trust_out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
+
+  # A state file the writer cannot classify is never initialized.
+  for config in "$(trust_config invalid-json 'not json')" "$(trust_config unexpected-shape '[]')"; do
+    before="$TEST_TMP/trust-refused.json"
+    cp "$config/.claude.json" "$before"
+    run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+    [ "$trust_rc" -eq 1 ]
+    grep -Fq 'result: refused' <<< "$trust_out"
+    cmp -s "$config/.claude.json" "$before"
+  done
+  config="$(trust_config invalid-json 'not json')"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  grep -Fq 'reason=invalid-json' <<< "$trust_out"
+  config="$(trust_config unexpected-shape '[]')"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  grep -Fq 'reason=unexpected-shape' <<< "$trust_out"
+
+  # The lock beside the state file serializes approvals.
+  config="$(trust_config lock "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  mkdir "$config/.claude.json.approval.lock"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=lock-held' <<< "$trust_out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
+  rmdir "$config/.claude.json.approval.lock"
+
+  # A claude process sharing the state file blocks the write, and the same
+  # command succeeds once it exits. The fake `ps` reports exactly this process.
+  config="$(trust_config running "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  CLAUDE_CONFIG_DIR="$config" bash -c 'exec -a claude sleep 60' &
+  pid=$!
+  printf '%s\t%s\t%s\n' "$pid" "$(id -u)" 'claude 60' >> "$HERDR_TEST_TRUST_PS_LINES"
+  sleep 0.3
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=claude-running' <<< "$trust_out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  : > "$HERDR_TEST_TRUST_PS_LINES"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fq 'result: approved' <<< "$trust_out"
+
+  # A claude process with another state file is not a conflict.
+  config="$(trust_config unrelated "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  CLAUDE_CONFIG_DIR="$TEST_TMP/trust-other-running" bash -c 'exec -a claude sleep 60' &
+  pid=$!
+  printf '%s\t%s\t%s\n' "$pid" "$(id -u)" 'claude 60' >> "$HERDR_TEST_TRUST_PS_LINES"
+  sleep 0.3
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  : > "$HERDR_TEST_TRUST_PS_LINES"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fq 'result: approved' <<< "$trust_out"
+
+  # When the scan cannot rule out a running claude, nothing is written.
+  config="$(trust_config unconfirmed "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  run_trust env HERDR_TEST_TRUST_PS_RC=1 CLAUDE_CONFIG_DIR="$config" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=claude-unconfirmed' <<< "$trust_out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
+
+  # A default-config claude (no CLAUDE_CONFIG_DIR) is resolved from its own
+  # HOME, not from the writer's environment. Both share $home/.claude.json here:
+  # the writer carries an explicit CLAUDE_CONFIG_DIR=$home and the process is a
+  # default-config session with HOME=$home.
+  home="$TEST_TMP/trust-home"
+  rm -rf "$home"
+  mkdir -p "$home"
+  printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}}}\n' "$target" > "$home/.claude.json"
+  chmod 600 "$home/.claude.json"
+  env -u CLAUDE_CONFIG_DIR HOME="$home" bash -c 'exec -a claude sleep 60' &
+  pid=$!
+  printf '%s\t%s\t%s\n' "$pid" "$(id -u)" 'claude 60' >> "$HERDR_TEST_TRUST_PS_LINES"
+  sleep 0.3
+  run_trust env CLAUDE_CONFIG_DIR="$home" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=claude-running' <<< "$trust_out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$home/.claude.json")" = false ]
+  # The same conflict is found when the writer itself uses the default config.
+  run_trust env -u CLAUDE_CONFIG_DIR HERDR_TEST_CLAUDE_HOME="$home" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=claude-running' <<< "$trust_out"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  : > "$HERDR_TEST_TRUST_PS_LINES"
+
+  # A relative CLAUDE_CONFIG_DIR belongs to the process's cwd, not to the
+  # writer's. The process runs in directory A with `CLAUDE_CONFIG_DIR=config`,
+  # and the writer runs in directory B with A/config as an absolute path.
+  relative_a="$TEST_TMP/trust-relative-a"
+  relative_b="$TEST_TMP/trust-relative-b"
+  rm -rf "$relative_a" "$relative_b"
+  mkdir -p "$relative_a/config" "$relative_b"
+  printf '{"projects":{"%s":{"hasTrustDialogAccepted":false}}}\n' "$target" > "$relative_a/config/.claude.json"
+  ( cd "$relative_a" && exec env -u CLAUDE_CONFIG_DIR CLAUDE_CONFIG_DIR=config \
+      bash -c 'exec -a claude sleep 60' ) &
+  pid=$!
+  printf '%s\t%s\t%s\n' "$pid" "$(id -u)" 'claude 60' >> "$HERDR_TEST_TRUST_PS_LINES"
+  sleep 0.3
+  relative_rc=0
+  ( cd "$relative_b" && CLAUDE_CONFIG_DIR="$relative_a/config" "$TRUST_SCRIPT" "$target" \
+      > "$TEST_TMP/trust-relative.out" 2>&1 ) || relative_rc=$?
+  [ "$relative_rc" -eq 1 ]
+  grep -Fq 'reason=claude-running' "$TEST_TMP/trust-relative.out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$relative_a/config/.claude.json")" = false ]
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  : > "$HERDR_TEST_TRUST_PS_LINES"
+  relative_rc=0
+  ( cd "$relative_b" && CLAUDE_CONFIG_DIR="$relative_a/config" "$TRUST_SCRIPT" "$target" \
+      > "$TEST_TMP/trust-relative-ok.out" 2>&1 ) || relative_rc=$?
+  [ "$relative_rc" -eq 0 ]
+  grep -Fq 'result: approved' "$TEST_TMP/trust-relative-ok.out"
+
+  # Repository-locating variables cannot make a non-worktree look like one.
+  config="$(trust_config git-env "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  outside="$TEST_TMP/trust-outside-git"
+  run_trust env GIT_DIR="$TEST_TMP/trust-repo/.git" GIT_WORK_TREE="$target" \
+    CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$outside"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=not-worktree-root' <<< "$trust_out"
+  [ "$(jq -r --arg path "$target" '.projects[$path].hasTrustDialogAccepted' "$config/.claude.json")" = false ]
+  # The same variables cannot make a real worktree root fail either.
+  run_trust env GIT_DIR="$outside/.git" CLAUDE_CONFIG_DIR="$config" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fq 'result: approved' <<< "$trust_out"
+
+  # The snapshot that would replace the state file is classified with the same
+  # rules as the reader: a file that turns into `projects: null` between the
+  # classification and the final read stops the write. The python3 wrapper
+  # performs that change at the final read.
+  config="$(trust_config final-shape "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  real_python="$(command -v python3)"
+  wrapper="$TEST_TMP/trust-corrupt-python"
+  rm -rf "$wrapper"
+  mkdir -p "$wrapper"
+  cat > "$wrapper/python3" <<SCRIPT
+#!/usr/bin/env bash
+printf '{"projects":null}\n' > "$config/.claude.json"
+exec "$real_python" "\$@"
+SCRIPT
+  chmod +x "$wrapper/python3"
+  run_trust env PATH="$wrapper:$PATH" CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 1 ]
+  grep -Fq 'reason=state-changed' <<< "$trust_out"
+  [ "$(cat "$config/.claude.json")" = '{"projects":null}' ]
+}
+
+claude_trust_launcher_integration() {
+  local target config err rc
+  target="$(trust_worktree)"
+
+  # The launcher stops without writing on a state file it does not approve, and
+  # the writer's record is what lets the same launch through.
+  config="$(trust_config launcher)"
+  reset_logs
+  set +e
+  err="$(CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$target" "$LAUNCHER" wB:p2 review \
+    --harness claude --model claude-haiku-5-5 --effort high --permission-mode auto 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq "claude-trust: $target が未承認です（state: missing-file）。" <<< "$err"
+  [ ! -e "$config/.claude.json" ]
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  reset_logs
+  err="$(CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$target" HERDR_TEST_STATUSLINE=match \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto 2>&1 >/dev/null)"
+  grep -q '^effective: ' <<< "$err"
+  [ -s "$HERDR_TEST_STARTS" ]
+
+  # The same holds when the state file already carries other keys: the writer
+  # keeps them and the launcher reads the updated file as approved.
+  config="$(trust_config launcher-existing "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false,\"lastVersionBase\":\"2.1.330\"}}}")"
+  run_trust env CLAUDE_CONFIG_DIR="$config" "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  reset_logs
+  err="$(CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$target" HERDR_TEST_STATUSLINE=match \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto 2>&1 >/dev/null)"
+  grep -q '^effective: ' <<< "$err"
+  [ "$(jq -r --arg path "$target" '.projects[$path].lastVersionBase' "$config/.claude.json")" = 2.1.330 ]
+
+  # The default location is shared too: the writer records
+  # `<reported-config-directory>/../.claude.json` and the launcher reads it.
+  config="$(trust_config launcher-home)"
+  run_trust env -u CLAUDE_CONFIG_DIR HERDR_TEST_CLAUDE_HOME="$config" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  reset_logs
+  err="$(env -u CLAUDE_CONFIG_DIR HERDR_TEST_CLAUDE_HOME="$config" HERDR_TEST_PANE_CWD="$target" \
+    HERDR_TEST_STATUSLINE=match "$LAUNCHER" wB:p2 review --harness claude \
+    --model claude-haiku-5-5 --effort high --permission-mode auto 2>&1 >/dev/null)"
+  grep -q '^effective: ' <<< "$err"
+  grep -Fqx "probe: $TMPDIR/agent-harness/claude-spec/wB_p2.json" <<< "$err"
+}
+
+claude_trust_quoted_command() {
+  local worktree config err rc command_line branch
+  for worktree in "$TEST_TMP/worktree with space" "$TEST_TMP/worktree 'with quote"; do
+    branch="trust-$(printf '%s' "${worktree##*/}" | tr -cs '[:alnum:]' '-' | tr '[:upper:]' '[:lower:]')"
+    if [ ! -f "$worktree/.git" ]; then
+      git -C "$TEST_TMP/trust-repo" worktree add -q "$worktree" -b "$branch"
+    fi
+    config="$(trust_config quoted)"
+    reset_logs
+    set +e
+    err="$(CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$worktree" "$LAUNCHER" wB:p2 review \
+      --harness claude --model claude-haiku-5-5 --effort high --permission-mode auto 2>&1 >/dev/null)"
+    rc=$?
+    set -e
+    [ "$rc" -eq 1 ]
+    grep -Fq "claude-trust: $worktree が未承認です" <<< "$err"
+    # The printed command is meant to be pasted: the path must arrive as one
+    # argument even with spaces or a quote in it.
+    command_line="$(sed -n 's/.*人間が `\(.*\)` を実行して.*/\1/p' <<< "$err")"
+    [ -n "$command_line" ]
+    case "$command_line" in
+      *'<worktree'*) return 1 ;;
+    esac
+    run_trust env CLAUDE_CONFIG_DIR="$config" bash -c "$command_line"
+    [ "$trust_rc" -eq 0 ]
+    grep -Fq 'result: approved' <<< "$trust_out"
+    grep -Fqx "target: $worktree" <<< "$trust_out"
+    trust_approved "$config" "$worktree"
+  done
+}
+
+claude_trust_single_read() {
+  local target config real_jq swap_dir rc err
+  target="$(trust_worktree)"
+  real_jq="$(command -v jq)"
+  swap_dir="$TEST_TMP/bin-swap-jq"
+  rm -rf "$swap_dir"
+  mkdir -p "$swap_dir"
+  # A stand-in for a second reader: when it is handed the state file, it
+  # replaces the file with a trusted record plus Infinity before reading it.
+  # A classifier that validated one read and then opened the path again through
+  # jq would approve the unvalidated swap.
+  cat > "$swap_dir/jq" <<SCRIPT
+#!/usr/bin/env bash
+for argument in "\$@"; do
+  if [ -n "\${HERDR_TEST_SWAP_FILE:-}" ] && [ "\$argument" = "\$HERDR_TEST_SWAP_FILE" ]; then
+    printf '{"projects":{"%s":{"hasTrustDialogAccepted":true}},"note":Infinity}\n' "\$HERDR_TEST_SWAP_TARGET" > "\$HERDR_TEST_SWAP_FILE"
+  fi
+done
+exec "$real_jq" "\$@"
+SCRIPT
+  chmod +x "$swap_dir/jq"
+
+  # The launcher stops on the document it read, and never reopens it.
+  config="$(trust_config single-read "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  reset_logs
+  set +e
+  err="$(PATH="$swap_dir:$PATH" CLAUDE_CONFIG_DIR="$config" HERDR_TEST_PANE_CWD="$target" \
+    HERDR_TEST_SWAP_FILE="$config/.claude.json" HERDR_TEST_SWAP_TARGET="$target" \
+    "$LAUNCHER" wB:p2 review --harness claude --model claude-haiku-5-5 --effort high \
+    --permission-mode auto 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq "claude-trust: $target が未承認です（state: false）。" <<< "$err"
+  [ ! -s "$HERDR_TEST_STARTS" ]
+  ! grep -Fq 'Infinity' "$config/.claude.json"
+
+  # The writer decides on the snapshot it read under the lock: the swap never
+  # becomes an `already-approved` success.
+  config="$(trust_config single-read-writer "{\"projects\":{\"$target\":{\"hasTrustDialogAccepted\":false}}}")"
+  run_trust env PATH="$swap_dir:$PATH" CLAUDE_CONFIG_DIR="$config" \
+    HERDR_TEST_SWAP_FILE="$config/.claude.json" HERDR_TEST_SWAP_TARGET="$target" \
+    "$TRUST_SCRIPT" "$target"
+  [ "$trust_rc" -eq 0 ]
+  grep -Fq 'result: approved' <<< "$trust_out"
+  ! grep -Fq 'already-approved' <<< "$trust_out"
+  trust_approved "$config" "$target"
+  ! grep -Fq 'Infinity' "$config/.claude.json"
+}
+
+claude_trust_document_contract() {
+  local skill="$HERDR_DIR/SKILL.md"
+  local reference="$HERDR_DIR/references/worktree-workspace-teams.md"
+  local readme="$HERDR_DIR/../README.md"
+  local launcher_lib="$HERDR_DIR/scripts/lib/claude-trust.sh"
+  local workflow word
+
+  # The Herdr skill is the authority for the procedure and the command.
+  grep -Fqx '## Claude trust approval' "$skill"
+  grep -Fq 'herdr/scripts/claude-trust.sh "<worktree-root>"' "$skill"
+  grep -Fq 'ランチャーの停止行は引用済みのコマンドを出す' "$skill"
+  grep -Fq 'herdr/scripts/lib/claude-trust.sh' "$skill"
+  grep -Fq 'procfs' "$skill"
+  grep -Fq 'Infinity' "$skill"
+  grep -Fq 'そのプロセスの作業ディレクトリ' "$skill"
+  grep -Fq 'fail closed' "$skill"
+  grep -Fq '原則として人間が実行する' "$skill"
+  # The starter path and the command list name the same command.
+  grep -Fq 'herdr/scripts/claude-trust.sh "<worktree-path>"' "$reference"
+  # The README entry point points at the command and the shared procedure.
+  grep -Fq 'herdr/scripts/claude-trust.sh "<worktree-root>"' "$readme"
+  grep -Fq 'herdr/SKILL.md#claude-trust-approval' "$readme"
+
+  # The workflows point at the authority and never copy the stop line.
+  for workflow in herdr-issue-review herdr-pr-review-workflow herdr-issue-pr-workflow; do
+    grep -Fq '../herdr/SKILL.md#claude-trust-approval' "$HERDR_DIR/../$workflow/SKILL.md"
+    ! grep -Fq 'claude-trust: <path>' "$HERDR_DIR/../$workflow/SKILL.md"
+  done
+
+  # The launcher's stop line names the writer and the shared procedure.
+  grep -Fq 'claude-trust.sh' "$LAUNCHER"
+  grep -Fq 'Claude trust approval' "$LAUNCHER"
+  # One library owns the state vocabulary both readers use.
+  for word in missing-file unreadable invalid-json unexpected-shape missing-key false true; do
+    grep -Fq "$word" "$launcher_lib"
+  done
+}
+
 # A copy of the skill markdown and the other-skill files that herdr/SKILL.md and
 # herdr/references/*.md link to. The negative tests mutate this copy so the real
 # tree stays clean.
@@ -2443,7 +3035,7 @@ run_test() {
   pass "$test_name"
 }
 
-expected_count=40
+expected_count=47
 
 run_test parent_success
 run_test child_success
@@ -2479,6 +3071,13 @@ run_test pane_layout_plan_rejects_bad_input
 run_test pane_layout_apply_current_tab
 run_test pane_layout_apply_new_tabs
 run_test pane_layout_apply_stops_on_mismatch
+run_test claude_trust_state_classes
+run_test claude_trust_writer
+run_test claude_trust_write_conditions
+run_test claude_trust_launcher_integration
+run_test claude_trust_quoted_command
+run_test claude_trust_single_read
+run_test claude_trust_document_contract
 run_test markdown_check_passes
 run_test markdown_reference_file_rename_is_rejected
 run_test markdown_same_file_anchor_is_checked

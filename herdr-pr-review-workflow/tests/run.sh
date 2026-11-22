@@ -51,7 +51,7 @@ for value in (
     'resolve-model-spec.sh --harness pi', 'resolve-model-spec.sh --harness claude',
     'verification=exact', 'verification=postlaunch',
     'claude auth status', '~/.claude/skills',
-    'claude-trust: <path> が未承認です。そのディレクトリで claude を一度起動し、trust を承認してから再実行してください。',
+    '../herdr/SKILL.md#claude-trust-approval',
     'Pi と Claude は、共有ランチャーが stderr に出す最後の `effective:` 行',
     'footer だけで一致とみなさない',
     'ランタイムのデフォルトや別モデルへ黙って切り替えない', 'migration-required',
@@ -122,7 +122,8 @@ assert 'effective:' in reviewer
 preflight = text.split('## Preflight\n', 1)[1].split('## Reviewer Setup', 1)[0]
 assert 'レビュアーに使うハーネスの CLI も必須とする' in preflight
 assert 'claude auth status' in preflight
-assert 'claude-trust:' in preflight
+assert '../herdr/SKILL.md#claude-trust-approval' in preflight
+assert 'claude-trust:' not in preflight
 assert '人間レビュー用サマリが必要な場合' in text
 assert '行頭の HTML コメントのマーカーが 1 対だけ' in text
 assert '証跡の代わりにならない' in evidence

@@ -127,5 +127,16 @@ check_contains "the stored model is compared only for profile starts" "$TEAM_TEX
 check_contains "an explicit alias start reports the canonical model" "$TEAM_TEXT" \
   'canonical な `model` を今回の実効仕様として報告し'
 
+# --- trust procedure (authority: herdr/SKILL.md) ---------------------------
+
+# The launcher's trust stop line and the one-command approval are owned by the
+# Herdr skill. This workflow names the authority; it never copies the line, so
+# a wording change has exactly one place to land.
+check_contains "the preflight points the trust procedure at the herdr skill" \
+  "$(section_text "$SKILL_MD" "Preflight")" \
+  '[Claude trust approval](../herdr/SKILL.md#claude-trust-approval)'
+check_not_contains "the workflow does not copy the trust stop line" \
+  "$SKILL_TEXT" 'claude-trust: <path>'
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
