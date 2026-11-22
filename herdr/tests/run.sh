@@ -69,11 +69,17 @@ write_pi_session() { # path mode provider model thinking
     model-mismatch) record_provider="$provider"; record_model='other-model'; record_thinking="$thinking" ;;
     thinking-mismatch) record_provider="$provider"; record_model="$model"; record_thinking='low' ;;
     first-mismatch-later-match) record_provider='other-provider'; record_model="$model"; record_thinking="$thinking" ;;
+    first-thinking-mismatch-later-match) record_provider="$provider"; record_model="$model"; record_thinking='low' ;;
     *) record_provider="$provider"; record_model="$model"; record_thinking="$thinking" ;;
   esac
   case "$session_mode" in
     empty) : > "$session_path"; return 0 ;;
     invalid) printf 'not json\n' > "$session_path"; return 0 ;;
+    broken-initial)
+      printf '{"type":"session"}\n{"type":"model_change","provider":"%s"\n{"type":"thinking_level_change","thinkingLevel":"%s"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n' \
+        "$provider" "$thinking" "$provider" "$model" > "$session_path"
+      return 0
+      ;;
     partial)
       printf '{"type":"session"}\n{"type":"model_change","provider":"%s","modelId":"%s"}\n' \
         "$record_provider" "$record_model" > "$session_path"
@@ -85,10 +91,13 @@ write_pi_session() { # path mode provider model thinking
     "$record_provider" "$record_model" "$record_thinking" > "$session_path"
   case "$session_mode" in
     first-match-later-mismatch)
-      printf '{"type":"model_change","provider":"other-provider","modelId":"other-model"}\n' >> "$session_path"
+      printf '{"type":"model_change","provider":"other-provider","modelId":"other-model"}\n{"type":"thinking_level_change","thinkingLevel":"low"}\n' >> "$session_path"
       ;;
     first-mismatch-later-match)
       printf '{"type":"model_change","provider":"%s","modelId":"%s"}\n' "$provider" "$model" >> "$session_path"
+      ;;
+    first-thinking-mismatch-later-match)
+      printf '{"type":"thinking_level_change","thinkingLevel":"%s"}\n' "$thinking" >> "$session_path"
       ;;
   esac
   return 0
@@ -104,6 +113,9 @@ case "${1:-}" in
         if [ "${3:-}" = "$HERDR_PANE_ID" ]; then
           cat "$HERDR_TEST_PANE_JSON"
           exit 0
+        fi
+        if [ -n "${HERDR_TEST_PI_SESSION_PATH_DELAY:-}" ]; then
+          sleep "$HERDR_TEST_PI_SESSION_PATH_DELAY"
         fi
         pane_cwd="${HERDR_TEST_PANE_CWD-$PWD}"
         session_kind="${HERDR_TEST_PI_SESSION_KIND:-path}"
@@ -305,9 +317,10 @@ case "${1:-}" in
           printf '%s\n' "$session_path" > "$HERDR_TEST_STATE/pi-session-${safe_pane}"
           printf '%s|%s|%s|%s|%s\n' "$provider" "$model" "$thinking" "$pane" "$session_mode" \
             > "$HERDR_TEST_STATE/pi-start-${safe_pane}"
-          if [ "$session_mode" = on-prompt ]; then
+          if [ "$session_mode" = on-prompt ] || [ "$session_mode" = on-prompt-late ]; then
             # Pi creates the record on the first turn; the launcher's startup
-            # probe is what makes it appear in this mode.
+            # probe is what makes it appear in this mode. `on-prompt-late`
+            # delays the write to test the shared deadline.
             :
           elif [ "$session_mode" = late ]; then
             ( sleep 0.3; write_pi_session "$session_path" "$session_mode" "$provider" "$model" "$thinking" ) &
@@ -334,9 +347,14 @@ case "${1:-}" in
         if [ -s "$start_file" ]; then
           IFS='|' read -r start_provider start_model start_thinking start_pane start_mode \
             <<< "$(cat "$start_file")"
-          if [ "$start_mode" = on-prompt ]; then
+          if [ "$start_mode" = on-prompt ] || [ "$start_mode" = on-prompt-late ]; then
             session_path="$HERDR_TEST_STATE/pi-sessions/${safe_pane}.jsonl"
-            write_pi_session "$session_path" match "$start_provider" "$start_model" "$start_thinking"
+            if [ "$start_mode" = on-prompt-late ]; then
+              ( sleep "${HERDR_TEST_PI_SESSION_LATE_DELAY:-0.3}"; \
+                write_pi_session "$session_path" match "$start_provider" "$start_model" "$start_thinking" ) &
+            else
+              write_pi_session "$session_path" match "$start_provider" "$start_model" "$start_thinking"
+            fi
           fi
         fi
         exit "${HERDR_TEST_RC:-0}"
@@ -1449,7 +1467,7 @@ shared_launcher_pi_effective() {
     ! grep -q '^effective: ' <<< "$err"
   done
 
-  for mode in empty partial no-write invalid; do
+  for mode in empty partial no-write; do
     reset_logs
     set +e
     err="$(HERDR_TEST_PI_SESSION_MODE="$mode" "$LAUNCHER" wB:p2 impl --harness pi \
@@ -1460,9 +1478,19 @@ shared_launcher_pi_effective() {
     grep -Fq 'did not report model and thinking values' <<< "$err"
     ! grep -q '^effective: ' <<< "$err"
   done
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=invalid "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 300 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'unreadable entry' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
 
-  # Only the first model_change is authoritative: a later switch must not win,
-  # and a wrong first value is not repaired by a later matching one.
+  # Only the first model_change and thinking_level_change are authoritative: a
+  # later switch must not win, and a wrong first value is not repaired by a
+  # later matching one.
   reset_logs
   err="$(HERDR_TEST_PI_SESSION_MODE=first-match-later-mismatch "$LAUNCHER" wB:p2 impl --harness pi \
     --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
@@ -1474,6 +1502,40 @@ shared_launcher_pi_effective() {
   rc=$?
   set -e
   [ "$rc" -eq 1 ]
+  ! grep -q '^effective: ' <<< "$err"
+
+  # The first thinking level is authoritative too.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=first-thinking-mismatch-later-match "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'does not match the requested specification' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # A broken initial entry is not skipped for a later matching one.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_MODE=broken-initial "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'unreadable' <<< "$err"
+  ! grep -q '^effective: ' <<< "$err"
+
+  # One deadline covers the path lookup, the probe, and the record.
+  reset_logs
+  set +e
+  err="$(HERDR_TEST_PI_SESSION_PATH_DELAY=0.6 HERDR_TEST_PI_SESSION_MODE=on-prompt-late \
+    HERDR_TEST_PI_SESSION_LATE_DELAY=0.6 "$LAUNCHER" wB:p2 impl --harness pi \
+    --provider openai-codex --model gpt-6.2-sol --thinking max --probe-timeout 1000 2>&1 >/dev/null)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ]
+  grep -Fq 'did not report model and thinking values' <<< "$err"
   ! grep -q '^effective: ' <<< "$err"
 
   # A record written shortly after readiness is still read within the bound.
