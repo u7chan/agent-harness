@@ -74,8 +74,8 @@ rather than for one harness: [herdr-issue-pr-workflow](../herdr-issue-pr-workflo
 owns the Issue-to-PR team workflow and
 [herdr-pr-review-workflow](../herdr-pr-review-workflow/SKILL.md) owns the PR
 review workflow; their harness selection is profile data, not a skill name. The
-`pi-development` asset name predates the harness-neutral boundary and stays
-because it names the existing user asset, not a harness.
+`pi-development` asset name is not a harness name either; [the profiles
+document](pi-development.md#name) records what it names and why it stays.
 
 `scripts/skill-distribution/` owns the harness-neutral distribution command,
 and `scripts/check-skill-manifest.sh` validates the neutral skill manifest, the

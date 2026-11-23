@@ -52,7 +52,7 @@ starter には 2 つの経路がある。
 - **経路 1**: `herdr-issue-pr-workflow` の親がキックオフゲートを通し、承認済みチームを起動する。orchestrator 自身の仕様はチームの承認対象ではなく、この経路でもプロファイルから解決する。
 - **経路 2**: 別のペイン（Pi または Claude）がこのスキルだけを読んで起動する。このペインはキックオフゲートを通っていないため、承認済みチームも orchestrator の仕様も持たない。それでもハーネス別の仕様をその場で選ばず、プロファイルから解決する。この経路の orchestrator は、`launch:` 行の確認後に [Preflight](../../herdr-issue-pr-workflow/SKILL.md#preflight) と [Kickoff gate](../../herdr-issue-pr-workflow/SKILL.md#kickoff-gate) を通してチームを確定してから `Start the team` へ進む（[キックオフ用テンプレート](../../herdr-issue-pr-workflow/references/kickoff-task-template.md)）。
 
-プロファイル解決の正本は [Pi Development Profiles](../../_docs/pi-development.md)、起動・`launch:` 行・報告の正本はこの節とする。同じ手順をキックオフテンプレートへ複製しない。
+プロファイル解決の正本は [Development Profiles](../../_docs/pi-development.md)、起動・`launch:` 行・報告の正本はこの節とする。同じ手順をキックオフテンプレートへ複製しない。
 
 どちらの経路でも、starter は対象 worktree と同じ `repo_root` を持つ親チェックアウトのペインでなければならない（[Starting and coordinating the team](#starting-and-coordinating-the-team) の `worktree-team` 辺を導出できる側）。兄弟 worktree や 2 つ目のチェックアウトからの起動は形状ルールで拒否されるため、`herdr/scripts/scope-grant.sh` で辺を記録してから起動する。生の `herdr agent start` で境界を迂回しない。
 
@@ -81,7 +81,7 @@ starter には 2 つの経路がある。
 
    プロファイルモードでは `profile` が使用したプロファイル名、`role` が `--role`、`spec_source=profile`、`origin` が team-record の `source` になる。
 
-   プロファイルに orchestrator が無い初回はまだ起動できない。プロファイル解決の手順は [Pi Development Profiles](../../_docs/pi-development.md) を正本とし、`write` で追加するか、次の一度限りの明示モードで起動する。
+   プロファイルに orchestrator が無い初回はまだ起動できない。プロファイル解決の手順は [Development Profiles](../../_docs/pi-development.md) を正本とし、`write` で追加するか、次の一度限りの明示モードで起動する。
 
    ```bash
    # write は全置換なので、保持する既存チームのロールもすべて渡す。

@@ -84,7 +84,7 @@ scripts/pi-development/resolve-model-spec.sh --harness claude \
 
 ## Team profiles
 
-ユーザーが承認したチーム編成は、ユーザーが所有する名前付きプロファイルとして保存する。保存、選択、検証、ヘルパーコマンド、出力契約はスキル外の [Pi Development Profiles](../_docs/pi-development.md) を正本とする。パッケージルートから `scripts/pi-development/team-record.sh` を使う。このワークフローではロール単位の部分投影ではなく、常にチーム全体を解決する。
+ユーザーが承認したチーム編成は、ユーザーが所有する名前付きプロファイルとして保存する。保存、選択、検証、ヘルパーコマンド、出力契約はスキル外の [Development Profiles](../_docs/pi-development.md) を正本とする。パッケージルートから `scripts/pi-development/team-record.sh` を使う。このワークフローではロール単位の部分投影ではなく、常にチーム全体を解決する。
 
 orchestrator はチームメンバーではない。チーム表・承認・再利用行の対象外であり、キックオフゲートが解決するのはチームロールだけである。orchestrator の仕様は起動時の `launch:` 行で固定済みであり（[Worktree workspace teams](../herdr/references/worktree-workspace-teams.md#orchestrator-first)）、ゲートで再解決しない。`write` は全置換なので、orchestrator を保持するには `--role orchestrator=<harness>:<...>` も渡す。
 
