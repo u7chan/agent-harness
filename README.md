@@ -30,11 +30,12 @@ Each top-level skill directory contains a `SKILL.md` file that describes when an
 
 Both workflows start every role agent through
 [the Herdr launcher](herdr/scripts/start-agent.sh) and read
-[development profiles](_docs/pi-development.md) under `pi-development/`; the
-shared helpers do not belong to either skill. A role's harness is part of its
-specification: Pi validates the exact model against the installed catalog,
-while Claude validates the model shape, effort, and permission mode before the
-start and confirms the canonical model from a post-launch `effective:` line.
+[development profiles](_docs/pi-development.md) from the user asset
+`pi-development/`; the shared helpers do not belong to either skill. A role's
+harness is part of its specification: Pi validates the exact model against the
+installed catalog, while Claude validates the model shape, effort, and
+permission mode before the start and confirms the canonical model from a
+post-launch `effective:` line.
 Existing users migrate with
 [the backed-up procedure](_docs/pi-development-migration.md) as part of
 rollout, not by installing unmerged skill changes.

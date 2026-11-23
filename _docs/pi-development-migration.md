@@ -1,4 +1,4 @@
-# Pi Development Profile Migration
+# Development Profile Migration
 
 One-time manual migration of the user-owned team profiles. No automatic
 migration or legacy read/write fallback is shipped.

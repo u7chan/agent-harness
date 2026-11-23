@@ -49,7 +49,7 @@ Issue は必須ではない。PR がまだない場合は Draft PR の作成か�
 
 ## Reviewer Setup
 
-プロファイルの保存、選択、入出力、エラーは [Pi Development Profiles](../_docs/pi-development.md) を正本とする。次のスクリプトはこのスキルの親ディレクトリ（パッケージルート）から解決する。
+プロファイルの保存、選択、入出力、エラーは [Development Profiles](../_docs/pi-development.md) を正本とする。次のスクリプトはこのスキルの親ディレクトリ（パッケージルート）から解決する。
 
 ```bash
 scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role review
@@ -57,7 +57,7 @@ scripts/pi-development/team-record.sh resolve [--profile <name>] --only-role rev
 
 `review` ロールだけを検証・解決する。使用しないロールや `pr_fix_shared_with_impl` によって起動を妨げてはならない。
 `result=ok` の仕様を再利用し、その profile、harness、spec を報告する。spec は resolve が返す `review=<harness>:<...>` の正本の文字列であり、Pi が `pi:<provider>/<model>/<thinking>`、Claude が `claude:<model>/<effort>/<permission_mode>` である。
-今回の実行で明示指定された値は、プロファイルを自動的に書き換えることなく優先する。明示指定はハーネス別にだけ組み立て、Pi は provider / model / thinking、Claude は model / effort / permission_mode をとる。プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う。ハーネスをまたぐフィールドの混在（Pi の provider と Claude の effort など）は停止する。プロファイルと異なるハーネスを名指しした場合は、プロファイルを土台にせず、名指ししたハーネスの明示 spec として組み立てる。Claude の permission_mode の省略は [Pi Development Profiles](../_docs/pi-development.md#selection-and-commands) の適用順序に従い、model と effort が揃っていれば既定で補い、どちらかが欠けたら停止する。Pi の部分的に揃った指定は、プロファイルや推測で埋めずに停止する。
+今回の実行で明示指定された値は、プロファイルを自動的に書き換えることなく優先する。明示指定はハーネス別にだけ組み立て、Pi は provider / model / thinking、Claude は model / effort / permission_mode をとる。プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う。ハーネスをまたぐフィールドの混在（Pi の provider と Claude の effort など）は停止する。プロファイルと異なるハーネスを名指しした場合は、プロファイルを土台にせず、名指ししたハーネスの明示 spec として組み立てる。Claude の permission_mode の省略は [Development Profiles](../_docs/pi-development.md#selection-and-commands) の適用順序に従い、model と effort が揃っていれば既定で補い、どちらかが欠けたら停止する。Pi の部分的に揃った指定は、プロファイルや推測で埋めずに停止する。
 
 明示的な上書きを組み立てる場合はモデル ID を正確に扱い、仕様全体をハーネス別に再検証する。
 

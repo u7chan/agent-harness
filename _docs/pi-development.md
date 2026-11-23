@@ -1,10 +1,19 @@
-# Pi Development Profiles
+# Development Profiles
 
-Shared, user-owned development team settings. No skill owns this asset: a
-consumer may be removed or renamed without changing the asset or its helpers.
-The helpers live in `scripts/pi-development/`, outside every skill directory.
-Commands below are package-root-relative; resolve them from the loaded skill's
-parent directory, not from the repository being worked on.
+Shared, user-owned development team settings for Pi and Claude. No skill owns
+this asset: a consumer may be removed or renamed without changing the asset or
+its helpers. The helpers live in `scripts/pi-development/`, outside every skill
+directory. Commands below are package-root-relative; resolve them from the
+loaded skill's parent directory, not from the repository being worked on.
+
+## Name
+
+`pi-development` names the user asset and the helper directory that owns it. It
+does not name the Pi harness, and it does not name a skill: the profiles hold Pi
+and Claude roles side by side, both workflow skills are harness-neutral, and the
+helpers cover both harnesses. The asset name predates that boundary. It stays
+because a rename would move every user's `profiles/*.json` and `active` again
+([migration](pi-development-migration.md)).
 
 ## Storage
 

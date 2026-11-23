@@ -15,7 +15,7 @@ description: >
 
 - 設計は合意済みであること。未決定が残るなら、先に 1 問ずつ確認して潰す（[kabeuchi](../kabeuchi/SKILL.md)）
 - Herdr 管理下であること（`HERDR_ENV=1`）。ペインと委譲の操作は [herdr](../herdr/SKILL.md) を正とする
-- レビュアーの起動 spec は、実効プロファイルの `review` を土台にする（[Pi Development Profiles](../_docs/pi-development.md)）。ユーザーが明示指定した値はプロファイルより優先する
+- レビュアーの起動 spec は、実効プロファイルの `review` を土台にする（[Development Profiles](../_docs/pi-development.md)）。ユーザーが明示指定した値はプロファイルより優先する
 - GitHub の読み書きは [gh](../gh/SKILL.md) を正とする
 
 ## 開始前チェック
@@ -54,9 +54,9 @@ description: >
 ### 1. レビュアーのペインと起動 spec を用意する
 
 - `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` で空きの対話シェルを探し、あれば使う。無ければ `herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus`（再利用するペインの cwd は親と同じとは限らないため、レビュアーへ渡すリポジトリのルートはプロンプト側で指定する）
-- 実効プロファイルの `review` を土台にして起動 spec を合成する（[Pi Development Profiles](../_docs/pi-development.md)）。スクリプトのパスは対象リポジトリではなく、このスキルの親（パッケージルート）から解決する。
+- 実効プロファイルの `review` を土台にして起動 spec を合成する（[Development Profiles](../_docs/pi-development.md)）。スクリプトのパスは対象リポジトリではなく、このスキルの親（パッケージルート）から解決する。
   1. `scripts/pi-development/team-record.sh resolve --only-role review` で実効プロファイルを解決し、`result=ok` なら `review=<harness>:<...>` を土台にする。正本の文字列は Pi が `pi:<provider>/<model>/<thinking>`、Claude が `claude:<model>/<effort>/<permission_mode>` である。
-  2. ユーザー指定はハーネス別にだけ上書きする。Pi は provider / model / thinking、Claude は model / effort / permission_mode である。プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う。ハーネスをまたぐフィールドの混在（Pi の provider と Claude の effort など）は停止する。プロファイルと異なるハーネスを名指しした場合は、プロファイルを土台にせず、名指ししたハーネスの明示 spec として組み立てる。Claude の permission_mode の省略は [Pi Development Profiles](../_docs/pi-development.md#selection-and-commands) の適用順序に従い、model と effort が揃っていれば既定で補い、どちらかが欠けたら停止する。Pi の部分的に揃った指定は、プロファイルや推測で埋めずに停止する。上書きは今回の実行だけに使い、プロファイルを自動で書き換えない。
+  2. ユーザー指定はハーネス別にだけ上書きする。Pi は provider / model / thinking、Claude は model / effort / permission_mode である。プロファイルが `result=ok` のときは、同じハーネスの範囲で指定されたフィールドだけを上書きし、指定されていない値はプロファイルから補う。ハーネスをまたぐフィールドの混在（Pi の provider と Claude の effort など）は停止する。プロファイルと異なるハーネスを名指しした場合は、プロファイルを土台にせず、名指ししたハーネスの明示 spec として組み立てる。Claude の permission_mode の省略は [Development Profiles](../_docs/pi-development.md#selection-and-commands) の適用順序に従い、model と effort が揃っていれば既定で補い、どちらかが欠けたら停止する。Pi の部分的に揃った指定は、プロファイルや推測で埋めずに停止する。上書きは今回の実行だけに使い、プロファイルを自動で書き換えない。
   3. 合成後の完全な spec をハーネス別の形で `scripts/pi-development/resolve-model-spec.sh --harness <pi|claude> ...` に再検証する。Pi は `--provider <provider> --model <model> --thinking <thinking>` を渡し、`result=ok` と `verification=exact` の両方を確認する。Claude は `--model <model> --effort <effort> [--permission-mode <permission_mode>]` を渡し、省略時は既定を補わせて、`result=ok` と `verification=postlaunch` の両方を確認する。ユーザー指定が完全でも、再検証が `result=ok` でなければ停止する。
 - `reason=migration-required` の場合は既定へのフォールバックに進まず、[設定移行](../_docs/pi-development-migration.md)のため停止する。
 - プロファイルが `ok` でない場合（`result=missing` / `invalid` / `unresolved`）は、ユーザー指定の揃い方で決める。
