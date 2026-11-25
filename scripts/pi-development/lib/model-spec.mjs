@@ -47,6 +47,21 @@ export const CLAUDE_EFFORT_LEVELS = Object.freeze(["low", "medium", "high", "xhi
 export const CLAUDE_PERMISSION_MODES = Object.freeze(["acceptEdits", "auto", "manual", "dontAsk", "plan"]);
 
 /**
+ * Canonical Claude model IDs the profile editor offers in its model select.
+ *
+ * This is a list of choices, not the validation: `isCanonicalClaudeModelId`
+ * stays the rule a save is held to, so a hand-edited profile or a newer model
+ * that is not listed yet still loads, shows as outside the list, and saves
+ * unchanged. Add a model here when a new one should become selectable.
+ */
+export const CLAUDE_MODEL_IDS = Object.freeze([
+  "claude-fable-5-2",
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+]);
+
+/**
  * Permission mode a Claude request gets when it omits one. The resolver is the
  * only place that applies it: a stored profile and the launcher still require
  * all three fields. The value is checked against the vocabulary here, so a
@@ -83,6 +98,14 @@ export function isClaudeModelId(value) {
  */
 export function isCanonicalClaudeModelId(value) {
   return typeof value === "string" && /^claude-[a-z0-9][a-z0-9.-]*$/.test(value);
+}
+
+// Every offered model has to be one the save path accepts, so a listed choice
+// can never be refused with 400. Checked on import, like the permission default.
+for (const id of CLAUDE_MODEL_IDS) {
+  if (!isCanonicalClaudeModelId(id)) {
+    throw new Error(`CLAUDE_MODEL_IDS entry '${id}' is not a canonical Claude model ID`);
+  }
 }
 
 /**

@@ -214,6 +214,20 @@ process.stdout.write(
 ')"
 check_eq "the Claude default permission mode is in the vocabulary" "$default_mode" "auto"
 
+# The editor's model select offers only IDs its own save path accepts, and the
+# haiku model the rest of this suite launches with stays selectable.
+claude_models="$(MODEL_SPEC_MODULE="$MODULE" node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+const module = await import(pathToFileURL(process.env.MODEL_SPEC_MODULE).href);
+const ids = module.CLAUDE_MODEL_IDS;
+process.stdout.write(
+  ids.length > 0 && ids.every((id) => module.isCanonicalClaudeModelId(id)) && ids.includes("claude-haiku-5-5")
+    ? "canonical"
+    : "not-canonical",
+);
+')"
+check_eq "every selectable Claude model is a canonical ID" "$claude_models" "canonical"
+
 # Omitting the permission mode resolves to the default; the completed record is
 # what a caller turns into a launch spec.
 out="$("$HELPER" --harness claude --model claude-haiku-5-5 --effort high \
