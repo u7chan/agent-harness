@@ -323,7 +323,13 @@ check_contains "state fills the implicit Pi harness" "$state" '"impl":{"harness"
 check_contains "state returns the harness vocabularies" "$state" '"permission_mode":["acceptEdits"'
 check_contains "state returns the effort vocabulary" "$state" '"effort":["low","medium","high","xhigh","max"]'
 check_contains "state returns the selectable Claude models" "$state" '"models":["claude-'
-check_contains "the selectable Claude models include a stored canonical ID" "$state" '"claude-haiku-5-5"'
+# Read the list itself: a role stored in the profiles of this same state also
+# names haiku, so a substring match could not tell whether the list offers it.
+offers_haiku="$(node -e '
+const models = JSON.parse(process.argv[1]).harnesses.claude.models;
+process.stdout.write(models.includes("claude-haiku-5-5") ? "yes" : "no");
+' "$state")"
+check_eq "the selectable Claude models include haiku" "$offers_haiku" "yes"
 check_not_contains "a complete role is not reported as unknown" "$state" '"review":[]'
 check_not_contains "a complete Claude role drops no field" "$state" '"impl":["provider"'
 

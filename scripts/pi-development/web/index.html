@@ -121,9 +121,15 @@
       .status.error {
         color: var(--err);
       }
+      /*
+       * A card keeps the four-column layout from 35rem of inner width (the
+       * container query below). Its padding and border take 2rem and 2px, so the
+       * column minimum has to stay above 37rem or two cards side by side would
+       * fall back to the stacked layout.
+       */
       .profiles {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 36rem), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 38rem), 1fr));
         gap: 1rem;
         align-items: start;
         padding: 0 clamp(1rem, 4vw, 2rem) 1.5rem;
@@ -203,7 +209,9 @@
       /*
        * One grid serves every role, so the harness, model, level and permission
        * columns line up across rows and keep their place when a role switches
-       * harness. A narrow card stacks them in two columns and names each field.
+       * harness. A narrow card gives the harness and the model a row each, then
+       * the level and the permission mode side by side, in the order the DOM (and
+       * so the keyboard) follows, and names each field.
        */
       .controls {
         display: grid;
@@ -214,9 +222,9 @@
       .field {
         min-width: 0;
       }
+      .f-harness,
       .f-model {
         grid-column: 1 / -1;
-        order: -1;
       }
       .cap {
         display: block;
@@ -236,7 +244,7 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.4rem;
       }
-      @container (min-width: 36rem) {
+      @container (min-width: 35rem) {
         .controls,
         .cols {
           grid-template-columns: 6rem minmax(0, 1fr) 7.5rem 8.5rem;
@@ -244,9 +252,9 @@
         .cols {
           display: grid;
         }
+        .f-harness,
         .f-model {
           grid-column: auto;
-          order: 0;
         }
         .cap {
           display: none;
