@@ -322,6 +322,14 @@ check_contains "state keeps a Pi role and a Claude role in one team" "$state" \
 check_contains "state fills the implicit Pi harness" "$state" '"impl":{"harness":"pi","provider":"p"'
 check_contains "state returns the harness vocabularies" "$state" '"permission_mode":["acceptEdits"'
 check_contains "state returns the effort vocabulary" "$state" '"effort":["low","medium","high","xhigh","max"]'
+check_contains "state returns the selectable Claude models" "$state" '"models":["claude-'
+# Read the list itself: a role stored in the profiles of this same state also
+# names haiku, so a substring match could not tell whether the list offers it.
+offers_haiku="$(node -e '
+const models = JSON.parse(process.argv[1]).harnesses.claude.models;
+process.stdout.write(models.includes("claude-haiku-5-5") ? "yes" : "no");
+' "$state")"
+check_eq "the selectable Claude models include haiku" "$offers_haiku" "yes"
 check_not_contains "a complete role is not reported as unknown" "$state" '"review":[]'
 check_not_contains "a complete Claude role drops no field" "$state" '"impl":["provider"'
 
@@ -511,11 +519,19 @@ check_eq "index is still served for the harness editor" "$code" "200"
 check_contains "index offers a harness choice per role" "$doc" '`${role} harness`'
 check_contains "index renders the Claude permission mode field" "$doc" '`${role} permission_mode`'
 check_contains "index renders the Claude effort field" "$doc" '`${role} effort`'
-check_contains "index asks for the canonical Claude model" "$doc" 'canonical full model ID'
+check_contains "index offers the Claude models from the state" "$doc" 'vocabularies().claude.models'
+check_not_contains "index no longer takes a free-text Claude model" "$doc" 'canonical full model ID'
 check_contains "index reads the Claude vocabulary from the state" "$doc" 'vocabularies().claude.permission_mode'
 check_contains "index reads the Pi thinking vocabulary from the state" "$doc" 'vocabularies().pi.thinking'
 check_not_contains "index keeps no second Pi thinking vocabulary" "$doc" 'const ALL_LEVELS'
-check_contains "index explains the per-role harness" "$doc" 'ハーネスはロールごとに選べます'
+check_contains "index says a save only touches this machine's profile" "$doc" '実行中のセッションには影響しません'
+check_contains "index marks unsaved changes per profile" "$doc" '未保存の変更があります'
+check_contains "index says an incomplete role is not saved" "$doc" '未設定のロールは保存されません'
+check_contains "index has a theme toggle" "$doc" 'id="theme"'
+check_contains "index remembers the theme choice" "$doc" 'localStorage.setItem(THEME_KEY'
+check_contains "index applies a saved theme before first paint" "$doc" 'localStorage.getItem("pi-model-editor-theme")'
+check_contains "index lets the theme attribute pin the color scheme" "$doc" ':root[data-theme="dark"]'
+check_not_contains "index keeps no second dark palette" "$doc" '@media (prefers-color-scheme: dark)'
 
 # --- host and origin --------------------------------------------------------
 

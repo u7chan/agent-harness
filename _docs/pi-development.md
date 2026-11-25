@@ -267,9 +267,13 @@ costs seconds per profile, while the file view needs nothing it can add. The
 authoritative record for a profile is the one `PUT` returns from `write`.
 
 The editor chooses the harness per role. A Pi role keeps the model master and
-the thinking levels; a Claude role takes the canonical full model ID as text,
-plus the effort and permission-mode choices from the same vocabulary module the
-resolver uses. A saved Claude model must already be canonical (for example
+the thinking levels; a Claude role picks its canonical full model ID from the
+list `GET /api/state` returns as `harnesses.claude.models` (`CLAUDE_MODEL_IDS` in
+`lib/model-spec.mjs`), plus the effort and permission-mode choices from the same
+vocabulary module the resolver uses. The list only offers choices: a stored model
+that is not on it stays selectable as `（候補外）` and saves unchanged, and a new
+model becomes selectable when its ID is added to the list. A saved Claude model
+must already be canonical (for example
 `claude-haiku-5-5`): an alias such as `haiku`, a provider-prefixed form, and an
 unsupported level are refused with 400, because a profile start compares the
 stored model with the launched `effective:` model and an alias cannot match it.

@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   CLAUDE_EFFORT_LEVELS,
+  CLAUDE_MODEL_IDS,
   CLAUDE_PERMISSION_MODES,
   HARNESSES,
   THINKING_LEVELS,
@@ -410,6 +411,7 @@ function readState(currentPiVersion) {
       pi: { fields: PI_ROLE_FIELDS, thinking: THINKING_LEVELS },
       claude: {
         fields: CLAUDE_ROLE_FIELDS,
+        models: CLAUDE_MODEL_IDS,
         effort: CLAUDE_EFFORT_LEVELS,
         permission_mode: CLAUDE_PERMISSION_MODES,
       },
